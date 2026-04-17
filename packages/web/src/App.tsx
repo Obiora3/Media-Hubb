@@ -533,10 +533,24 @@ function AIPanel({mpos,receivables,payables,clients,onDraftInvoice,toast,currenc
 
 /* ═══ S5-6: SETTINGS PAGE ═══ */
 function SettingsPage({settings,setSettings,user,toast}){
-  return <RoleGuard user={user} require="settings"><SettingsContent settings={settings} setSettings={setSettings} toast={toast}/></RoleGuard>;
+  return <RoleGuard user={user} require="settings"><SettingsContent settings={settings} setSettings={setSettings} toast={toast} user={user}/></RoleGuard>;
 }
-function SettingsContent({settings,setSettings,toast}){
+function SettingsContent({settings,setSettings,toast,user}){
   const set=(k,v)=>setSettings(s=>({...s,[k]:v}));
+  const [saving,setSaving]=useState(false);
+
+  const saveToSupabase=async()=>{
+    if(!user?.workspace_id){toast("No workspace linked","error");return;}
+    setSaving(true);
+    const {error}=await supabase.from("workspaces").update({
+      name: settings.companyName||undefined,
+      brand_color: settings.brandColor,
+      settings: settings,
+    }).eq("id",user.workspace_id);
+    if(error) toast("Save failed: "+error.message,"error");
+    else toast("Settings saved","success");
+    setSaving(false);
+  };
   const BRAND_COLORS=["#534AB7","#185FA5","#3B6D11","#A32D2D","#854F0B","#1a1a1a","#D85A30","#0E7C7B"];
   const FISCAL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
   return(
@@ -615,10 +629,13 @@ function SettingsContent({settings,setSettings,toast}){
         ))}
       </div>
 
-      <div style={{display:"flex",gap:8,marginTop:8}}>
-        <button className="btn btn-primary" onClick={()=>toast("Settings saved")}>Save Changes</button>
-        <button className="btn btn-ghost" onClick={()=>{if(confirm("Reset all settings to defaults?"))setSettings(DEFAULT_SETTINGS);toast("Settings reset");}}>Reset Defaults</button>
+      <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
+        <button className="btn btn-primary" onClick={saveToSupabase} disabled={saving}>
+          {saving?"Saving…":"Save Changes"}
+        </button>
+        <button className="btn btn-ghost" onClick={()=>{if(confirm("Reset all settings to defaults?")){setSettings(DEFAULT_SETTINGS);toast("Settings reset — click Save to persist","info");}}}>Reset Defaults</button>
       </div>
+      <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Settings are saved to your workspace and shared with all team members.</div>
     </div>
   );
 }
@@ -1458,7 +1475,26 @@ const WORKSPACES = [
   { id:"ws3", name:"East Africa Bureau", abbr:"EA", color:"#3B6D11", plan:"Starter",country:"🇰🇪", tagline:"Kenya, Uganda, Tanzania accounts", mpos:2, clients:3, users:2 },
 ];
 
-function AgencySwitcher({ current, onSwitch, onClose }) {
+function AgencySwitcher({ current, onSwitch, onClose, currentUserId }) {
+  const [workspaces, setWorkspaces] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [switching, setSwitching] = useState(null);
+
+  useEffect(()=>{
+    supabase.from("workspaces").select("id,name,brand_color,plan")
+      .then(({data})=>{ if(data) setWorkspaces(data); setLoading(false); });
+  },[]);
+
+  const switchTo = async(ws) => {
+    if(ws.id === current) { onClose(); return; }
+    setSwitching(ws.id);
+    await supabase.from("profiles").update({workspace_id: ws.id}).eq("id", currentUserId);
+    const abbr = ws.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+    onSwitch({ id:ws.id, name:ws.name, color:ws.brand_color||"#534AB7", abbr, plan:ws.plan });
+    onClose();
+    window.location.reload(); // reload so all table hooks re-fetch for new workspace
+  };
+
   return (
     <div className="agency-switcher-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="agency-switcher">
@@ -1466,29 +1502,36 @@ function AgencySwitcher({ current, onSwitch, onClose }) {
           <div style={{fontWeight:700,fontSize:16,color:"var(--text)"}}>Switch Workspace</div>
           <div style={{fontSize:12,color:"var(--text3)",marginTop:3}}>Each workspace has isolated data, branding & users</div>
         </div>
-        {WORKSPACES.map(ws=>(
-          <div key={ws.id} className={`agency-card ${ws.id===current?"active":""}`} onClick={()=>{onSwitch(ws);onClose();}}>
-            <div className="agency-logo" style={{background:ws.color}}>{ws.abbr}</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                <span style={{fontWeight:600,fontSize:14,color:"var(--text)"}}>{ws.country} {ws.name}</span>
-                {ws.id===current&&<span className="agency-badge">● Current</span>}
-              </div>
-              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{ws.tagline}</div>
-              <div style={{display:"flex",gap:12,marginTop:6,fontSize:11,color:"var(--text2)"}}>
-                <span>◈ {ws.mpos} MPOs</span>
-                <span>◉ {ws.clients} Clients</span>
-                <span>👤 {ws.users} Users</span>
-                <span className={`badge ${ws.plan==="Pro"?"badge-purple":"badge-blue"}`} style={{fontSize:9,padding:"1px 6px"}}>{ws.plan}</span>
-              </div>
-            </div>
-            {ws.id===current
-              ? <span style={{fontSize:18,color:"var(--brand)"}}>✓</span>
-              : <span style={{fontSize:12,color:"var(--text3)"}}>Switch →</span>}
-          </div>
-        ))}
+        {loading
+          ? <div style={{padding:"24px",textAlign:"center",color:"var(--text3)",fontSize:12}}>Loading workspaces…</div>
+          : workspaces.map(ws=>{
+              const abbr=ws.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+              const isCurrent=ws.id===current;
+              return(
+                <div key={ws.id} className={`agency-card ${isCurrent?"active":""}`}
+                  onClick={()=>switchTo(ws)}
+                  style={{opacity:switching&&switching!==ws.id?0.5:1}}>
+                  <div className="agency-logo" style={{background:ws.brand_color||"#534AB7"}}>{abbr}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <span style={{fontWeight:600,fontSize:14,color:"var(--text)"}}>{ws.name}</span>
+                      {isCurrent&&<span className="agency-badge">● Current</span>}
+                    </div>
+                    <div style={{display:"flex",gap:8,marginTop:4}}>
+                      <span className={`badge ${ws.plan==="pro"?"badge-purple":"badge-blue"}`} style={{fontSize:9,padding:"1px 6px",textTransform:"capitalize"}}>{ws.plan||"free"}</span>
+                    </div>
+                  </div>
+                  {switching===ws.id
+                    ? <span style={{fontSize:12,color:"var(--text3)"}}>…</span>
+                    : isCurrent
+                      ? <span style={{fontSize:18,color:"var(--brand)"}}>✓</span>
+                      : <span style={{fontSize:12,color:"var(--text3)"}}>Switch →</span>}
+                </div>
+              );
+            })
+        }
         <div style={{padding:"12px 20px",borderTop:"var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{fontSize:11,color:"var(--text3)"}}>Workspaces are isolated — switching preserves all data</span>
+          <span style={{fontSize:11,color:"var(--text3)"}}>Workspaces are isolated — switching reloads the app</span>
           <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
         </div>
       </div>
@@ -2455,13 +2498,26 @@ function App(){
   const { installPrompt, isInstalled, isOffline, install } = usePWA();
   const [pwaBannerDismissed,setPwaBannerDismissed]=useState(false);
 
-  // Sync workspace from profile
+  // Fetch real workspace from Supabase and seed settings from it
   useEffect(()=>{
-    if(profile?.workspace_id){
-      const ws = WORKSPACES.find(w=>w.id===profile.workspace_id);
-      if(ws) setWorkspace(ws);
-    }
-  },[profile?.workspace_id]);
+    if(!workspaceId) return;
+    supabase.from("workspaces").select("*").eq("id",workspaceId).single()
+      .then(({data})=>{
+        if(!data) return;
+        const abbr = data.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+        setWorkspace({
+          id:   data.id,
+          name: data.name,
+          color: data.brand_color || "#534AB7",
+          abbr,
+          plan: data.plan || "free",
+        });
+        // Seed settings from workspace (DB wins over localStorage)
+        if(data.settings && Object.keys(data.settings).length > 0){
+          setSettings(s=>({...DEFAULT_SETTINGS,...data.settings}));
+        }
+      });
+  },[workspaceId]);
 
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",darkMode?"dark":"light"); },[darkMode]);
 
