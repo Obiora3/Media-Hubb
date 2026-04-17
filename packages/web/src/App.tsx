@@ -680,17 +680,28 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
   );
 }
 
-/* ═══ MPO PAGE ═══ */
+/* ═══ SCHEDULING PAGE (MPO + RO) ═══ */
 const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
-function MPOPage({mpos,setMpos,clients,toast,user,addAudit,settings,comments,onAddComment}){
+function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
+  const [docType,setDocType]=useState("mpo"); // "mpo" | "ro"
+  const [createMenu,setCreateMenu]=useState(false);
+  const menuRef=useRef(null);
+  const canEdit=user.permissions.includes("mpo");
+  const dCcy=settings.defaultCurrency||"NGN";
+
+  // Close dropdown when clicking outside
+  useEffect(()=>{
+    const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setCreateMenu(false);};
+    document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
+  },[]);
+
+  // ── MPO state ──────────────────────────────────────────────────────────────
   const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(EMPO);const [errs,setErrs]=useState({});
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
   const [docsFor,setDocsFor]=useState(null);
   const [commentsFor,setCommentsFor]=useState(null);
-  const canEdit=user.permissions.includes("mpo");
-  const dCcy=settings.defaultCurrency||"NGN";
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
     if(tab==="pending"&&m.status!=="pending")return false;
@@ -709,8 +720,41 @@ function MPOPage({mpos,setMpos,clients,toast,user,addAudit,settings,comments,onA
   const bulkExport=()=>{const rows=[["ID","Client","Vendor","Campaign","Amount","Currency","Status"],...mpos.filter(m=>selected.has(m.id)).map(m=>[m.id,m.client,m.vendor,m.campaign,m.amount,m.currency||"NGN",m.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="mpo_export.csv";a.click();toast(`Exported ${selected.size}`,"info");};
   const updateMpoDocs=(id,docs)=>setMpos(p=>p.map(m=>m.id===id?{...m,docs}:m));
   const mpoForDocs=docsFor?mpos.find(m=>m.id===docsFor):null;
+
+  // ── RO state ───────────────────────────────────────────────────────────────
+  const [roSearch,setRoSearch]=useState("");
+  const [roStatusTab,setRoStatusTab]=useState("all");
+  const [showRoForm,setShowRoForm]=useState(false);
+  const [editRoId,setEditRoId]=useState(null);
+  const [selRo,setSelRo]=useState(null);
+  const filteredRos=(ros||[]).filter(r=>{
+    if(roStatusTab!=="all"&&r.status!==roStatusTab)return false;
+    if(roSearch&&!`${r.client}${r.campaign}${r.vendor}`.toLowerCase().includes(roSearch.toLowerCase()))return false;
+    return true;
+  });
+  const saveRo=form=>{
+    if(editRoId){
+      setRos(p=>p.map(r=>r.id===editRoId?{...r,...form}:r));
+      addAudit("updated","RO",editRoId,`Updated ${editRoId}`,"update");
+      toast("RO updated");
+    }else{
+      const newId=nextId(ros||[],"RO");
+      setRos(p=>[...p,{id:newId,...form,docs:[]}]);
+      addAudit("created","RO",newId,`Created ${newId} for ${form.client}`,"create");
+      toast("RO created");
+    }
+    setShowRoForm(false);setEditRoId(null);
+  };
+  const deleteRo=id=>{
+    if(!confirm("Delete this RO?"))return;
+    setRos(p=>p.filter(r=>r.id!==id));
+    addAudit("deleted","RO",id,`Deleted ${id}`,"delete");
+    toast("RO deleted","error");setSelRo(null);
+  };
+
   return(
     <div>
+      {/* ── MPO modals ── */}
       {showF&&(<Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
         <div className="form-grid">
           <FF id="cl" label="Client" error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
@@ -732,42 +776,153 @@ function MPOPage({mpos,setMpos,clients,toast,user,addAudit,settings,comments,onA
         {form.amount&&!isNaN(form.amount)&&Number(form.amount)>0&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Preview: {fmtCcy(Number(form.amount),form.currency,"NGN")}{form.currency!=="NGN"&&` (${fmtCcy(Number(form.amount),form.currency,form.currency)} ${form.currency})`}</p>}
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
       </Modal>)}
-      {commentsFor&&(<Modal title={`Discussion`} onClose={()=>setCommentsFor(null)} wide>
+      {commentsFor&&(<Modal title="Discussion" onClose={()=>setCommentsFor(null)} wide>
         <CommentsPanel entityId={commentsFor} entityLabel={`MPO ${commentsFor} — ${mpos.find(m=>m.id===commentsFor)?.campaign||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
       </Modal>)}
       {docsFor&&mpoForDocs&&(<Modal title={`Documents — ${mpoForDocs.id}`} onClose={()=>setDocsFor(null)}>
         <DocPanel entityId={docsFor} entityDocs={mpoForDocs.docs||[]} onSave={docs=>updateMpoDocs(docsFor,docs)} canEdit={canEdit} workspaceId={user?.workspace_id} currentUser={user}/>
       </Modal>)}
-      <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
-        {[{l:"Total",v:mpos.length},{l:"Active",v:mpos.filter(m=>m.status==="active").length},{l:"Pending",v:mpos.filter(m=>m.status==="pending").length},{l:"Value",v:fmtK(mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
-      </div>
-      <div className="card">
-        <div className="card-header">
-          <div className="tabs" style={{marginBottom:0}}>{["all","active","pending","completed"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>{canEdit&&<button className="btn btn-primary" onClick={openNew}>+ New MPO</button>}</div>
+
+      {/* ── RO modals ── */}
+      {showRoForm&&(
+        <Modal title={editRoId?"Edit RO":"New Release Order"} onClose={()=>{setShowRoForm(false);setEditRoId(null);}}>
+          <ROForm
+            initial={editRoId?(ros||[]).find(r=>r.id===editRoId):null}
+            mpos={mpos||[]} clients={clients||[]} user={user} settings={settings}
+            onSave={saveRo}
+            onClose={()=>{setShowRoForm(false);setEditRoId(null);}}
+          />
+        </Modal>
+      )}
+      {selRo&&(
+        <Modal title={`${selRo.id} — Release Order`} onClose={()=>setSelRo(null)}>
+          <div style={{marginBottom:12,display:"flex",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[selRo.status]||"#f0f0f0",color:RO_STATUS_COLOR[selRo.status]||"#888",textTransform:"uppercase"}}>{selRo.status}</span>
+            <span style={{fontSize:11,color:"var(--text3)"}}>{selRo.channel}</span>
+          </div>
+          {[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days",selRo.schedule?.length||0],["Grand Total",fmt(selRo.schedule?.reduce((a,s)=>a+(s.spots*s.rate),0)||0)+" "+(selRo.currency||"NGN")]].map(([k,v])=>(
+            <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
+          ))}
+          <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
+            <button className="btn btn-primary btn-sm" onClick={()=>printRO(selRo,settings||{})}>↓ PDF</button>
+            <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(selRo)}>↓ Excel</button>
+            {canEdit&&<button className="btn btn-sm btn-ghost" onClick={()=>{setSelRo(null);setEditRoId(selRo.id);setShowRoForm(true);}}>Edit</button>}
+            {canEdit&&<button className="btn btn-sm" style={{color:"#A32D2D",background:"transparent",border:"1px solid #A32D2D"}} onClick={()=>deleteRo(selRo.id)}>Delete</button>}
+          </div>
+        </Modal>
+      )}
+
+      {/* ── Page header: file-type selector + Create dropdown ── */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",gap:2,background:"var(--bg3)",borderRadius:8,padding:3}}>
+          <button onClick={()=>setDocType("mpo")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="mpo"?"var(--bg2)":"transparent",color:docType==="mpo"?"var(--brand)":"var(--text3)",boxShadow:docType==="mpo"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◈ MPO</button>
+          <button onClick={()=>setDocType("ro")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="ro"?"var(--bg2)":"transparent",color:docType==="ro"?"#3B6D11":"var(--text3)",boxShadow:docType==="ro"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◉ RO</button>
         </div>
-        <div className="table-wrap"><table>
-          <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
-          <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={10}>No MPOs found</td></tr>
-          :filtered.map(m=>(
-            <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
-              <td><input type="checkbox" checked={selected.has(m.id)} onChange={()=>toggleSel(m.id)}/></td>
-              <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{m.id}</td>
-              <td>{m.client}</td><td>{m.campaign}</td>
-              <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
-              <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
-              <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
-              <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
-              <td><div className="action-row">
-                <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[m.id]||[]).length})`} onClick={()=>setCommentsFor(m.id)}>💬{(comments[m.id]||[]).length>0&&<span className="collab-badge">{(comments[m.id]||[]).length}</span>}</button>
-                <button className="btn btn-sm btn-ghost" title={`Docs (${(m.docs||[]).length})`} onClick={()=>setDocsFor(m.id)}>📎{(m.docs||[]).length>0&&<span style={{fontSize:9,marginLeft:1}}>{(m.docs||[]).length}</span>}</button>
-                {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(m)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(m.id)}>✕</button></>}
-              </div></td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+        {canEdit&&(
+          <div ref={menuRef} style={{position:"relative"}}>
+            <button className="btn btn-primary" style={{display:"flex",alignItems:"center",gap:6}} onClick={()=>setCreateMenu(v=>!v)}>
+              + Create <span style={{fontSize:10,opacity:.8}}>▾</span>
+            </button>
+            {createMenu&&(
+              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:10,overflow:"hidden",zIndex:300,minWidth:200,boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>
+                <button onClick={()=>{setCreateMenu(false);openNew();setDocType("mpo");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
+                  <div style={{fontWeight:600}}><span style={{color:"var(--brand)",marginRight:8}}>◈</span>MPO</div>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Media Purchase Order</div>
+                </button>
+                <div style={{height:1,background:"var(--border-c)"}}/>
+                <button onClick={()=>{setCreateMenu(false);setEditRoId(null);setShowRoForm(true);setDocType("ro");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
+                  <div style={{fontWeight:600}}><span style={{color:"#3B6D11",marginRight:8}}>◉</span>RO</div>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Release Order to vendor</div>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><select className="form-input" style={{width:"auto",padding:"3px 8px",fontSize:12,background:"#333",color:"#fff",border:"0.5px solid #555"}} value={bulkStatus} onChange={e=>setBulkStatus(e.target.value)}><option value="">Set status…</option><option value="active">Active</option><option value="pending">Pending</option><option value="completed">Completed</option></select><button className="btn btn-sm btn-primary" onClick={applyBulk} disabled={!bulkStatus}>Apply</button><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExport}>Export</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
+
+      {/* ══ MPO section ══ */}
+      {docType==="mpo"&&(
+        <>
+          <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+            {[{l:"Total",v:mpos.length},{l:"Active",v:mpos.filter(m=>m.status==="active").length},{l:"Pending",v:mpos.filter(m=>m.status==="pending").length},{l:"Value",v:fmtK(mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+          </div>
+          <div className="card">
+            <div className="card-header">
+              <div className="tabs" style={{marginBottom:0}}>{["all","active","pending","completed"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div>
+              <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+            </div>
+            <div className="table-wrap"><table>
+              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
+              <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={10}>No MPOs found</td></tr>
+              :filtered.map(m=>(
+                <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
+                  <td><input type="checkbox" checked={selected.has(m.id)} onChange={()=>toggleSel(m.id)}/></td>
+                  <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{m.id}</td>
+                  <td>{m.client}</td><td>{m.campaign}</td>
+                  <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
+                  <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
+                  <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
+                  <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
+                  <td><div className="action-row">
+                    <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[m.id]||[]).length})`} onClick={()=>setCommentsFor(m.id)}>💬{(comments[m.id]||[]).length>0&&<span className="collab-badge">{(comments[m.id]||[]).length}</span>}</button>
+                    <button className="btn btn-sm btn-ghost" title={`Docs (${(m.docs||[]).length})`} onClick={()=>setDocsFor(m.id)}>📎{(m.docs||[]).length>0&&<span style={{fontSize:9,marginLeft:1}}>{(m.docs||[]).length}</span>}</button>
+                    {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(m)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(m.id)}>✕</button></>}
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+          {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><select className="form-input" style={{width:"auto",padding:"3px 8px",fontSize:12,background:"#333",color:"#fff",border:"0.5px solid #555"}} value={bulkStatus} onChange={e=>setBulkStatus(e.target.value)}><option value="">Set status…</option><option value="active">Active</option><option value="pending">Pending</option><option value="completed">Completed</option></select><button className="btn btn-sm btn-primary" onClick={applyBulk} disabled={!bulkStatus}>Apply</button><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExport}>Export</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
+        </>
+      )}
+
+      {/* ══ RO section ══ */}
+      {docType==="ro"&&(
+        <>
+          <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+            {[
+              {l:"Total ROs",v:(ros||[]).length},
+              {l:"Confirmed",v:(ros||[]).filter(r=>r.status==="confirmed").length},
+              {l:"Sent",v:(ros||[]).filter(r=>r.status==="sent").length},
+              {l:"Total Value",v:fmtK((ros||[]).reduce((a,r)=>a+(r.schedule||[]).reduce((b,s)=>b+(s.spots*s.rate),0),0),CURRENCIES[dCcy]?.symbol||"₦")},
+            ].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+          </div>
+          <div className="card">
+            <div className="card-header">
+              <div className="tabs" style={{marginBottom:0}}>{["all","draft","sent","confirmed","executed"].map(t=><button key={t} className={`tab ${roStatusTab===t?"active":""}`} onClick={()=>setRoStatusTab(t)}>{t}</button>)}</div>
+              <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={roSearch} onChange={e=>setRoSearch(e.target.value)}/></div>
+            </div>
+            {filteredRos.length===0
+              ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
+              :<div className="table-wrap"><table>
+                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Period</th><th>Days</th><th>Total</th><th>Status</th><th></th></tr></thead>
+                <tbody>{filteredRos.map(r=>{
+                  const total=(r.schedule||[]).reduce((a,s)=>a+(s.spots*s.rate),0);
+                  const sym=CURRENCIES[r.currency||"NGN"]?.symbol||"₦";
+                  return(
+                    <tr key={r.id} style={{cursor:"pointer"}} onClick={()=>setSelRo(r)}>
+                      <td style={{fontFamily:"monospace",fontSize:12,fontWeight:600,color:"var(--brand)"}}>{r.id}</td>
+                      <td>{r.client}</td>
+                      <td style={{color:"var(--text2)"}}>{r.vendor}</td>
+                      <td>{r.campaign}</td>
+                      <td><span className="rate-tag">{r.channel}</span></td>
+                      <td style={{fontSize:11,color:"var(--text3)"}}>{r.start}→{r.end}</td>
+                      <td style={{textAlign:"center",color:"var(--text3)"}}>{(r.schedule||[]).length}</td>
+                      <td style={{fontWeight:600}}>{sym}{total.toLocaleString("en")}</td>
+                      <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
+                      <td><div className="action-row" onClick={e=>e.stopPropagation()}>
+                        <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printRO(r,settings||{})}>PDF</button>
+                        <button className="btn btn-sm btn-ghost" style={{padding:"2px 8px",fontSize:11}} onClick={()=>exportROExcel(r)}>XLS</button>
+                        {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>{setEditRoId(r.id);setShowRoForm(true);}}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>deleteRo(r.id)}>✕</button></>}
+                      </div></td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table></div>
+            }
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1029,27 +1184,14 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
 const RO_STATUS_COLOR={draft:"#888",sent:"#854F0B",confirmed:"#3B6D11",executed:"#185FA5"};
 const RO_STATUS_BG={draft:"#f0f0f0",sent:"#FAEEDA",confirmed:"#EAF3DE",executed:"#E6F1FB"};
 
-function CalendarPage({mpos,setMpos,ros,setRos,clients,user,settings,toast,addAudit}){
+function CalendarPage({mpos,ros,settings}){
   const now=new Date();
   const [vy,setVy]=useState(now.getFullYear());const [vm,setVm]=useState(now.getMonth());
   const [mode,setMode]=useState("month");
-  const [sel,setSel]=useState(null);       // selected event detail
-  const [selRo,setSelRo]=useState(null);   // RO detail view
-  const [createMenu,setCreateMenu]=useState(false);
-  const [showMpoForm,setShowMpoForm]=useState(false);
-  const [showRoForm,setShowRoForm]=useState(false);
-  const [editRo,setEditRo]=useState(null);
-  const menuRef=useRef(null);
-  const canEdit=user?.permissions?.includes("calendar")||user?.permissions?.includes("mpo");
-  const dCcy=settings?.defaultCurrency||"NGN";
+  const [sel,setSel]=useState(null);
+  const [selRo,setSelRo]=useState(null);
   const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
   const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-
-  // Close create menu when clicking outside
-  useEffect(()=>{
-    const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setCreateMenu(false);};
-    document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
-  },[]);
 
   const fd=new Date(vy,vm,1).getDay(),dim=new Date(vy,vm+1,0).getDate(),pmd=new Date(vy,vm,0).getDate();
   const cells=[];
@@ -1073,102 +1215,19 @@ function CalendarPage({mpos,setMpos,ros,setRos,clients,user,settings,toast,addAu
   const prev=()=>{if(vm===0){setVm(11);setVy(y=>y-1);}else setVm(m=>m-1);};
   const next=()=>{if(vm===11){setVm(0);setVy(y=>y+1);}else setVm(m=>m+1);};
 
-  // ── MPO quick-create (inline simplified form) ──────────────────────────────
-  const [mpoForm,setMpoForm]=useState({client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:dCcy,channel:"TV"});
-  const [mpoErrs,setMpoErrs]=useState({});
-  const setMF=(k,v)=>setMpoForm(f=>({...f,[k]:v}));
-  const valMpo=()=>{const e={};if(!mpoForm.client.trim())e.client="Required";if(!mpoForm.vendor.trim())e.vendor="Required";if(!mpoForm.campaign.trim())e.campaign="Required";if(!mpoForm.amount||isNaN(mpoForm.amount)||Number(mpoForm.amount)<=0)e.amount="Required";if(!mpoForm.start)e.start="Required";if(!mpoForm.end)e.end="Required";setMpoErrs(e);return!Object.keys(e).length;};
-  const saveMpo=()=>{
-    if(!valMpo())return;
-    const newId=nextId(mpos,"MPO");
-    setMpos(p=>[...p,{id:newId,...mpoForm,amount:Number(mpoForm.amount),exec:"pending",docs:[]}]);
-    addAudit&&addAudit("created","MPO",newId,`Created ${newId} for ${mpoForm.client}`,"create");
-    toast&&toast("MPO created");setShowMpoForm(false);
-    setMpoForm({client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:dCcy,channel:"TV"});setMpoErrs({});
-  };
-
-  // ── RO save ────────────────────────────────────────────────────────────────
-  const saveRo=form=>{
-    if(editRo){
-      setRos(p=>p.map(r=>r.id===editRo?{...r,...form}:r));
-      addAudit&&addAudit("updated","RO",editRo,`Updated ${editRo}`,"update");
-      toast&&toast("RO updated");
-    }else{
-      const newId=nextId(ros,"RO");
-      setRos(p=>[...p,{id:newId,...form,docs:[]}]);
-      addAudit&&addAudit("created","RO",newId,`Created ${newId} for ${form.client}`,"create");
-      toast&&toast("RO created");
-    }
-    setShowRoForm(false);setEditRo(null);
-  };
-
-  const deleteRo=id=>{
-    if(!confirm("Delete this RO?"))return;
-    setRos(p=>p.filter(r=>r.id!==id));
-    addAudit&&addAudit("deleted","RO",id,`Deleted ${id}`,"delete");
-    toast&&toast("RO deleted","error");setSelRo(null);
-  };
-
   return(
     <div>
-      {/* ── MPO Quick Create Modal ── */}
-      {showMpoForm&&(
-        <Modal title="New MPO" onClose={()=>setShowMpoForm(false)}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px"}}>
-            <FF id="cm-client" label="Client" err={mpoErrs.client}><input id="cm-client" className="form-input" value={mpoForm.client} onChange={e=>setMF("client",e.target.value)}/></FF>
-            <FF id="cm-vendor" label="Vendor" err={mpoErrs.vendor}><input id="cm-vendor" className="form-input" value={mpoForm.vendor} onChange={e=>setMF("vendor",e.target.value)}/></FF>
-            <FF id="cm-campaign" label="Campaign" err={mpoErrs.campaign} style={{gridColumn:"1/-1"}}><input id="cm-campaign" className="form-input" value={mpoForm.campaign} onChange={e=>setMF("campaign",e.target.value)}/></FF>
-            <FF id="cm-amount" label="Amount" err={mpoErrs.amount}><input id="cm-amount" className="form-input" type="number" min="0" value={mpoForm.amount} onChange={e=>setMF("amount",e.target.value)}/></FF>
-            <FF id="cm-channel" label="Channel"><select id="cm-channel" className="form-input" value={mpoForm.channel} onChange={e=>setMF("channel",e.target.value)}>{["TV","Radio","Print","Digital","OOH","Cinema"].map(c=><option key={c}>{c}</option>)}</select></FF>
-            <FF id="cm-start" label="Start Date" err={mpoErrs.start}><input id="cm-start" className="form-input" type="date" value={mpoForm.start} onChange={e=>setMF("start",e.target.value)}/></FF>
-            <FF id="cm-end" label="End Date" err={mpoErrs.end}><input id="cm-end" className="form-input" type="date" value={mpoForm.end} onChange={e=>setMF("end",e.target.value)}/></FF>
-            <FF id="cm-status" label="Status"><select id="cm-status" className="form-input" value={mpoForm.status} onChange={e=>setMF("status",e.target.value)}>{["pending","active","completed","cancelled"].map(s=><option key={s}>{s}</option>)}</select></FF>
-            <FF id="cm-currency" label="Currency"><select id="cm-currency" className="form-input" value={mpoForm.currency} onChange={e=>setMF("currency",e.target.value)}>{Object.keys(CURRENCIES).map(c=><option key={c}>{c}</option>)}</select></FF>
-          </div>
-          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,paddingTop:12,borderTop:"1px solid var(--border-c)"}}>
-            <button className="btn btn-ghost" onClick={()=>setShowMpoForm(false)}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveMpo}>Save MPO</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── RO Create/Edit Modal ── */}
-      {showRoForm&&(
-        <Modal title={editRo?"Edit RO":"New Release Order"} onClose={()=>{setShowRoForm(false);setEditRo(null);}}>
-          <ROForm
-            initial={editRo?ros.find(r=>r.id===editRo):null}
-            mpos={mpos||[]} clients={clients||[]} user={user} settings={settings}
-            onSave={saveRo}
-            onClose={()=>{setShowRoForm(false);setEditRo(null);}}
-          />
-        </Modal>
-      )}
-
-      {/* ── MPO Detail Modal ── */}
-      {sel&&sel._type==="mpo"&&(
-        <Modal title="MPO Details" onClose={()=>setSel(null)}>
-          {[["ID",sel.id],["Client",sel.client],["Campaign",sel.campaign],["Vendor",sel.vendor],["Amount",fmt(sel.amount)+" "+(sel.currency||"NGN")],["Period",`${sel.start} → ${sel.end}`],["Status",sel.status],["Channel",sel.channel||"—"]].map(([k,v])=>(
+      {sel&&(
+        <Modal title="Details" onClose={()=>setSel(null)}>
+          {[["ID",sel.id],["Client",sel.client],["Campaign",sel.campaign],["Vendor",sel.vendor],["Amount",sel._type==="mpo"?fmt(sel.amount)+" "+(sel.currency||"NGN"):"—"],["Period",`${sel.start} → ${sel.end}`],["Status",sel.status],["Channel",sel.channel||"—"]].map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
           ))}
-        </Modal>
-      )}
-
-      {/* ── RO Detail Modal ── */}
-      {selRo&&(
-        <Modal title={`RO Details — ${selRo.id}`} onClose={()=>setSelRo(null)}>
-          <div style={{marginBottom:12,display:"flex",gap:8,flexWrap:"wrap"}}>
-            <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[selRo.status]||"#f0f0f0",color:RO_STATUS_COLOR[selRo.status]||"#888",textTransform:"uppercase"}}>{selRo.status}</span>
-            <span style={{fontSize:11,color:"var(--text3)"}}>{selRo.channel}</span>
-          </div>
-          {[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days",selRo.schedule?.length||0],["Grand Total",fmt(selRo.schedule?.reduce((a,s)=>a+(s.spots*s.rate),0)||0)+" "+(selRo.currency||"NGN")]].map(([k,v])=>(
-            <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
-          ))}
-          <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
-            <button className="btn btn-sm btn-primary" onClick={()=>printRO(selRo,settings||{})}>↓ PDF</button>
-            <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(selRo)}>↓ Excel</button>
-            {canEdit&&<button className="btn btn-sm btn-ghost" onClick={()=>{setSelRo(null);setEditRo(selRo.id);setShowRoForm(true);}}>Edit</button>}
-            {canEdit&&<button className="btn btn-sm" style={{color:"#A32D2D",background:"transparent",border:"1px solid #A32D2D"}} onClick={()=>deleteRo(selRo.id)}>Delete</button>}
-          </div>
+          {sel._type==="ro"&&(
+            <div style={{display:"flex",gap:8,marginTop:14}}>
+              <button className="btn btn-primary btn-sm" onClick={()=>printRO(sel,settings||{})}>↓ PDF</button>
+              <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(sel)}>↓ Excel</button>
+            </div>
+          )}
         </Modal>
       )}
 
@@ -1181,32 +1240,9 @@ function CalendarPage({mpos,setMpos,ros,setRos,clients,user,settings,toast,addAu
             <button className="btn btn-sm" onClick={next}>›</button>
             <button className="btn btn-sm btn-ghost" onClick={()=>{setVy(now.getFullYear());setVm(now.getMonth());}}>Today</button>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div className="tabs" style={{marginBottom:0}}>
-              <button className={`tab ${mode==="month"?"active":""}`} onClick={()=>setMode("month")}>Month</button>
-              <button className={`tab ${mode==="timeline"?"active":""}`} onClick={()=>setMode("timeline")}>Timeline</button>
-              <button className={`tab ${mode==="ro-list"?"active":""}`} onClick={()=>setMode("ro-list")}>ROs</button>
-            </div>
-            {canEdit&&(
-              <div ref={menuRef} style={{position:"relative"}}>
-                <button className="btn btn-primary btn-sm" onClick={()=>setCreateMenu(v=>!v)}>
-                  + Create ▾
-                </button>
-                {createMenu&&(
-                  <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:8,overflow:"hidden",zIndex:200,minWidth:180,boxShadow:"0 8px 24px rgba(0,0,0,.12)"}}>
-                    <button onClick={()=>{setCreateMenu(false);setShowMpoForm(true);}} style={{display:"block",width:"100%",padding:"10px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
-                      <span style={{marginRight:8,color:"var(--brand)"}}>◈</span>MPO
-                      <div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>Media Purchase Order</div>
-                    </button>
-                    <div style={{height:1,background:"var(--border-c)"}}/>
-                    <button onClick={()=>{setCreateMenu(false);setEditRo(null);setShowRoForm(true);}} style={{display:"block",width:"100%",padding:"10px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
-                      <span style={{marginRight:8,color:"#3B6D11"}}>◉</span>RO
-                      <div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>Release Order to vendor</div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="tabs" style={{marginBottom:0}}>
+            <button className={`tab ${mode==="month"?"active":""}`} onClick={()=>setMode("month")}>Month</button>
+            <button className={`tab ${mode==="timeline"?"active":""}`} onClick={()=>setMode("timeline")}>Timeline</button>
           </div>
         </div>
 
@@ -1225,7 +1261,7 @@ function CalendarPage({mpos,setMpos,ros,setRos,clients,user,settings,toast,addAu
                       const label=ev._type==="ro"?`[RO] ${ev.campaign.substring(0,10)}`:ev.campaign.substring(0,12);
                       return(
                         <div key={ev.id} className="cal-event" style={{background:bg,color:"#fff",opacity:ev._type==="ro"?0.92:1}}
-                          onClick={()=>ev._type==="ro"?setSelRo(ev):setSel(ev)}>{label}</div>
+                          onClick={()=>setSel(ev)}>{label}</div>
                       );
                     })}
                     {evts.length>2&&<div style={{fontSize:9,color:"var(--text3)"}}>+{evts.length-2}</div>}
@@ -1255,7 +1291,7 @@ function CalendarPage({mpos,setMpos,ros,setRos,clients,user,settings,toast,addAu
                     <div className="timeline-label" title={m.client}>{m.client}</div>
                     <div className="timeline-track">
                       <div className="timeline-bar" style={{left:bLeft(m),width:bWidth(m),background:bg}}
-                        onClick={()=>m._type==="ro"?setSelRo(m):setSel(m)}>{label}</div>
+                        onClick={()=>setSel(m)}>{label}</div>
                     </div>
                   </div>
                 );
@@ -1268,49 +1304,6 @@ function CalendarPage({mpos,setMpos,ros,setRos,clients,user,settings,toast,addAu
           </div>
         )}
 
-        {/* ── ROs list view ── */}
-        {mode==="ro-list"&&(
-          <div>
-            {(!ros||ros.length===0)
-              ?<div style={{textAlign:"center",padding:40,color:"var(--text3)"}}>No Release Orders yet. Use + Create → RO to get started.</div>
-              :(
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                  <thead>
-                    <tr style={{background:"var(--bg3)"}}>
-                      {["RO","Client","Vendor","Campaign","Period","Days","Total","Status",""].map(h=><th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:600,color:"var(--text2)",fontSize:11,borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ros.map(r=>{
-                      const total=r.schedule?.reduce((a,s)=>a+(s.spots*s.rate),0)||0;
-                      const sym=CURRENCIES[r.currency||"NGN"]?.symbol||"₦";
-                      return(
-                        <tr key={r.id} style={{borderBottom:"1px solid var(--border-c)",cursor:"pointer"}} onClick={()=>setSelRo(r)}>
-                          <td style={{padding:"8px 10px",fontFamily:"monospace",color:"var(--brand)",fontWeight:600}}>{r.id}</td>
-                          <td style={{padding:"8px 10px"}}>{r.client}</td>
-                          <td style={{padding:"8px 10px",color:"var(--text2)"}}>{r.vendor}</td>
-                          <td style={{padding:"8px 10px"}}>{r.campaign}</td>
-                          <td style={{padding:"8px 10px",color:"var(--text3)",fontSize:12}}>{r.start} → {r.end}</td>
-                          <td style={{padding:"8px 10px",textAlign:"center",color:"var(--text3)"}}>{r.schedule?.length||0}</td>
-                          <td style={{padding:"8px 10px",fontWeight:600}}>{sym}{total.toLocaleString("en")}</td>
-                          <td style={{padding:"8px 10px"}}>
-                            <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span>
-                          </td>
-                          <td style={{padding:"8px 10px"}}>
-                            <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-                              <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printRO(r,settings||{})}>PDF</button>
-                              <button className="btn btn-sm btn-ghost" style={{padding:"2px 8px",fontSize:11}} onClick={()=>exportROExcel(r)}>XLS</button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )
-            }
-          </div>
-        )}
       </div>
     </div>
   );
@@ -3087,9 +3080,9 @@ function App(){
             <AIPanel mpos={mpos} receivables={receivables} payables={payables} clients={clients} toast={toast} currency={settings.defaultCurrency||"NGN"}/>
           )}
           {page==="dashboard" &&<Dashboard mpos={mpos} receivables={lR} payables={lP} setPage={setPage} currency={settings.defaultCurrency||"NGN"} settings={settings} toast={toast} onOnboard={()=>setWizardOpen(true)} budgets={budgets} payables2={payables}/>}
-          {page==="mpo"       &&<MPOPage mpos={mpos} setMpos={setMpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
+          {page==="mpo"       &&<MPOPage mpos={mpos} setMpos={setMpos} ros={ros} setRos={setRos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="clients"   &&<ClientsPage clients={clients} setClients={setClients} toast={toast} user={currentUser} addAudit={addAudit} onOnboard={()=>setWizardOpen(true)}/>}
-          {page==="calendar"  &&<CalendarPage mpos={mpos} setMpos={setMpos} ros={ros} setRos={setRos} clients={clients} user={currentUser} settings={settings} toast={toast} addAudit={addAudit}/>}
+          {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"   &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
           {page==="reports"   &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} settings={settings}/>}
