@@ -66,11 +66,29 @@ export function useAuth() {
     name: string,
     role: Profile["role"] = "viewer"
   ): Promise<SignUpResult> {
-    // 1. Create auth user
+    // 1. Create auth user (trigger auto-creates bare profile with workspace_id)
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error || !data.user) return { error };
 
-    // 2. Upsert profile row (workspace_id defaults to the first workspace; invite flow can override)
+    // 2. Fetch the first workspace to assign
+    const { data: wsData } = await supabase
+      .from("workspaces")
+      .select("id")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .single();
+
+    const workspace_id = wsData?.id ?? null;
+
+    // 3. Role-based permission defaults
+    const permissionsByRole: Record<string, Profile["permissions"]> = {
+      admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production"],
+      manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
+      viewer:  ["dashboard","mpo","clients","calendar","feed"],
+      client:  ["dashboard"],
+    };
+    const permissions = permissionsByRole[role] ?? permissionsByRole["viewer"];
+
     const initials = name
       .split(" ")
       .slice(0, 2)
@@ -81,15 +99,15 @@ export function useAuth() {
     const colors = ["#534AB7", "#185FA5", "#3B6D11", "#854F0B", "#D85A30"];
     const color = colors[Math.floor(Math.random() * colors.length)];
 
-    const defaultPermissions: Profile["permissions"] = ["dashboard", "feed"];
-
+    // 4. Fill in the profile (trigger may have already created the row)
     await supabase.from("profiles").upsert({
       id: data.user.id,
+      workspace_id,
       name,
       role,
       initials,
       color,
-      permissions: defaultPermissions,
+      permissions,
     });
 
     return { error: null };

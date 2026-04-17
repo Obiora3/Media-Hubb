@@ -1220,36 +1220,144 @@ function AuditContent({auditLog}){
 }
 
 /* ═══ USERS ═══ */
-function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser}/></RoleGuard>;}
-function UsersContent({currentUser}){
+const ROLE_PERMISSIONS={
+  admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production"],
+  manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
+  viewer:  ["dashboard","mpo","clients","calendar","feed"],
+  client:  ["dashboard"],
+};
+
+function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser} toast={toast}/></RoleGuard>;}
+function UsersContent({currentUser,toast}){
   const rc={admin:"badge-purple",manager:"badge-blue",viewer:"badge-gray",client:"badge-gray"};
   const [profiles,setProfiles]=useState([]);
-  const [loadingProfiles,setLoadingProfiles]=useState(true);
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(null);
+  const [inviteEmail,setInviteEmail]=useState("");
+  const [inviteRole,setInviteRole]=useState("viewer");
+  const [inviting,setInviting]=useState(false);
+  const isAdmin=currentUser?.role==="admin";
 
-  useEffect(()=>{
+  const load=()=>{
     if(!currentUser?.workspace_id) return;
+    setLoading(true);
     supabase.from("profiles")
-      .select("id,name,role,initials,color,permissions")
+      .select("id,name,role,initials,color,permissions,workspace_id")
       .eq("workspace_id",currentUser.workspace_id)
-      .then(({data})=>{ if(data) setProfiles(data); setLoadingProfiles(false); });
-  },[currentUser?.workspace_id]);
+      .order("created_at",{ascending:true})
+      .then(({data})=>{ if(data) setProfiles(data); setLoading(false); });
+  };
+  useEffect(load,[currentUser?.workspace_id]);
 
-  const team=profiles.filter(u=>u.role!=="client");
+  const changeRole=async(uid,newRole)=>{
+    setSaving(uid);
+    const {error}=await supabase.from("profiles").update({
+      role:newRole,
+      permissions:ROLE_PERMISSIONS[newRole]||ROLE_PERMISSIONS.viewer,
+    }).eq("id",uid);
+    if(error) toast("Failed to update role","error");
+    else{ setProfiles(p=>p.map(u=>u.id===uid?{...u,role:newRole,permissions:ROLE_PERMISSIONS[newRole]}:u)); toast("Role updated","success"); }
+    setSaving(null);
+  };
+
+  const removeUser=async(uid,name)=>{
+    if(!confirm(`Remove ${name} from the workspace?`)) return;
+    const {error}=await supabase.from("profiles").update({workspace_id:null}).eq("id",uid);
+    if(error) toast("Failed to remove user","error");
+    else{ setProfiles(p=>p.filter(u=>u.id!==uid)); toast(`${name} removed`,"info"); }
+  };
+
+  const sendInvite=async(e)=>{
+    e.preventDefault();
+    if(!inviteEmail.trim()) return;
+    setInviting(true);
+    // Generate a magic-link style invite via Supabase auth
+    const {error}=await supabase.auth.admin?.inviteUserByEmail
+      ? supabase.auth.admin.inviteUserByEmail(inviteEmail)
+      : {error:{message:"Use the Supabase dashboard to invite users directly."}};
+    if(error){
+      // Fallback: show a copyable invite note
+      toast(`Share the app URL and ask ${inviteEmail} to sign up — they'll be auto-assigned to this workspace.`,"info");
+    } else {
+      toast(`Invite sent to ${inviteEmail}`,"success");
+    }
+    setInviteEmail(""); setInviting(false);
+  };
+
+  const team=profiles;
   return(
     <div>
       <div className="stat-grid" style={{gridTemplateColumns:"repeat(3,1fr)"}}>
-        {[{l:"Total",v:team.length},{l:"Admins",v:team.filter(u=>u.role==="admin").length},{l:"Managers",v:team.filter(u=>u.role==="manager").length}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{loadingProfiles?"…":s.v}</div></div>)}
+        {[
+          {l:"Total Members", v:team.length},
+          {l:"Admins",        v:team.filter(u=>u.role==="admin").length},
+          {l:"Managers",      v:team.filter(u=>u.role==="manager").length},
+        ].map(s=>(
+          <div key={s.l} className="stat-card">
+            <div className="stat-label">{s.l}</div>
+            <div className="stat-value">{loading?"…":s.v}</div>
+          </div>
+        ))}
       </div>
-      <div className="card"><div className="card-header"><span className="card-title">Team Members</span></div>
-        {loadingProfiles
+
+      {/* Invite panel — admin only */}
+      {isAdmin&&(
+        <div className="card" style={{marginBottom:16}}>
+          <div className="card-header"><span className="card-title">Invite Team Member</span></div>
+          <form onSubmit={sendInvite} style={{display:"flex",gap:8,flexWrap:"wrap",padding:"12px 0 4px"}}>
+            <input className="form-input" style={{flex:1,minWidth:180}} type="email" placeholder="colleague@agency.com" value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} required/>
+            <select className="form-input" style={{width:120}} value={inviteRole} onChange={e=>setInviteRole(e.target.value)}>
+              <option value="viewer">Viewer</option>
+              <option value="manager">Manager</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button className="btn btn-primary btn-sm" type="submit" disabled={inviting}>{inviting?"Sending…":"Send invite"}</button>
+          </form>
+          <div style={{fontSize:11,color:"var(--text3)",paddingBottom:4}}>New signups are auto-assigned to this workspace as viewers. Promote them below.</div>
+        </div>
+      )}
+
+      {/* Team list */}
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">Team Members</span>
+          <button className="btn btn-sm btn-ghost" onClick={load} style={{fontSize:11}}>↻ Refresh</button>
+        </div>
+        {loading
           ? <div style={{padding:"20px 0",textAlign:"center",color:"var(--text3)",fontSize:12}}>Loading…</div>
-          : team.map(u=>(
-            <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"var(--border)"}}>
-              <div style={{width:36,height:36,borderRadius:"50%",background:u.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:12,flexShrink:0}}>{u.initials}</div>
-              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{u.name}{u.id===currentUser.id&&<span style={{fontSize:10,color:"var(--brand)",marginLeft:4}}>← you</span>}</div></div>
-              <span className={`badge ${rc[u.role]||"badge-gray"}`}>{u.role}</span>
-            </div>
-          ))
+          : team.length===0
+            ? <div style={{padding:"20px 0",textAlign:"center",color:"var(--text3)",fontSize:12}}>No team members yet.</div>
+            : team.map(u=>(
+              <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"var(--border)",flexWrap:"wrap"}}>
+                <div style={{width:36,height:36,borderRadius:"50%",background:u.color||"#534AB7",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:12,flexShrink:0}}>{u.initials||"?"}</div>
+                <div style={{flex:1,minWidth:120}}>
+                  <div style={{fontSize:13,fontWeight:500}}>
+                    {u.name||"(no name)"}
+                    {u.id===currentUser.id&&<span style={{fontSize:10,color:"var(--brand)",marginLeft:6}}>← you</span>}
+                  </div>
+                  <div style={{fontSize:10,color:"var(--text3)",marginTop:1}}>{u.permissions?.length||0} permissions</div>
+                </div>
+                {isAdmin&&u.id!==currentUser.id?(
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <select
+                      className="form-input"
+                      style={{fontSize:11,padding:"3px 6px",width:100}}
+                      value={u.role}
+                      disabled={saving===u.id}
+                      onChange={e=>changeRole(u.id,e.target.value)}
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="manager">Manager</option>
+                      <option value="admin">Admin</option>
+                      <option value="client">Client</option>
+                    </select>
+                    <button className="btn btn-sm btn-ghost" style={{color:"#A32D2D",fontSize:11}} onClick={()=>removeUser(u.id,u.name)}>Remove</button>
+                  </div>
+                ):(
+                  <span className={`badge ${rc[u.role]||"badge-gray"}`}>{u.role}</span>
+                )}
+              </div>
+            ))
         }
       </div>
     </div>
