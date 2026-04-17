@@ -1,0 +1,14 @@
+{
+  "name": "MediaHub",
+  "short_name": "MediaHub",
+  "description": "Media agency management — MPOs, finance, campaigns",
+  "theme_color": "#534AB7",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
