@@ -444,89 +444,14 @@ function NotificationPanel({notifications,onRead,onReadAll,onClose}){
 }
 
 /* ═══ S5-1: AI ASSISTANT ═══ */
-function AIPanel({mpos,receivables,payables,clients,onDraftInvoice,toast,currency}){
-  const [loading,setLoading]=useState(false);
-  const [result,setResult]=useState(null);
-  const [mode,setMode]=useState(null);
-
-  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
-  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
-
-  const callAI=async(prompt,systemPrompt)=>{
-    setLoading(true);setResult(null);
-    try{
-      const { data, error } = await supabase.functions.invoke("ai-chat",{body:{prompt,systemPrompt}});
-      if(error) throw error;
-      setResult(data?.content || "No response received.");
-    }catch(e){setResult("Unable to reach AI assistant. Please try again.");}
-    setLoading(false);
-  };
-
-  const runInvoiceDraft=()=>{
-    setMode("invoice");
-    const overdue=lR.filter(r=>r.status==="overdue").map(r=>`${r.id} (${r.client}, ${fmt(r.amount-r.paid)} outstanding)`).join(", ")||"None";
-    const pending=mpos.filter(m=>m.status==="active").slice(0,3).map(m=>`${m.id} – ${m.campaign} for ${m.client} (${fmt(m.amount)})`).join("; ");
-    callAI(
-      `Active MPOs needing invoicing: ${pending}. Overdue invoices: ${overdue}. Draft 2-3 concise invoice notes and suggest which invoices to prioritize sending this week.`,
-      "You are a media agency finance assistant. Be concise, practical, and professional. Format with short bullet points. Use ₦ for Nigerian Naira amounts."
-    );
-  };
-
-  const runCampaignSuggestions=()=>{
-    setMode("campaign");
-    const clientList=clients.filter(c=>c.type==="Client").map(c=>`${c.name} (${c.industry}, spend: ${fmtK(c.spend)})`).join(", ");
-    const channelSpend="TV: ₦9.8M, Digital: ₦5.6M, Print: ₦4.4M, Radio: ₦2.4M";
-    callAI(
-      `Our current clients: ${clientList}. Channel spend breakdown: ${channelSpend}. Based on this data, suggest 3 specific campaign opportunities or upsell ideas for the next quarter.`,
-      "You are a media strategy advisor for a Nigerian media agency. Be specific, data-driven, and actionable. Use bullet points. Keep it under 200 words."
-    );
-  };
-
-  const runAnomalyDetection=()=>{
-    setMode("anomaly");
-    const summary=mpos.map(m=>`${m.id}: ${m.client}, ${fmt(m.amount)}, ${m.status}, exec:${m.exec}`).join("; ");
-    const recSum=lR.map(r=>`${r.id}: ${r.client}, ${fmt(r.amount)}, paid:${fmt(r.paid)}, ${r.status}`).join("; ");
-    callAI(
-      `MPO data: ${summary}. Invoice data: ${recSum}. Identify any financial anomalies, risks, or unusual patterns. Rate each finding as HIGH/MEDIUM/LOW risk.`,
-      "You are a financial risk analyst for a media agency. Identify genuine anomalies only. Format as bullet points with risk ratings. Be specific and concise."
-    );
-  };
-
-  const chips=[
-    {label:"✦ Draft invoice notes",fn:runInvoiceDraft,key:"invoice"},
-    {label:"✦ Campaign suggestions",fn:runCampaignSuggestions,key:"campaign"},
-    {label:"✦ Anomaly detection",fn:runAnomalyDetection,key:"anomaly"},
-  ];
-
+function AIPanel(){
   return(
     <div className="ai-panel">
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
         <span style={{fontSize:13,fontWeight:600,color:"var(--brand)"}}>✦ AI Assistant</span>
-        <span className="badge badge-ai" style={{fontSize:10}}>Claude-powered</span>
+        <span className="badge badge-ai" style={{fontSize:10}}>Coming soon</span>
       </div>
-      <div style={{marginBottom:10}}>
-        {chips.map(c=>(
-          <button key={c.key} className="ai-chip" onClick={c.fn} disabled={loading}>{c.label}</button>
-        ))}
-      </div>
-      {loading&&(
-        <div className="ai-bubble">
-          <div className="ai-typing"><div className="ai-dot"/><div className="ai-dot"/><div className="ai-dot"/></div>
-          <span style={{fontSize:11,color:"var(--text3)",marginLeft:8}}>Analysing your data…</span>
-        </div>
-      )}
-      {result&&(
-        <div className="ai-bubble">
-          <div style={{fontSize:11,color:"var(--brand)",fontWeight:600,marginBottom:6}}>
-            {mode==="invoice"?"Invoice Recommendations":mode==="campaign"?"Campaign Opportunities":"Risk & Anomaly Report"}
-          </div>
-          <div style={{fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--text)"}}>{result}</div>
-          <div style={{marginTop:10,display:"flex",gap:8}}>
-            <button className="btn btn-sm btn-ghost" onClick={()=>setResult(null)}>Clear</button>
-          </div>
-        </div>
-      )}
-      {!loading&&!result&&<div style={{fontSize:12,color:"var(--text3)"}}>Select a feature above to get AI-powered insights from your data.</div>}
+      <div style={{fontSize:12,color:"var(--text3)"}}>AI-powered insights will be available in a future update.</div>
     </div>
   );
 }
