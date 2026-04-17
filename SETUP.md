@@ -120,7 +120,7 @@ vercel env add VITE_SUPABASE_ANON_KEY
 ```
 
 The `vercel.json` at the repo root handles:
-- Build command: `npm run build --workspace=packages/web`
+- Build command: `cd packages/web && npm run build`
 - Output dir: `packages/web/dist`
 - SPA routing: all paths → `index.html`
 - Asset caching headers
