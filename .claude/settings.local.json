@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -n 2143 \"c:/Users/QVT-CREATIFF/Downloads/mediahubb/packages/web/src/App.tsx\")",
+      "Read(//tmp/**)",
+      "Bash(npm run *)",
+      "Bash(supabase --version)",
+      "Bash(npx supabase *)",
+      "Bash(where npx *)",
+      "Bash(npm list *)",
+      "Bash(npm install *)"
+    ]
+  }
+}

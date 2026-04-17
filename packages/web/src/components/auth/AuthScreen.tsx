@@ -1,0 +1,192 @@
+import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+
+type Mode = "signin" | "signup" | "reset";
+
+interface AuthScreenProps {
+  onSuccess: () => void;
+}
+
+export function AuthScreen({ onSuccess }: AuthScreenProps) {
+  const { signIn, signUp, resetPassword } = useAuth();
+  const [mode, setMode] = useState<Mode>("signin");
+
+  // Form fields
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [name, setName] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  const clearMessages = () => { setError(null); setInfo(null); };
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    clearMessages();
+    setLoading(true);
+
+    if (mode === "signin") {
+      const { error } = await signIn(email, password);
+      if (error) setError(error.message);
+      else onSuccess();
+
+    } else if (mode === "signup") {
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        setLoading(false);
+        return;
+      }
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters.");
+        setLoading(false);
+        return;
+      }
+      if (!name.trim()) {
+        setError("Please enter your full name.");
+        setLoading(false);
+        return;
+      }
+      const { error } = await signUp(email, password, name.trim());
+      if (error) setError(error.message);
+      else {
+        setInfo(
+          "Account created! Check your email to confirm your address, then sign in."
+        );
+        setMode("signin");
+      }
+
+    } else if (mode === "reset") {
+      const { error } = await resetPassword(email);
+      if (error) setError(error.message);
+      else {
+        setInfo("Password reset link sent — check your inbox.");
+        setMode("signin");
+      }
+    }
+
+    setLoading(false);
+  }
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        {/* Logo */}
+        <div className="auth-logo">
+          <div className="auth-logo-mark">M</div>
+          <div>
+            <div className="auth-logo-name">MediaHub</div>
+            <div className="auth-logo-sub">Media Agency Platform</div>
+          </div>
+        </div>
+
+        <h2 className="auth-title">
+          {mode === "signin" && "Sign in to your account"}
+          {mode === "signup" && "Create your account"}
+          {mode === "reset" && "Reset your password"}
+        </h2>
+
+        {error && <div className="auth-alert auth-alert-error">{error}</div>}
+        {info  && <div className="auth-alert auth-alert-info">{info}</div>}
+
+        <form className="auth-form" onSubmit={handleSubmit} noValidate>
+
+          {mode === "signup" && (
+            <div className="form-row">
+              <label className="form-label" htmlFor="auth-name">Full name</label>
+              <input
+                id="auth-name"
+                className="form-input"
+                type="text"
+                placeholder="Amaka Okonkwo"
+                autoComplete="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          <div className="form-row">
+            <label className="form-label" htmlFor="auth-email">Email address</label>
+            <input
+              id="auth-email"
+              className="form-input"
+              type="email"
+              placeholder="you@company.com"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          {mode !== "reset" && (
+            <div className="form-row">
+              <label className="form-label" htmlFor="auth-password">Password</label>
+              <input
+                id="auth-password"
+                className="form-input"
+                type="password"
+                placeholder={mode === "signup" ? "Min. 8 characters" : "••••••••"}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          {mode === "signup" && (
+            <div className="form-row">
+              <label className="form-label" htmlFor="auth-confirm">Confirm password</label>
+              <input
+                id="auth-confirm"
+                className="form-input"
+                type="password"
+                placeholder="Repeat password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          <button className="btn btn-primary auth-submit" type="submit" disabled={loading}>
+            {loading ? "Please wait…" : (
+              mode === "signin" ? "Sign in" :
+              mode === "signup" ? "Create account" :
+              "Send reset link"
+            )}
+          </button>
+        </form>
+
+        <div className="auth-links">
+          {mode === "signin" && (
+            <>
+              <button className="auth-link" onClick={() => { setMode("signup"); clearMessages(); }}>
+                Don't have an account? Sign up
+              </button>
+              <button className="auth-link auth-link-muted" onClick={() => { setMode("reset"); clearMessages(); }}>
+                Forgot password?
+              </button>
+            </>
+          )}
+          {mode === "signup" && (
+            <button className="auth-link" onClick={() => { setMode("signin"); clearMessages(); }}>
+              Already have an account? Sign in
+            </button>
+          )}
+          {mode === "reset" && (
+            <button className="auth-link" onClick={() => { setMode("signin"); clearMessages(); }}>
+              Back to sign in
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

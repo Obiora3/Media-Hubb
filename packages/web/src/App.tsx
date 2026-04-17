@@ -1,0 +1,2546 @@
+// @ts-nocheck
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react"
+import { useAuth } from "@/hooks/useAuth"
+import { useSupabaseTable } from "@/hooks/useSupabaseTable"
+import { AuthScreen } from "@/components/auth/AuthScreen"
+import { supabase } from "@/lib/supabase"
+
+/* ═══ HELPERS ═══ */
+const todayStr = new Date().toISOString().slice(0,10);
+const fmt  = (n, sym="₦") => sym + Number(n).toLocaleString("en-NG");
+const fmtK = (n, sym="₦") => n>=1e6?sym+(n/1e6).toFixed(1)+"M":n>=1e3?sym+(n/1e3).toFixed(0)+"K":fmt(n,sym);
+const daysUntil = d => Math.ceil((new Date(d)-new Date(todayStr))/864e5);
+const computeStatus = r => r.paid>=r.amount?"paid":r.paid>0?"partial":r.due<todayStr?"overdue":"pending";
+const nextId = (list,pfx) => { const ns=list.map(x=>parseInt(x.id.replace(pfx+"-",""),10)).filter(n=>!isNaN(n)); return pfx+"-"+String((ns.length?Math.max(...ns):0)+1).padStart(3,"0"); };
+const tsNow = () => new Date().toLocaleString("en-NG",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
+
+// usePersisted removed — data layer replaced by Supabase hooks in function App()
+
+/* ═══ USERS ═══ */
+const USERS=[
+  {id:"u1",name:"Amaka Okonkwo", email:"amaka@mediahub.ng",  role:"admin",   color:"#534AB7",initials:"AO",
+   permissions:["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production"]},
+  {id:"u2",name:"Bolu Adeyemi",  email:"bolu@mediahub.ng",   role:"manager", color:"#185FA5",initials:"BA",
+   permissions:["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","invoice-wf","dataviz","feed"]},
+  {id:"u3",name:"Chidi Eze",     email:"chidi@mediahub.ng",  role:"viewer",  color:"#3B6D11",initials:"CE",
+   permissions:["dashboard","reports","calendar","dataviz","feed","budgets"]},
+  {id:"c1",name:"Zenith Bank",   email:"adaeze@zenithbank.com",role:"client",color:"#854F0B",initials:"ZB",
+   permissions:["portal"]},
+];
+
+/* ═══ SEED DATA ═══ */
+const SEED_MPOS=[
+  {id:"MPO-001",client:"Zenith Bank",   vendor:"Channels TV",         campaign:"Q1 Brand Push",       amount:4200000,status:"active",   start:"2025-04-01",end:"2025-06-30",exec:"on-track",channel:"TV",   currency:"NGN",docs:[]},
+  {id:"MPO-002",client:"MTN Nigeria",   vendor:"Vanguard Media",      campaign:"5G Launch",           amount:7800000,status:"pending",  start:"2025-05-01",end:"2025-07-31",exec:"pending", channel:"Print",currency:"NGN",docs:[]},
+  {id:"MPO-003",client:"Dangote Group", vendor:"TVC News",            campaign:"Heritage Series",     amount:2900000,status:"active",   start:"2025-03-15",end:"2025-05-15",exec:"delayed",channel:"TV",   currency:"NGN",docs:[]},
+  {id:"MPO-004",client:"GTBank",        vendor:"Guardian Newspapers", campaign:"Corporate Rebranding",amount:1500000,status:"completed",start:"2025-01-01",end:"2025-03-31",exec:"on-track",channel:"Print",currency:"NGN",docs:[]},
+  {id:"MPO-005",client:"Airtel Nigeria",vendor:"Arise TV",            campaign:"Data4Good",           amount:5600000,status:"active",   start:"2025-04-15",end:"2025-08-31",exec:"on-track",channel:"TV",   currency:"NGN",docs:[]},
+  {id:"MPO-006",client:"Shell Nigeria", vendor:"BBC Africa",          campaign:"Pan-Africa Reach",    amount:890000, status:"active",   start:"2025-03-01",end:"2025-06-30",exec:"on-track",channel:"TV",   currency:"USD",docs:[]},
+];
+const SEED_CLIENTS=[
+  {id:"C001",name:"Zenith Bank",   type:"Client",industry:"Banking",contact:"Adaeze Obi",   email:"adaeze@zenithbank.com",spend:4200000,status:"active"},
+  {id:"C002",name:"MTN Nigeria",   type:"Client",industry:"Telecom",contact:"Emeka Eze",    email:"emeka@mtn.ng",         spend:7800000,status:"active"},
+  {id:"C003",name:"Dangote Group", type:"Client",industry:"FMCG",  contact:"Fatima Dangote",email:"fatima@dangote.com",   spend:2900000,status:"active"},
+  {id:"V001",name:"Channels TV",   type:"Vendor",industry:"TV",    contact:"Yemi Adedeji",  email:"yemi@channelstv.com",  spend:0,      status:"active"},
+  {id:"V002",name:"Vanguard Media",type:"Vendor",industry:"Print", contact:"Kelechi Nwosu", email:"k.nwosu@vanguard.com", spend:0,      status:"active"},
+  {id:"V003",name:"TVC News",      type:"Vendor",industry:"TV",    contact:"Bola Adeyemi",  email:"bola@tvcnews.com",     spend:0,      status:"active"},
+];
+const SEED_REC=[
+  {id:"INV-001",client:"Zenith Bank",   mpo:"MPO-001",amount:2100000,due:"2025-04-30",paid:2100000,wfStatus:"sent",currency:"NGN",docs:[]},
+  {id:"INV-002",client:"MTN Nigeria",   mpo:"MPO-002",amount:3900000,due:"2025-04-10",paid:0,      wfStatus:"approved",currency:"NGN",docs:[]},
+  {id:"INV-003",client:"Dangote Group", mpo:"MPO-003",amount:2900000,due:"2025-05-01",paid:1000000,wfStatus:"sent",currency:"NGN",docs:[]},
+  {id:"INV-004",client:"GTBank",        mpo:"MPO-004",amount:1500000,due:"2025-03-31",paid:1500000,wfStatus:"sent",currency:"NGN",docs:[]},
+  {id:"INV-005",client:"Airtel Nigeria",mpo:"MPO-005",amount:2800000,due:"2026-06-15",paid:0,      wfStatus:"draft",currency:"NGN",docs:[]},
+  {id:"INV-006",client:"Shell Nigeria", mpo:"MPO-006",amount:6200,   due:"2026-05-01",paid:0,      wfStatus:"review",currency:"USD",docs:[]},
+].map(r=>({...r,status:computeStatus(r)}));
+const SEED_PAY=[
+  {id:"PAY-001",vendor:"Channels TV",        mpo:"MPO-001",amount:1890000,due:"2025-05-15",paid:1890000,description:"Airtime Q1",currency:"NGN"},
+  {id:"PAY-002",vendor:"Vanguard Media",      mpo:"MPO-002",amount:3510000,due:"2025-05-30",paid:0,      description:"Print ads",currency:"NGN"},
+  {id:"PAY-003",vendor:"TVC News",            mpo:"MPO-003",amount:1305000,due:"2025-04-20",paid:700000, description:"Sponsorship",currency:"NGN"},
+  {id:"PAY-004",vendor:"Guardian Newspapers", mpo:"MPO-004",amount:675000, due:"2025-03-15",paid:675000, description:"Display ads",currency:"NGN"},
+  {id:"PAY-005",vendor:"Arise TV",            mpo:"MPO-005",amount:2520000,due:"2026-07-01",paid:0,      description:"Evening show",currency:"NGN"},
+].map(r=>({...r,status:computeStatus(r)}));
+const SEED_AUDIT=[
+  {id:"a1",userId:"u1",userName:"Amaka Okonkwo",userColor:"#534AB7",initials:"AO",action:"created",entity:"MPO",entityId:"MPO-005",detail:"Created MPO-005 for Airtel Nigeria · ₦5.6M",ts:"15 Apr, 09:14",tag:"create"},
+  {id:"a2",userId:"u2",userName:"Bolu Adeyemi", userColor:"#185FA5",initials:"BA",action:"updated",entity:"Invoice",entityId:"INV-002",detail:"Advanced INV-002: Draft → Review",ts:"15 Apr, 10:32",tag:"workflow"},
+  {id:"a3",userId:"u1",userName:"Amaka Okonkwo",userColor:"#534AB7",initials:"AO",action:"logged payment",entity:"Invoice",entityId:"INV-003",detail:"Logged ₦1,000,000 on INV-003",ts:"14 Apr, 16:45",tag:"payment"},
+];
+const TAG_COLORS={create:"#EAF3DE",workflow:"#E6F1FB",payment:"#FAEEDA",reminder:"#EEEDFE",delete:"#FCEBEB",update:"#F1EFE8"};
+const TAG_TEXT={create:"#3B6D11",workflow:"#185FA5",payment:"#854F0B",reminder:"#3C3489",delete:"#A32D2D",update:"#5F5E5A"};
+const WF_STEPS=["draft","review","approved","sent"];
+const WF_COLORS={draft:"badge-gray",review:"badge-amber",approved:"badge-blue",sent:"badge-green"};
+const WF_NEXT={draft:"review",review:"approved",approved:"sent"};
+const WF_LABELS={draft:"Draft",review:"In Review",approved:"Approved",sent:"Sent"};
+const CH_COLORS={TV:"#534AB7",Print:"#185FA5",Radio:"#854F0B",Digital:"#3B6D11"};
+
+/* ═══ S5-2: CURRENCIES ═══ */
+const CURRENCIES={
+  NGN:{symbol:"₦",name:"Nigerian Naira",  flag:"🇳🇬",rate:1},
+  USD:{symbol:"$",name:"US Dollar",        flag:"🇺🇸",rate:0.00063},
+  GBP:{symbol:"£",name:"British Pound",    flag:"🇬🇧",rate:0.00050},
+  EUR:{symbol:"€",name:"Euro",             flag:"🇪🇺",rate:0.00058},
+  GHS:{symbol:"₵",name:"Ghanaian Cedi",   flag:"🇬🇭",rate:0.0095},
+  KES:{symbol:"Ksh",name:"Kenyan Shilling",flag:"🇰🇪",rate:0.083},
+};
+// Convert amount from source currency to display currency
+const convertAmt = (amount, fromCcy, toCcy) => {
+  if(fromCcy===toCcy) return amount;
+  const ngnAmt = fromCcy==="NGN" ? amount : amount / CURRENCIES[fromCcy].rate;
+  return toCcy==="NGN" ? ngnAmt : ngnAmt * CURRENCIES[toCcy].rate;
+};
+const fmtCcy = (amount, fromCcy="NGN", toCcy="NGN") => {
+  const converted = convertAmt(amount, fromCcy, toCcy);
+  const sym = CURRENCIES[toCcy]?.symbol || "₦";
+  if(converted>=1e6) return sym+(converted/1e6).toFixed(2)+"M";
+  if(converted>=1e3) return sym+(converted/1e3).toFixed(1)+"K";
+  return sym+converted.toLocaleString("en",{maximumFractionDigits:2});
+};
+
+/* ═══ SHARED COMPONENTS ═══ */
+const BMAP={active:"badge-green",pending:"badge-amber",completed:"badge-blue",delayed:"badge-red",overdue:"badge-red",paid:"badge-green",partial:"badge-amber","on-track":"badge-green"};
+function SBadge({s}){return <span className={`badge ${BMAP[s]||"badge-gray"}`}>{s}</span>;}
+function WFBadge({s}){return <span className={`badge ${WF_COLORS[s]||"badge-gray"}`}>{WF_LABELS[s]||s}</span>;}
+
+function useToast(){
+  const [ts,setTs]=useState([]);
+  const show=useCallback((msg,type="success")=>{
+    const id=Date.now();
+    setTs(t=>[...t,{id,msg,type}]);
+    setTimeout(()=>setTs(t=>t.map(x=>x.id===id?{...x,v:true}:x)),10);
+    setTimeout(()=>setTs(t=>t.filter(x=>x.id!==id)),3400);
+  },[]);
+  return{ts,show};
+}
+function Toasts({ts}){return <div className="toast-wrap" aria-live="polite">{ts.map(t=><div key={t.id} className={`toast toast-${t.type} ${t.v?"show":""}`}>{t.msg}</div>)}</div>;}
+
+function Modal({title,onClose,children,wide}){
+  useEffect(()=>{const h=e=>e.key==="Escape"&&onClose();document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[onClose]);
+  return(
+    <div className="modal-bg" role="dialog" aria-modal="true" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal" style={wide?{maxWidth:680}:{}}>
+        <div className="modal-header"><span className="modal-title">{title}</span><button className="close-btn" onClick={onClose}>✕</button></div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function FF({id,label,error,children}){return <div className="form-row"><label className="form-label" htmlFor={id}>{label}</label>{children}{error&&<div className="form-error">{error}</div>}</div>;}
+function RoleGuard({user,require,children}){
+  if(!user.permissions.includes(require)) return <div className="role-lock">🔒 Your role ({user.role}) does not have access to this section.</div>;
+  return children;
+}
+function Toggle({on,onToggle,label}){
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      {label&&<span style={{fontSize:13,color:"var(--text)"}}>{label}</span>}
+      <div className="toggle-pill" style={{background:on?"var(--brand)":"var(--bg3)"}} onClick={onToggle}>
+        <div className="toggle-thumb" style={{left:on?20:3}}/>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ SVG CHARTS ═══ */
+function DonutChart({data,size=160}){
+  const [hov,setHov]=useState(null);
+  const [mounted,setMounted]=useState(false);
+  useEffect(()=>{setTimeout(()=>setMounted(true),60);},[]);
+  const total=data.reduce((a,d)=>a+d.value,0);
+  const cx=size/2,cy=size/2,r=size*.35,sw=size*.14;
+  let cum=-Math.PI/2;
+  const slices=data.map((d)=>{
+    const ang=total>0?(d.value/total)*2*Math.PI:.001;
+    const sa=cum;cum+=ang;const ea=cum;
+    const ir=r-sw/2,or=r+sw/2;
+    const rp=`M ${cx+ir*Math.cos(sa)} ${cy+ir*Math.sin(sa)} A ${ir} ${ir} 0 ${ang>Math.PI?1:0} 1 ${cx+ir*Math.cos(ea)} ${cy+ir*Math.sin(ea)} L ${cx+or*Math.cos(ea)} ${cy+or*Math.sin(ea)} A ${or} ${or} 0 ${ang>Math.PI?1:0} 0 ${cx+or*Math.cos(sa)} ${cy+or*Math.sin(sa)} Z`;
+    return{...d,rp,pct:total>0?Math.round(d.value/total*100):0};
+  });
+  const h=hov!==null?slices[hov]:null;
+  return(
+    <div style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+      <svg width={size} height={size} style={{flexShrink:0}}>
+        {slices.map((s,i)=><path key={i} d={s.rp} fill={s.color} opacity={hov===null||hov===i?1:.35} style={{cursor:"pointer",transition:"opacity .15s"}} onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)}/>)}
+        <text x={cx} y={cy-7} textAnchor="middle" fontSize={10} fill="var(--text3)">{h?h.label:"Total"}</text>
+        <text x={cx} y={cy+8} textAnchor="middle" fontSize={14} fontWeight="700" fill="var(--text)">{h?`${h.pct}%`:data.length}</text>
+        <text x={cx} y={cy+20} textAnchor="middle" fontSize={9} fill="var(--text3)">{h?fmtK(h.value):"segments"}</text>
+      </svg>
+      <div style={{flex:1,minWidth:80}}>
+        {slices.map((s,i)=>(
+          <div key={i} className="legend-item" style={{opacity:hov===null||hov===i?1:.4,transition:"opacity .15s"}} onMouseEnter={()=>setHov(i)} onMouseLeave={()=>setHov(null)}>
+            <div className="legend-dot" style={{background:s.color}}/><span style={{flex:1}}>{s.label}</span><strong style={{fontSize:11}}>{s.pct}%</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function BarChart({data,height=170,colors=["#534AB7","#D85A30"]}){
+  const [mounted,setMounted]=useState(false);const [tip,setTip]=useState(null);
+  useEffect(()=>{setTimeout(()=>setMounted(true),80);},[]);
+  const isG=Array.isArray(data[0]?.values);
+  const allV=isG?data.flatMap(d=>d.values):data.map(d=>d.value);
+  const maxV=Math.max(...allV,1);
+  const W=500,H=height,pL=4,pB=26,pT=14,pR=4,pw=W-pL-pR,ph=H-pB-pT,gw=pw/data.length;
+  const bc=isG?data[0].values.length:1,bw=Math.min((gw-6)/bc,44);
+  const tks=Array.from({length:5},(_,i)=>({v:Math.round(maxV*i/4),y:pT+ph*(1-i/4)}));
+  return(
+    <div style={{position:"relative"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height,overflow:"visible"}}>
+        {tks.map((t,i)=><g key={i}><line x1={pL} y1={t.y} x2={W-pR} y2={t.y} stroke="var(--border-c)" strokeWidth=".5"/><text x={pL} y={t.y-3} fontSize={8} fill="var(--text3)">{fmtK(t.v)}</text></g>)}
+        {data.map((d,gi)=>{
+          const cx2=pL+gi*gw+gw/2,vals=isG?d.values:[d.value];
+          return <g key={gi}>{vals.map((v,bi)=>{const bh=mounted?(v/maxV)*ph:0,bx=cx2-(bc*bw+(bc-1)*2)/2+bi*(bw+2),by=pT+ph-bh;return <rect key={bi} x={bx} y={by} width={bw} height={bh} rx={3} fill={colors[bi%colors.length]} style={{transition:"height .5s,y .5s",cursor:"pointer"}} onMouseEnter={()=>setTip({gx:(bx+bw/2)/W,gy:by/H,txt:`${d.label}: ${fmtK(v)}`,col:colors[bi%colors.length]})} onMouseLeave={()=>setTip(null)}/>;})}<text x={cx2} y={H-6} textAnchor="middle" fontSize={9} fill="var(--text3)">{d.label}</text></g>;
+        })}
+      </svg>
+      {tip&&<div className="viz-tooltip" style={{left:tip.gx*100+"%",top:tip.gy*100+"%",borderLeft:`3px solid ${tip.col}`}}>{tip.txt}</div>}
+    </div>
+  );
+}
+
+/* ═══ S5-5: ADVANCED VISUALISATIONS ═══ */
+
+/* Activity Heatmap – shows MPO count per weekday×month */
+function ActivityHeatmap({mpos}){
+  const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const [tip,setTip]=useState(null);
+  // build counts grid [month][dow]
+  const grid=Array.from({length:12},()=>Array(7).fill(0));
+  mpos.forEach(m=>{
+    const d=new Date(m.start);
+    const mo=d.getMonth(),dow=(d.getDay()+6)%7; // 0=Mon
+    grid[mo][dow]++;
+  });
+  const maxVal=Math.max(...grid.flat(),1);
+  const cellW=34,cellH=20,padL=36,padT=20;
+  const W=padL+7*cellW+10,H=padT+12*cellH+20;
+  return(
+    <div style={{position:"relative",overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:300,height:H}}>
+        {DAYS.map((d,i)=><text key={d} x={padL+i*cellW+cellW/2} y={14} textAnchor="middle" fontSize={9} fill="var(--text3)">{d}</text>)}
+        {MONTHS.map((mo,mi)=>(
+          <g key={mo}>
+            <text x={padL-4} y={padT+mi*cellH+14} textAnchor="end" fontSize={9} fill="var(--text3)">{mo}</text>
+            {DAYS.map((_,di)=>{
+              const v=grid[mi][di],alpha=v>0?0.15+0.85*(v/maxVal):0.04;
+              return <rect key={di} className="heatmap-cell" x={padL+di*cellW+2} y={padT+mi*cellH+2} width={cellW-4} height={cellH-4} rx={3}
+                fill={v>0?`rgba(83,74,183,${alpha.toFixed(2)})`:"var(--bg3)"}
+                onMouseEnter={e=>setTip({x:padL+di*cellW+cellW/2,y:padT+mi*cellH,txt:`${MONTHS[mi]} ${DAYS[di]}: ${v} MPO${v!==1?"s":""}`,W})}
+                onMouseLeave={()=>setTip(null)}/>;
+            })}
+          </g>
+        ))}
+        {tip&&<text x={Math.min(tip.x,tip.W-80)} y={tip.y-4} fontSize={9} fill="var(--text)" fontWeight="600">{tip.txt}</text>}
+      </svg>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:8,fontSize:10,color:"var(--text3)"}}>
+        <span>Less</span>
+        {[.1,.3,.5,.75,1].map((a,i)=><div key={i} style={{width:12,height:12,borderRadius:2,background:`rgba(83,74,183,${a})`}}/>)}
+        <span>More</span>
+      </div>
+    </div>
+  );
+}
+
+/* Revenue Scatter — amount vs duration */
+function RevenueScatter({mpos}){
+  const [tip,setTip]=useState(null);
+  const data=mpos.map(m=>{
+    const days=(new Date(m.end)-new Date(m.start))/864e5;
+    return{...m,days,x:days,y:m.amount};
+  });
+  const maxX=Math.max(...data.map(d=>d.x),1);
+  const maxY=Math.max(...data.map(d=>d.y),1);
+  const W=500,H=220,pL=48,pB=28,pT=16,pR=16;
+  const pw=W-pL-pR,ph=H-pB-pT;
+  const toSvgX=x=>pL+x/maxX*pw;
+  const toSvgY=y=>pT+ph-(y/maxY*ph);
+  return(
+    <div style={{position:"relative"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:H,overflow:"visible"}}>
+        {[0,.25,.5,.75,1].map((t,i)=>(
+          <g key={i}>
+            <line x1={pL} y1={pT+ph*(1-t)} x2={W-pR} y2={pT+ph*(1-t)} stroke="var(--border-c)" strokeWidth=".5"/>
+            <text x={pL-4} y={pT+ph*(1-t)+4} textAnchor="end" fontSize={8} fill="var(--text3)">{fmtK(maxY*t)}</text>
+          </g>
+        ))}
+        {[0,.25,.5,.75,1].map((t,i)=>(
+          <text key={i} x={pL+pw*t} y={H-8} textAnchor="middle" fontSize={8} fill="var(--text3)">{Math.round(maxX*t)}d</text>
+        ))}
+        {data.map((d,i)=>(
+          <circle key={d.id} className="scatter-dot" cx={toSvgX(d.x)} cy={toSvgY(d.y)} r={8}
+            fill={CH_COLORS[d.channel]||"#534AB7"} opacity={.75}
+            onMouseEnter={()=>setTip({cx:toSvgX(d.x),cy:toSvgY(d.y),txt:`${d.campaign} · ${fmtK(d.amount)} · ${Math.round(d.days)}d`})}
+            onMouseLeave={()=>setTip(null)}/>
+        ))}
+      </svg>
+      {tip&&<div className="viz-tooltip" style={{left:tip.cx/W*100+"%",top:tip.cy/H*100+"%"}}>{tip.txt}</div>}
+      <div style={{display:"flex",gap:12,marginTop:6,flexWrap:"wrap"}}>
+        {Object.entries(CH_COLORS).map(([ch,c])=><div key={ch} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:8,height:8,borderRadius:"50%",background:c}}/>{ch}</div>)}
+      </div>
+    </div>
+  );
+}
+
+/* Cash flow area chart */
+function AreaChart({data,height=160,color="#534AB7"}){
+  const [mounted,setMounted]=useState(false);
+  useEffect(()=>{setTimeout(()=>setMounted(true),80);},[]);
+  const [tip,setTip]=useState(null);
+  const maxV=Math.max(...data.map(d=>d.value),1);
+  const W=500,H=height,pL=8,pB=24,pT=12,pR=8,pw=W-pL-pR,ph=H-pB-pT;
+  const pts=data.map((d,i)=>({x:pL+i/(data.length-1)*pw,y:pT+ph*(1-d.value/maxV),...d}));
+  const linePts=pts.map(p=>`${p.x},${mounted?p.y:pT+ph}`).join(" ");
+  const areaPts=`${pL},${pT+ph} ${linePts} ${pL+pw},${pT+ph}`;
+  return(
+    <div style={{position:"relative"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height,overflow:"visible"}}>
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.25"/>
+            <stop offset="100%" stopColor={color} stopOpacity="0.02"/>
+          </linearGradient>
+        </defs>
+        <polygon points={areaPts} fill="url(#areaGrad)" style={{transition:"all .6s ease"}}/>
+        <polyline points={linePts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" style={{transition:"all .6s ease"}}/>
+        {pts.map((p,i)=>(
+          <g key={i}>
+            <circle cx={p.x} cy={mounted?p.y:pT+ph} r={4} fill={color} style={{transition:"cy .6s ease"}}
+              onMouseEnter={()=>setTip({x:p.x/W*100,y:(mounted?p.y:pT+ph)/H*100,txt:`${p.label}: ${fmtK(p.value)}`})}
+              onMouseLeave={()=>setTip(null)}/>
+            <text x={p.x} y={H-6} textAnchor="middle" fontSize={9} fill="var(--text3)">{p.label}</text>
+          </g>
+        ))}
+      </svg>
+      {tip&&<div className="viz-tooltip" style={{left:tip.x+"%",top:tip.y+"%"}}>{tip.txt}</div>}
+    </div>
+  );
+}
+
+/* ═══ S5-3: DOCUMENT ATTACHMENT ═══ */
+const DOC_ICONS={"pdf":"📄","doc":"📝","docx":"📝","xls":"📊","xlsx":"📊","png":"🖼","jpg":"🖼","default":"📎"};
+function docIcon(name){const ext=name.split(".").pop().toLowerCase();return DOC_ICONS[ext]||DOC_ICONS.default;}
+
+function DocPanel({entityId,entityDocs,onSave,canEdit}){
+  const [drag,setDrag]=useState(false);
+  const inputRef=useRef(null);
+
+  const handleFiles=files=>{
+    const newDocs=[...entityDocs];
+    Array.from(files).forEach(f=>{
+      newDocs.push({id:`doc-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,name:f.name,size:f.size,type:f.type,ts:tsNow(),uploadedBy:"You"});
+    });
+    onSave(newDocs);
+  };
+  const handleDrop=e=>{e.preventDefault();setDrag(false);handleFiles(e.dataTransfer.files);};
+  const handleInput=e=>handleFiles(e.target.files);
+  const removeDoc=id=>onSave(entityDocs.filter(d=>d.id!==id));
+
+  return(
+    <div>
+      <div style={{fontWeight:500,fontSize:13,marginBottom:12,color:"var(--text)"}}>Attachments ({entityDocs.length})</div>
+      {canEdit&&(
+        <>
+          <div className={`doc-drop-zone ${drag?"drag":""}`}
+            onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={handleDrop}
+            onClick={()=>inputRef.current?.click()}>
+            <div style={{fontSize:24,marginBottom:6}}>📎</div>
+            <div style={{fontSize:13,fontWeight:500}}>Drop files here or click to browse</div>
+            <div style={{fontSize:11,marginTop:4}}>PDF, Word, Excel, Images</div>
+          </div>
+          <input ref={inputRef} type="file" multiple style={{display:"none"}} onChange={handleInput}/>
+        </>
+      )}
+      {entityDocs.length===0&&<div style={{fontSize:12,color:"var(--text3)",textAlign:"center",padding:"16px 0"}}>No attachments yet</div>}
+      {entityDocs.map(d=>(
+        <div key={d.id} className="doc-item" style={{marginTop:8}}>
+          <div className="doc-icon" style={{background:"var(--bg3)"}}>{docIcon(d.name)}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
+            <div style={{fontSize:11,color:"var(--text3)"}}>{d.ts} · {d.uploadedBy} · {d.size?Math.round(d.size/1024)+"KB":""}</div>
+          </div>
+          {canEdit&&<button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>removeDoc(d.id)} title="Remove">✕</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ═══ S5-4: NOTIFICATION SYSTEM ═══ */
+const NOTIF_ICONS={payment:"💰",overdue:"🔴",workflow:"📋",reminder:"🔔",create:"✨",system:"⚙️"};
+const NOTIF_BG={payment:"#EAF3DE",overdue:"#FCEBEB",workflow:"#E6F1FB",reminder:"#EEEDFE",create:"#EAF3DE",system:"var(--bg3)"};
+
+function buildNotifications(receivables,payables,mpos){
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
+  const notifs=[];
+  lR.filter(r=>r.status==="overdue").forEach(r=>notifs.push({id:`n-ro-${r.id}`,type:"overdue",title:`Invoice Overdue`,body:`${r.id} · ${r.client} — balance ${fmt(r.amount-r.paid)}`,ts:"Just now",read:false}));
+  lP.filter(p=>p.status==="overdue").forEach(p=>notifs.push({id:`n-po-${p.id}`,type:"overdue",title:`Payable Overdue`,body:`${p.id} · ${p.vendor} — ${fmt(p.amount-p.paid)} outstanding`,ts:"Just now",read:false}));
+  mpos.filter(m=>m.exec==="delayed").forEach(m=>notifs.push({id:`n-md-${m.id}`,type:"workflow",title:`Campaign Delayed`,body:`${m.id} · ${m.campaign} execution is behind schedule`,ts:"1h ago",read:false}));
+  notifs.push({id:"n-sys-1",type:"system",title:"MediaHub Stage 5 loaded",body:"All new features are active. Explore AI, multi-currency, and more.",ts:"Today",read:true});
+  return notifs;
+}
+
+function NotificationPanel({notifications,onRead,onReadAll,onClose}){
+  const unread=notifications.filter(n=>!n.read).length;
+  return(
+    <div className="notif-panel">
+      <div className="notif-header">
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontWeight:600,fontSize:14}}>Notifications</span>
+          {unread>0&&<span className="notif-badge">{unread}</span>}
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          {unread>0&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={onReadAll}>Mark all read</button>}
+          <button className="close-btn" onClick={onClose}>✕</button>
+        </div>
+      </div>
+      <div className="notif-list">
+        {notifications.length===0&&<div style={{padding:"24px",textAlign:"center",fontSize:12,color:"var(--text3)"}}>No notifications</div>}
+        {notifications.map(n=>(
+          <div key={n.id} className={`notif-item ${n.read?"":"unread"}`} onClick={()=>onRead(n.id)}>
+            <div className="notif-icon-wrap" style={{background:NOTIF_BG[n.type]||"var(--bg3)"}}>{NOTIF_ICONS[n.type]||"📌"}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:n.read?400:600,fontSize:13,color:"var(--text)"}}>{n.title}</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2,lineHeight:1.4}}>{n.body}</div>
+              <div style={{fontSize:10,color:"var(--text3)",marginTop:4}}>{n.ts}</div>
+            </div>
+            {!n.read&&<div className="notif-unread-dot"/>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ S5-1: AI ASSISTANT ═══ */
+function AIPanel({mpos,receivables,payables,clients,onDraftInvoice,toast,currency}){
+  const [loading,setLoading]=useState(false);
+  const [result,setResult]=useState(null);
+  const [mode,setMode]=useState(null);
+
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
+
+  const callAI=async(prompt,systemPrompt)=>{
+    setLoading(true);setResult(null);
+    try{
+      const { data, error } = await supabase.functions.invoke("ai-chat",{body:{prompt,systemPrompt}});
+      if(error) throw error;
+      setResult(data?.content || "No response received.");
+    }catch(e){setResult("Unable to reach AI assistant. Please try again.");}
+    setLoading(false);
+  };
+
+  const runInvoiceDraft=()=>{
+    setMode("invoice");
+    const overdue=lR.filter(r=>r.status==="overdue").map(r=>`${r.id} (${r.client}, ${fmt(r.amount-r.paid)} outstanding)`).join(", ")||"None";
+    const pending=mpos.filter(m=>m.status==="active").slice(0,3).map(m=>`${m.id} – ${m.campaign} for ${m.client} (${fmt(m.amount)})`).join("; ");
+    callAI(
+      `Active MPOs needing invoicing: ${pending}. Overdue invoices: ${overdue}. Draft 2-3 concise invoice notes and suggest which invoices to prioritize sending this week.`,
+      "You are a media agency finance assistant. Be concise, practical, and professional. Format with short bullet points. Use ₦ for Nigerian Naira amounts."
+    );
+  };
+
+  const runCampaignSuggestions=()=>{
+    setMode("campaign");
+    const clientList=clients.filter(c=>c.type==="Client").map(c=>`${c.name} (${c.industry}, spend: ${fmtK(c.spend)})`).join(", ");
+    const channelSpend="TV: ₦9.8M, Digital: ₦5.6M, Print: ₦4.4M, Radio: ₦2.4M";
+    callAI(
+      `Our current clients: ${clientList}. Channel spend breakdown: ${channelSpend}. Based on this data, suggest 3 specific campaign opportunities or upsell ideas for the next quarter.`,
+      "You are a media strategy advisor for a Nigerian media agency. Be specific, data-driven, and actionable. Use bullet points. Keep it under 200 words."
+    );
+  };
+
+  const runAnomalyDetection=()=>{
+    setMode("anomaly");
+    const summary=mpos.map(m=>`${m.id}: ${m.client}, ${fmt(m.amount)}, ${m.status}, exec:${m.exec}`).join("; ");
+    const recSum=lR.map(r=>`${r.id}: ${r.client}, ${fmt(r.amount)}, paid:${fmt(r.paid)}, ${r.status}`).join("; ");
+    callAI(
+      `MPO data: ${summary}. Invoice data: ${recSum}. Identify any financial anomalies, risks, or unusual patterns. Rate each finding as HIGH/MEDIUM/LOW risk.`,
+      "You are a financial risk analyst for a media agency. Identify genuine anomalies only. Format as bullet points with risk ratings. Be specific and concise."
+    );
+  };
+
+  const chips=[
+    {label:"✦ Draft invoice notes",fn:runInvoiceDraft,key:"invoice"},
+    {label:"✦ Campaign suggestions",fn:runCampaignSuggestions,key:"campaign"},
+    {label:"✦ Anomaly detection",fn:runAnomalyDetection,key:"anomaly"},
+  ];
+
+  return(
+    <div className="ai-panel">
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+        <span style={{fontSize:13,fontWeight:600,color:"var(--brand)"}}>✦ AI Assistant</span>
+        <span className="badge badge-ai" style={{fontSize:10}}>Claude-powered</span>
+      </div>
+      <div style={{marginBottom:10}}>
+        {chips.map(c=>(
+          <button key={c.key} className="ai-chip" onClick={c.fn} disabled={loading}>{c.label}</button>
+        ))}
+      </div>
+      {loading&&(
+        <div className="ai-bubble">
+          <div className="ai-typing"><div className="ai-dot"/><div className="ai-dot"/><div className="ai-dot"/></div>
+          <span style={{fontSize:11,color:"var(--text3)",marginLeft:8}}>Analysing your data…</span>
+        </div>
+      )}
+      {result&&(
+        <div className="ai-bubble">
+          <div style={{fontSize:11,color:"var(--brand)",fontWeight:600,marginBottom:6}}>
+            {mode==="invoice"?"Invoice Recommendations":mode==="campaign"?"Campaign Opportunities":"Risk & Anomaly Report"}
+          </div>
+          <div style={{fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",color:"var(--text)"}}>{result}</div>
+          <div style={{marginTop:10,display:"flex",gap:8}}>
+            <button className="btn btn-sm btn-ghost" onClick={()=>setResult(null)}>Clear</button>
+          </div>
+        </div>
+      )}
+      {!loading&&!result&&<div style={{fontSize:12,color:"var(--text3)"}}>Select a feature above to get AI-powered insights from your data.</div>}
+    </div>
+  );
+}
+
+/* ═══ S5-6: SETTINGS PAGE ═══ */
+function SettingsPage({settings,setSettings,user,toast}){
+  return <RoleGuard user={user} require="settings"><SettingsContent settings={settings} setSettings={setSettings} toast={toast}/></RoleGuard>;
+}
+function SettingsContent({settings,setSettings,toast}){
+  const set=(k,v)=>setSettings(s=>({...s,[k]:v}));
+  const BRAND_COLORS=["#534AB7","#185FA5","#3B6D11","#A32D2D","#854F0B","#1a1a1a","#D85A30","#0E7C7B"];
+  const FISCAL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  return(
+    <div style={{maxWidth:680}}>
+      <div className="settings-section">
+        <div className="settings-section-title">Company Profile</div>
+        <div className="form-grid">
+          <FF id="cname" label="Company Name"><input id="cname" className="form-input" value={settings.companyName||""} onChange={e=>set("companyName",e.target.value)}/></FF>
+          <FF id="cemail" label="Contact Email"><input id="cemail" type="email" className="form-input" value={settings.companyEmail||""} onChange={e=>set("companyEmail",e.target.value)}/></FF>
+        </div>
+        <FF id="caddr" label="Address"><input id="caddr" className="form-input" value={settings.address||""} onChange={e=>set("address",e.target.value)}/></FF>
+        <div className="form-grid">
+          <FF id="cphone" label="Phone"><input id="cphone" className="form-input" value={settings.phone||""} onChange={e=>set("phone",e.target.value)}/></FF>
+          <FF id="creg" label="Registration Number"><input id="creg" className="form-input" value={settings.regNumber||""} onChange={e=>set("regNumber",e.target.value)}/></FF>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Branding</div>
+        <div className="settings-row">
+          <div><div className="settings-label">Brand Colour</div><div className="settings-desc">Used in buttons, active states, and charts</div></div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {BRAND_COLORS.map(c=>(
+              <div key={c} className="color-swatch" style={{background:c,borderColor:settings.brandColor===c?c:"transparent"}} onClick={()=>{set("brandColor",c);document.documentElement.style.setProperty("--brand",c);document.documentElement.style.setProperty("--brand-dark",c+"cc");toast("Brand colour updated");}}/>
+            ))}
+          </div>
+        </div>
+        <div className="settings-row">
+          <div><div className="settings-label">Preview</div></div>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <div className="brand-preview" style={{background:settings.brandColor||"var(--brand)",width:100}}>MediaHub</div>
+            <span className="badge" style={{background:settings.brandColor+"22",color:settings.brandColor}}>active</span>
+          </div>
+        </div>
+        <FF id="ctag" label="Agency Tagline (shown on invoices)"><input id="ctag" className="form-input" value={settings.tagline||""} onChange={e=>set("tagline",e.target.value)} placeholder="Media Agency Platform · Lagos, Nigeria"/></FF>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Financial Settings</div>
+        <div className="settings-row">
+          <div><div className="settings-label">Default Currency</div><div className="settings-desc">Primary currency for new transactions</div></div>
+          <select className="form-input" style={{width:"auto"}} value={settings.defaultCurrency||"NGN"} onChange={e=>set("defaultCurrency",e.target.value)}>
+            {Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k} — {v.name}</option>)}
+          </select>
+        </div>
+        <div className="settings-row">
+          <div><div className="settings-label">Fiscal Year Start</div><div className="settings-desc">First month of your financial year</div></div>
+          <select className="form-input" style={{width:"auto"}} value={settings.fiscalYearStart||"January"} onChange={e=>set("fiscalYearStart",e.target.value)}>
+            {FISCAL_MONTHS.map(m=><option key={m}>{m}</option>)}
+          </select>
+        </div>
+        <div className="settings-row">
+          <div><div className="settings-label">Tax Rate (%)</div><div className="settings-desc">Default VAT/tax applied on invoices</div></div>
+          <input type="number" className="form-input" style={{width:80}} min="0" max="50" value={settings.taxRate||7.5} onChange={e=>set("taxRate",Number(e.target.value))}/>
+        </div>
+        <div className="settings-row">
+          <div><div className="settings-label">Payment Terms (days)</div><div className="settings-desc">Default net days on new invoices</div></div>
+          <select className="form-input" style={{width:"auto"}} value={settings.paymentTerms||30} onChange={e=>set("paymentTerms",Number(e.target.value))}>
+            {[7,14,21,30,45,60,90].map(d=><option key={d} value={d}>Net {d}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Notifications & Reminders</div>
+        {[
+          {k:"notifOverdue",label:"Overdue alerts",desc:"Notify when invoices/payables pass due date"},
+          {k:"notifUpcoming",label:"7-day warnings",desc:"Alert 7 days before due date"},
+          {k:"notifWorkflow",label:"Workflow updates",desc:"Notify when invoice status advances"},
+          {k:"notifAI",label:"AI insights",desc:"Weekly AI-generated financial summary"},
+        ].map(opt=>(
+          <div key={opt.k} className="settings-row">
+            <div><div className="settings-label">{opt.label}</div><div className="settings-desc">{opt.desc}</div></div>
+            <Toggle on={settings[opt.k]!==false} onToggle={()=>set(opt.k,settings[opt.k]===false?true:false)}/>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <button className="btn btn-primary" onClick={()=>toast("Settings saved")}>Save Changes</button>
+        <button className="btn btn-ghost" onClick={()=>{if(confirm("Reset all settings to defaults?"))setSettings(DEFAULT_SETTINGS);toast("Settings reset");}}>Reset Defaults</button>
+      </div>
+    </div>
+  );
+}
+
+const DEFAULT_SETTINGS={
+  companyName:"MediaHub Nigeria",companyEmail:"hello@mediahub.ng",
+  address:"14 Adeyemi Bero Crescent, Wuse 2, Abuja",phone:"+234 812 000 0000",
+  regNumber:"RC 1234567",tagline:"Media Agency Platform · Lagos, Nigeria",
+  brandColor:"#534AB7",fiscalYearStart:"January",
+  taxRate:7.5,paymentTerms:30,defaultCurrency:"NGN",
+  notifOverdue:true,notifUpcoming:true,notifWorkflow:true,notifAI:false,
+};
+
+/* ═══ DATA VIZ PAGE ═══ */
+function DataVizPage({mpos,receivables,payables,user}){
+  return <RoleGuard user={user} require="dataviz"><DataVizContent mpos={mpos} receivables={receivables} payables={payables}/></RoleGuard>;
+}
+function DataVizContent({mpos,receivables,payables}){
+  const [tab,setTab]=useState("overview");
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+  const recByStatus=[
+    {label:"Collected",value:lR.reduce((a,r)=>a+r.paid,0),color:"#3B6D11"},
+    {label:"Outstanding",value:lR.reduce((a,r)=>a+(r.amount-r.paid),0),color:"#A32D2D"},
+  ].filter(d=>d.value>0);
+  const clientSpend=Object.values(mpos.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=m.amount;return acc;},{})).sort((a,b)=>b.amount-a.amount);
+  return(
+    <div>
+      <div className="tabs">
+        {["overview","heatmap","scatter","cashflow"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}
+      </div>
+      {tab==="overview"&&(
+        <div>
+          <div className="grid2">
+            <div className="card"><div className="card-header"><span className="card-title">Campaign Distribution</span></div><DonutChart data={[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0)} size={148}/></div>
+            <div className="card"><div className="card-header"><span className="card-title">Receivables Status</span></div><DonutChart data={recByStatus} size={148}/></div>
+          </div>
+          <div className="card"><div className="card-header"><span className="card-title">Client Revenue Ranking</span></div><BarChart data={clientSpend.map(c=>({label:c.name.split(" ")[0],value:c.amount}))} height={160} colors={["#534AB7"]}/></div>
+        </div>
+      )}
+      {tab==="heatmap"&&(
+        <div className="card">
+          <div className="card-header"><span className="card-title">MPO Campaign Start Activity Heatmap</span><span style={{fontSize:11,color:"var(--text3)"}}>Campaigns started per weekday × month</span></div>
+          <ActivityHeatmap mpos={mpos}/>
+        </div>
+      )}
+      {tab==="scatter"&&(
+        <div className="card">
+          <div className="card-header"><span className="card-title">Campaign Value vs Duration</span><span style={{fontSize:11,color:"var(--text3)"}}>Each dot = one MPO</span></div>
+          <RevenueScatter mpos={mpos}/>
+          <div style={{marginTop:12,fontSize:11,color:"var(--text3)"}}>Axis: X = campaign duration (days) · Y = campaign value (₦)</div>
+        </div>
+      )}
+      {tab==="cashflow"&&(
+        <div>
+          <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={160} color="#534AB7"/></div>
+          <div className="grid2">
+            <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={[{label:"TV",value:9800000},{label:"Digital",value:5600000},{label:"Print",value:4400000},{label:"Radio",value:2400000}]} height={155} colors={["#534AB7","#3B6D11","#185FA5","#854F0B"]}/></div>
+            <div className="card"><div className="card-header"><span className="card-title">Receivables vs Payables</span></div><BarChart data={[{label:"Billed",values:[lR.reduce((a,r)=>a+r.amount,0),0]},{label:"Collected",values:[lR.reduce((a,r)=>a+r.paid,0),0]},{label:"Payable",values:[0,payables.reduce((a,p)=>a+p.amount,0)]},{label:"Settled",values:[0,payables.reduce((a,p)=>a+p.paid,0)]}]} height={155} colors={["#534AB7","#D85A30"]}/></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══ DASHBOARD ═══ */
+function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
+  const dCcy=settings.defaultCurrency||"NGN";
+  const totalSpend=mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const outstanding=lR.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+  const payDue=lP.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const overBudgetCount=(budgets||[]).filter(b=>{
+    const spent=(payables2||[]).filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);
+    return spent>b.budget;
+  }).length;
+  const donutData=[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
+  const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+  return(
+    <div>
+      {dCcy!=="NGN"&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--text3)"}}>
+        <span>Displaying in</span><span className="rate-tag">{CURRENCIES[dCcy]?.flag} {dCcy}</span>
+        <span>· 1 NGN = {CURRENCIES[dCcy]?.rate?.toFixed(5)} {dCcy}</span>
+      </div>}
+      {onOnboard&&(
+        <div style={{background:"linear-gradient(135deg,var(--brand-light),rgba(83,74,183,.03))",border:"0.5px solid rgba(83,74,183,.2)",borderRadius:"var(--radius-lg)",padding:"14px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+          <div style={{flex:1}}><div style={{fontWeight:600,fontSize:13,color:"var(--brand)"}}>✦ Onboard a new client</div><div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>Guided wizard — client, campaign & invoice in 4 steps</div></div>
+          <button className="btn btn-primary btn-sm" onClick={onOnboard}>Start →</button>
+        </div>
+      )}
+      <div className="stat-grid">
+        <div className="stat-card"><div className="stat-label">Total MPO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{mpos.length} orders</div><div className="trend trend-up">↑ 14%</div></div>
+        <div className="stat-card"><div className="stat-label">Active Campaigns</div><div className="stat-value">{mpos.filter(m=>m.status==="active").length}</div><div className="stat-sub">{mpos.filter(m=>m.status==="pending").length} pending</div></div>
+        <div className="stat-card"><div className="stat-label">Receivables Due</div><div className="stat-value">{fmtK(outstanding,sym)}</div><div className="stat-sub">{lR.filter(r=>r.status==="overdue").length} overdue</div><div className="trend trend-down">↓ action needed</div></div>
+        <div className="stat-card" style={{borderLeft:overBudgetCount>0?"3px solid #A32D2D":"3px solid #F5C97A"}}>
+          <div className="stat-label">Budget Health</div>
+          <div className="stat-value" style={{color:overBudgetCount>0?"#A32D2D":"#3B6D11"}}>{overBudgetCount>0?`${overBudgetCount} over`:"On track"}</div>
+          <div className="stat-sub">{(budgets||[]).length} budgets tracked</div>
+        </div>
+      </div>
+      <div className="grid2">
+        <div className="card"><div className="card-header"><span className="card-title">Campaign Status</span></div><DonutChart data={donutData} size={148}/></div>
+        <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={148} color="#534AB7"/></div>
+      </div>
+      <div className="card">
+        <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
+        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Status</th></tr></thead>
+          <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
+            <tr key={m.id}><td style={{fontFamily:"monospace",fontSize:11}}>{m.id}</td><td style={{fontSize:12}}>{m.client}</td><td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td><td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td><td><span className="rate-tag">{m.currency||"NGN"}</span></td><td><SBadge s={m.status}/></td></tr>
+          ))}</tbody>
+        </table></div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ MPO PAGE ═══ */
+const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
+function MPOPage({mpos,setMpos,clients,toast,user,addAudit,settings,comments,onAddComment}){
+  const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
+  const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
+  const [form,setForm]=useState(EMPO);const [errs,setErrs]=useState({});
+  const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
+  const [docsFor,setDocsFor]=useState(null);
+  const [commentsFor,setCommentsFor]=useState(null);
+  const canEdit=user.permissions.includes("mpo");
+  const dCcy=settings.defaultCurrency||"NGN";
+  const filtered=mpos.filter(m=>{
+    if(tab==="active"&&m.status!=="active")return false;
+    if(tab==="pending"&&m.status!=="pending")return false;
+    if(tab==="completed"&&m.status!=="completed")return false;
+    if(search&&!`${m.client}${m.campaign}${m.vendor}`.toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Required";if(form.start&&form.end&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
+  const openNew=()=>{if(!canEdit)return;setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[]});setEid(m.id);setErrs({});setShowF(true);};
+  const save=()=>{if(!val())return;if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}setShowF(false);};
+  const del=id=>{if(!canEdit||!confirm("Delete?"))return;setMpos(p=>p.filter(m=>m.id!==id));addAudit("deleted","MPO",id,`Deleted ${id}`,"delete");toast("Deleted","error");};
+  const toggleSel=id=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const toggleAll=()=>setSelected(s=>s.size===filtered.length?new Set():new Set(filtered.map(m=>m.id)));
+  const applyBulk=()=>{if(!bulkStatus||!selected.size)return;setMpos(p=>p.map(m=>selected.has(m.id)?{...m,status:bulkStatus}:m));toast(`${selected.size} MPOs → ${bulkStatus}`);setSelected(new Set());setBulkStatus("");};
+  const bulkExport=()=>{const rows=[["ID","Client","Vendor","Campaign","Amount","Currency","Status"],...mpos.filter(m=>selected.has(m.id)).map(m=>[m.id,m.client,m.vendor,m.campaign,m.amount,m.currency||"NGN",m.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="mpo_export.csv";a.click();toast(`Exported ${selected.size}`,"info");};
+  const updateMpoDocs=(id,docs)=>setMpos(p=>p.map(m=>m.id===id?{...m,docs}:m));
+  const mpoForDocs=docsFor?mpos.find(m=>m.id===docsFor):null;
+  return(
+    <div>
+      {showF&&(<Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
+        <div className="form-grid">
+          <FF id="cl" label="Client" error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
+          <FF id="vn" label="Vendor" error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
+        </div>
+        <FF id="cp" label="Campaign"><input id="cp" className="form-input" value={form.campaign} onChange={e=>setForm(f=>({...f,campaign:e.target.value}))}/></FF>
+        <div className="form-grid">
+          <FF id="am" label="Amount" error={errs.amount}><input id="am" className={`form-input ${errs.amount?"error":""}`} type="number" min="0" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></FF>
+          <FF id="ccy" label="Currency"><select id="ccy" className="form-input" value={form.currency} onChange={e=>setForm(f=>({...f,currency:e.target.value}))}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></FF>
+        </div>
+        <div className="form-grid">
+          <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
+          <span/>
+        </div>
+        <div className="form-grid">
+          <FF id="sd" label="Start"><input id="sd" className="form-input" type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
+          <FF id="ed" label="End" error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
+        </div>
+        {form.amount&&!isNaN(form.amount)&&Number(form.amount)>0&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Preview: {fmtCcy(Number(form.amount),form.currency,"NGN")}{form.currency!=="NGN"&&` (${fmtCcy(Number(form.amount),form.currency,form.currency)} ${form.currency})`}</p>}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
+      </Modal>)}
+      {commentsFor&&(<Modal title={`Discussion`} onClose={()=>setCommentsFor(null)} wide>
+        <CommentsPanel entityId={commentsFor} entityLabel={`MPO ${commentsFor} — ${mpos.find(m=>m.id===commentsFor)?.campaign||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
+      </Modal>)}
+      {docsFor&&mpoForDocs&&(<Modal title={`Documents — ${mpoForDocs.id}`} onClose={()=>setDocsFor(null)}>
+        <DocPanel entityId={docsFor} entityDocs={mpoForDocs.docs||[]} onSave={docs=>updateMpoDocs(docsFor,docs)} canEdit={canEdit}/>
+      </Modal>)}
+      <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+        {[{l:"Total",v:mpos.length},{l:"Active",v:mpos.filter(m=>m.status==="active").length},{l:"Pending",v:mpos.filter(m=>m.status==="pending").length},{l:"Value",v:fmtK(mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+      </div>
+      <div className="card">
+        <div className="card-header">
+          <div className="tabs" style={{marginBottom:0}}>{["all","active","pending","completed"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>{canEdit&&<button className="btn btn-primary" onClick={openNew}>+ New MPO</button>}</div>
+        </div>
+        <div className="table-wrap"><table>
+          <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
+          <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={10}>No MPOs found</td></tr>
+          :filtered.map(m=>(
+            <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
+              <td><input type="checkbox" checked={selected.has(m.id)} onChange={()=>toggleSel(m.id)}/></td>
+              <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{m.id}</td>
+              <td>{m.client}</td><td>{m.campaign}</td>
+              <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
+              <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
+              <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
+              <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
+              <td><div className="action-row">
+                <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[m.id]||[]).length})`} onClick={()=>setCommentsFor(m.id)}>💬{(comments[m.id]||[]).length>0&&<span className="collab-badge">{(comments[m.id]||[]).length}</span>}</button>
+                <button className="btn btn-sm btn-ghost" title={`Docs (${(m.docs||[]).length})`} onClick={()=>setDocsFor(m.id)}>📎{(m.docs||[]).length>0&&<span style={{fontSize:9,marginLeft:1}}>{(m.docs||[]).length}</span>}</button>
+                {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(m)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(m.id)}>✕</button></>}
+              </div></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      </div>
+      {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><select className="form-input" style={{width:"auto",padding:"3px 8px",fontSize:12,background:"#333",color:"#fff",border:"0.5px solid #555"}} value={bulkStatus} onChange={e=>setBulkStatus(e.target.value)}><option value="">Set status…</option><option value="active">Active</option><option value="pending">Pending</option><option value="completed">Completed</option></select><button className="btn btn-sm btn-primary" onClick={applyBulk} disabled={!bulkStatus}>Apply</button><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExport}>Export</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
+    </div>
+  );
+}
+
+/* ═══ CLIENTS ═══ */
+const ECLI={name:"",type:"Client",industry:"",contact:"",email:""};
+function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
+  const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
+  const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
+  const [form,setForm]=useState(ECLI);const [errs,setErrs]=useState({});
+  const [selected,setSelected]=useState(new Set());
+  const canEdit=user.permissions.includes("clients");
+  const filtered=clients.filter(r=>{
+    if(tab==="clients"&&r.type!=="Client")return false;
+    if(tab==="vendors"&&r.type!=="Vendor")return false;
+    if(search&&!`${r.name}${r.contact}${r.industry}`.toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+  const val=()=>{const e={};if(!form.name.trim())e.name="Required";if(form.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))e.email="Invalid email";setErrs(e);return!Object.keys(e).length;};
+  const openNew=()=>{if(!canEdit)return;setForm(ECLI);setEid(null);setErrs({});setShowF(true);};
+  const openEdit=r=>{if(!canEdit)return;setForm({name:r.name,type:r.type,industry:r.industry,contact:r.contact,email:r.email});setEid(r.id);setErrs({});setShowF(true);};
+  const save=()=>{if(!val())return;if(eid){setClients(p=>p.map(r=>r.id===eid?{...r,...form}:r));toast("Updated");addAudit("updated","Client",eid,`Updated ${form.name}`,"update");}else{const px=form.type==="Client"?"C":"V";const n=Math.max(0,...clients.filter(c=>c.id.startsWith(px)).map(c=>parseInt(c.id.slice(1))||0))+1;const newId=`${px}${String(n).padStart(3,"0")}`;setClients(p=>[...p,{id:newId,...form,spend:0,status:"active"}]);toast(`${form.type} added`);addAudit("created","Client",newId,`Added ${form.name}`,"create");}setShowF(false);};
+  const del=id=>{if(!canEdit||!confirm("Delete?"))return;const r=clients.find(c=>c.id===id);setClients(p=>p.filter(c=>c.id!==id));addAudit("deleted","Client",id,`Deleted ${r?.name}`,"delete");toast("Deleted","error");};
+  const toggleSel=id=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const toggleAll=()=>setSelected(s=>s.size===filtered.length?new Set():new Set(filtered.map(r=>r.id)));
+  const bulkExport=()=>{const rows=[["ID","Name","Type","Industry","Contact","Email"],...clients.filter(c=>selected.has(c.id)).map(c=>[c.id,c.name,c.type,c.industry,c.contact,c.email])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="clients.csv";a.click();toast(`Exported`,"info");};
+  return(
+    <div>
+      {showF&&(<Modal title={eid?"Edit":"Add"} onClose={()=>setShowF(false)}>
+        <FF id="tp" label="Type"><select id="tp" className="form-input" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}><option>Client</option><option>Vendor</option></select></FF>
+        <FF id="nm" label="Name" error={errs.name}><input id="nm" className={`form-input ${errs.name?"error":""}`} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></FF>
+        <div className="form-grid"><FF id="in" label="Industry"><input id="in" className="form-input" value={form.industry} onChange={e=>setForm(f=>({...f,industry:e.target.value}))}/></FF><FF id="co" label="Contact"><input id="co" className="form-input" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))}/></FF></div>
+        <FF id="em" label="Email" error={errs.email}><input id="em" type="email" className={`form-input ${errs.email?"error":""}`} value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></FF>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Add"}</button></div>
+      </Modal>)}
+      <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+        {[{l:"Clients",v:clients.filter(r=>r.type==="Client").length},{l:"Vendors",v:clients.filter(r=>r.type==="Vendor").length},{l:"Active",v:clients.filter(r=>r.status==="active").length},{l:"Spend",v:fmtK(clients.filter(r=>r.type==="Client").reduce((a,r)=>a+r.spend,0))}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+      </div>
+      <div className="card">
+        <div className="card-header"><div className="tabs" style={{marginBottom:0}}>{["all","clients","vendors"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div><div style={{display:"flex",gap:8}}><div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>{onOnboard&&canEdit&&<button className="btn btn-sm" style={{background:"#EAF3DE",color:"#3B6D11",borderColor:"rgba(59,109,17,.2)"}} onClick={onOnboard}>✦ Onboard</button>}{canEdit&&<button className="btn btn-primary" onClick={openNew}>+ Add</button>}</div></div>
+        <div className="table-wrap"><table>
+          <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>Name</th><th>Type</th><th>Industry</th><th>Contact</th><th>Email</th><th>Status</th><th></th></tr></thead>
+          <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={8}>No records</td></tr>
+          :filtered.map(r=>(
+            <tr key={r.id} style={{background:selected.has(r.id)?"var(--brand-light)":""}}>
+              <td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>
+              <td><div style={{display:"flex",alignItems:"center",gap:8}}><div className="avatar">{r.name.slice(0,2).toUpperCase()}</div><span style={{fontWeight:500}}>{r.name}</span></div></td>
+              <td><span className={`badge ${r.type==="Client"?"badge-purple":"badge-blue"}`}>{r.type}</span></td>
+              <td style={{color:"var(--text2)"}}>{r.industry}</td><td>{r.contact}</td>
+              <td style={{color:"var(--text2)",fontSize:12}}><a href={`mailto:${r.email}`} style={{color:"inherit"}}>{r.email}</a></td>
+              <td><SBadge s={r.status}/></td>
+              <td><div className="action-row">{canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(r)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(r.id)}>✕</button></>}</div></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      </div>
+      {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExport}>Export CSV</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
+    </div>
+  );
+}
+
+/* ═══ CALENDAR ═══ */
+function CalendarPage({mpos}){
+  const now=new Date();
+  const [vy,setVy]=useState(now.getFullYear());const [vm,setVm]=useState(now.getMonth());
+  const [mode,setMode]=useState("month");const [sel,setSel]=useState(null);
+  const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const fd=new Date(vy,vm,1).getDay(),dim=new Date(vy,vm+1,0).getDate(),pmd=new Date(vy,vm,0).getDate();
+  const cells=[];
+  for(let i=fd-1;i>=0;i--) cells.push({day:pmd-i,other:true,date:null});
+  for(let d=1;d<=dim;d++){const ds=`${vy}-${String(vm+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;cells.push({day:d,other:false,date:ds,isToday:ds===todayStr});}
+  while(cells.length%7!==0) cells.push({day:cells.length-dim-fd+1,other:true,date:null});
+  const evtsFor=date=>mpos.filter(m=>m.start<=date&&m.end>=date);
+  const ts2=`${vy}-${String(vm+1).padStart(2,"0")}-01`,te2=new Date(vy,vm+1,0).toISOString().slice(0,10);
+  const tmMpos=mpos.filter(m=>m.end>=ts2&&m.start<=te2);
+  const dayPct=d=>Math.max(0,Math.min(100,(new Date(d)-new Date(ts2))/864e5/dim*100));
+  const bLeft=m=>dayPct(m.start>ts2?m.start:ts2)+"%";
+  const bWidth=m=>{const s=m.start<ts2?ts2:m.start,e=m.end>te2?te2:m.end,days=(new Date(e)-new Date(s))/864e5+1;return Math.max(1,days/dim*100)+"%";};
+  const prev=()=>{if(vm===0){setVm(11);setVy(y=>y-1);}else setVm(m=>m-1);};
+  const next=()=>{if(vm===11){setVm(0);setVy(y=>y+1);}else setVm(m=>m+1);};
+  return(
+    <div>
+      {sel&&(<Modal title="Campaign Details" onClose={()=>setSel(null)}>
+        {[["ID",sel.id],["Client",sel.client],["Campaign",sel.campaign],["Vendor",sel.vendor],["Amount",fmt(sel.amount)+" "+(sel.currency||"NGN")],["Period",`${sel.start} → ${sel.end}`],["Status",sel.status],["Channel",sel.channel||"—"]].map(([k,v])=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"var(--border)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
+        ))}
+      </Modal>)}
+      <div className="card">
+        <div className="card-header">
+          <div style={{display:"flex",alignItems:"center",gap:12,flex:1}}>
+            <button className="btn btn-sm" onClick={prev}>‹</button>
+            <span style={{fontWeight:600,fontSize:15,flex:1,textAlign:"center"}}>{MONTHS[vm]} {vy}</span>
+            <button className="btn btn-sm" onClick={next}>›</button>
+            <button className="btn btn-sm btn-ghost" onClick={()=>{setVy(now.getFullYear());setVm(now.getMonth());}}>Today</button>
+          </div>
+          <div className="tabs" style={{marginBottom:0}}><button className={`tab ${mode==="month"?"active":""}`} onClick={()=>setMode("month")}>Month</button><button className={`tab ${mode==="timeline"?"active":""}`} onClick={()=>setMode("timeline")}>Timeline</button></div>
+        </div>
+        {mode==="month"&&(<><div className="cal-grid">{DAYS.map(d=><div key={d} className="cal-header-cell">{d}</div>)}</div><div className="cal-grid" style={{marginTop:4}}>{cells.map((c,i)=>{const evts=c.date?evtsFor(c.date):[];return(<div key={i} className={`cal-cell ${c.other?"other-month":""} ${c.isToday?"today":""}`}><div className="cal-day-num"><span className={c.isToday?"today-num":""}>{c.day}</span></div>{evts.slice(0,2).map(m=><div key={m.id} className="cal-event" style={{background:CH_COLORS[m.channel]||"#534AB7",color:"#fff"}} onClick={()=>setSel(m)}>{m.campaign.substring(0,12)}</div>)}{evts.length>2&&<div style={{fontSize:9,color:"var(--text3)"}}>+{evts.length-2}</div>}</div>);})}</div></>)}
+        {mode==="timeline"&&(<div>
+          <div style={{display:"flex",marginBottom:8,paddingLeft:132}}>{[1,8,15,22,29].filter(d=>d<=dim).map(d=><div key={d} style={{flex:1,fontSize:9,color:"var(--text3)",borderLeft:"0.5px solid var(--border-c)",paddingLeft:3}}>{d}</div>)}</div>
+          {tmMpos.length===0?<div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No campaigns this month</div>
+          :tmMpos.map(m=><div key={m.id} style={{display:"flex",alignItems:"center",marginBottom:6}}><div className="timeline-label" title={m.client}>{m.client}</div><div className="timeline-track"><div className="timeline-bar" style={{left:bLeft(m),width:bWidth(m),background:CH_COLORS[m.channel]||"#534AB7"}} onClick={()=>setSel(m)}>{m.campaign.substring(0,18)}</div></div></div>)}
+          <div style={{display:"flex",gap:12,marginTop:12,flexWrap:"wrap"}}>{Object.entries(CH_COLORS).map(([ch,c])=><div key={ch} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:10,height:10,borderRadius:2,background:c}}/>{ch}</div>)}</div>
+        </div>)}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ FINANCE ═══ */
+function printInvoice(inv,settings={}){
+  const bal=inv.amount-inv.paid;const sl=bal<=0?"PAID":bal<inv.amount?"PARTIAL":"UNPAID";
+  const sc=bal<=0?"#3B6D11":bal<inv.amount?"#854F0B":"#A32D2D";const sb=bal<=0?"#EAF3DE":bal<inv.amount?"#FAEEDA":"#FCEBEB";
+  const sym=CURRENCIES[inv.currency||"NGN"]?.symbol||"₦";
+  const fmtAmt=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
+  const taxAmt=bal*(settings.taxRate||7.5)/100;
+  const html=`<!DOCTYPE html><html><head><title>Invoice ${inv.id}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui;color:#1a1a1a;padding:48px;max-width:700px;margin:auto;font-size:13px}.hdr{display:flex;justify-content:space-between;margin-bottom:40px}.brand{font-size:22px;font-weight:800;color:#534AB7}.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${sb};color:${sc};margin-top:6px}hr{border:none;border-top:1px solid #eee;margin:24px 0}.parties{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:32px}table{width:100%;border-collapse:collapse;margin-bottom:28px}th{text-align:left;font-size:11px;color:#999;padding:8px 12px;background:#f8f8f6;border-bottom:1px solid #eee}td{padding:11px 12px;border-bottom:1px solid #f4f4f4}.totals{margin-left:auto;width:280px;border:1px solid #eee;border-radius:8px;overflow:hidden}.trow{display:flex;justify-content:space-between;padding:9px 16px;border-bottom:1px solid #f4f4f4}.trow:last-child{background:#f8f8f6;font-weight:700;font-size:14px;color:${sc}}.footer{margin-top:48px;font-size:11px;color:#bbb;text-align:center;border-top:1px solid #f0f0f0;padding-top:16px}</style></head><body><div class="hdr"><div><div class="brand">${settings.companyName||"MediaHub"}</div><div style="font-size:11px;color:#aaa;margin-top:3px">${settings.tagline||"Media Agency Platform · Lagos, Nigeria"}</div></div><div style="text-align:right"><h1 style="font-size:26px;color:#534AB7;font-weight:800">INVOICE</h1><p style="font-size:12px;color:#666;margin-top:3px"><b>${inv.id}</b></p><p style="font-size:12px;color:#666;margin-top:3px">Due: ${inv.due}</p><div class="badge">${sl}</div></div></div><hr/><div class="parties"><div><div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Bill To</div><div style="font-size:15px;font-weight:700">${inv.client}</div></div><div><div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Issued By</div><div style="font-size:15px;font-weight:700">${settings.companyName||"MediaHub"}</div><div style="font-size:12px;color:#777">${settings.address||"Lagos, Nigeria"}</div></div></div><table><thead><tr><th>Description</th><th>MPO Ref</th><th style="text-align:right">Amount</th></tr></thead><tbody><tr><td>Media placement services</td><td style="font-family:monospace">${inv.mpo}</td><td style="text-align:right;font-weight:600">${fmtAmt(inv.amount)}</td></tr></tbody></table><div class="totals"><div class="trow"><span>Subtotal</span><span>${fmtAmt(inv.amount)}</span></div><div class="trow"><span>VAT (${settings.taxRate||7.5}%)</span><span>${fmtAmt(taxAmt)}</span></div><div class="trow"><span>Received</span><span style="color:#3B6D11">${fmtAmt(inv.paid)}</span></div><div class="trow"><span>${bal>0?"Balance Due":"Fully Paid"}</span><span>${fmtAmt(Math.abs(bal)+taxAmt)}</span></div></div><div class="footer">Payment Terms: Net ${settings.paymentTerms||30} · ${settings.companyEmail||""} · Generated by ${settings.companyName||"MediaHub"}</div></body></html>`;
+  const w=window.open("","_blank","width=780,height=920");w.document.write(html);w.document.close();w.onload=()=>w.print();
+}
+
+const EINV={client:"",mpo:"",amount:"",due:"",currency:"NGN",docs:[]};
+const EPAY={vendor:"",mpo:"",amount:"",due:"",description:"",currency:"NGN"};
+function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clients,toast,user,addAudit,settings,comments,onAddComment}){
+  const [mainTab,setMainTab]=useState("receivables");
+  const [recTab,setRecTab]=useState("all");const [payTab,setPayTab]=useState("all");
+  const [logId,setLogId]=useState(null);const [logMode,setLogMode]=useState("rec");const [logAmt,setLogAmt]=useState("");
+  const [showInv,setShowInv]=useState(false);const [invF,setInvF]=useState({...EINV,currency:settings.defaultCurrency||"NGN"});const [invE,setInvE]=useState({});
+  const [showPay,setShowPay]=useState(false);const [payF,setPayF]=useState({...EPAY,currency:settings.defaultCurrency||"NGN"});const [payE,setPayE]=useState({});
+  const [selected,setSelected]=useState(new Set());
+  const [docsFor,setDocsFor]=useState(null);
+  const [commentsFor,setCommentsFor]=useState(null);
+  const canEdit=user.permissions.includes("finance");
+  const dCcy=settings.defaultCurrency||"NGN";
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
+  const fR=recTab==="all"?lR:lR.filter(r=>r.status===recTab);
+  const fP=payTab==="all"?lP:lP.filter(p=>p.status===payTab);
+  const rOut=lR.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+  const rCol=lR.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
+  const rRate=rCol+rOut>0?Math.round(rCol/(rCol+rOut)*100):0;
+  const pOwed=lP.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const pSet=lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0);
+  const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const openLog=(id,mode)=>{setLogId(id);setLogMode(mode);setLogAmt("");};
+  const doLog=()=>{const amt=Number(logAmt);if(!amt||amt<=0)return;if(logMode==="rec"){setReceivables(p=>p.map(r=>r.id===logId?{...r,paid:Math.min(r.paid+amt,r.amount)}:r));addAudit("logged payment","Invoice",logId,`Logged ${fmt(amt)} on ${logId}`,"payment");toast("Payment logged");}else{setPayables(p=>p.map(r=>r.id===logId?{...r,paid:Math.min(r.paid+amt,r.amount)}:r));toast("Vendor payment logged");}setLogId(null);};
+  const advanceWf=inv=>{const next=WF_NEXT[inv.wfStatus];if(!next)return;setReceivables(p=>p.map(r=>r.id===inv.id?{...r,wfStatus:next}:r));addAudit("advanced workflow","Invoice",inv.id,`${inv.id}: ${WF_LABELS[inv.wfStatus]} → ${WF_LABELS[next]}`,"workflow");toast(`${inv.id} → ${WF_LABELS[next]}`);};
+  const valInv=()=>{const e={};if(!invF.client.trim())e.client="Required";if(!invF.mpo.trim())e.mpo="Required";if(!invF.amount||isNaN(invF.amount)||Number(invF.amount)<=0)e.amount="Required";if(!invF.due)e.due="Required";setInvE(e);return!Object.keys(e).length;};
+  const createInv=()=>{if(!valInv())return;const newId=nextId(receivables,"INV");setReceivables(p=>[...p,{id:newId,...invF,amount:Number(invF.amount),paid:0,wfStatus:"draft",docs:[]}]);addAudit("created","Invoice",newId,`Created ${newId} for ${invF.client}`,"create");toast("Invoice created");setInvF({...EINV,currency:dCcy});setShowInv(false);};
+  const valPay=()=>{const e={};if(!payF.vendor.trim())e.vendor="Required";if(!payF.mpo.trim())e.mpo="Required";if(!payF.amount||isNaN(payF.amount)||Number(payF.amount)<=0)e.amount="Required";if(!payF.due)e.due="Required";setPayE(e);return!Object.keys(e).length;};
+  const createPay=()=>{if(!valPay())return;setPayables(p=>[...p,{id:nextId(payables,"PAY"),...payF,amount:Number(payF.amount),paid:0,docs:[]}]);toast("Payable recorded");setPayF({...EPAY,currency:dCcy});setShowPay(false);};
+  const updateRecDocs=(id,docs)=>setReceivables(p=>p.map(r=>r.id===id?{...r,docs}:r));
+  const logItem=logId?(logMode==="rec"?lR.find(r=>r.id===logId):lP.find(r=>r.id===logId)):null;
+  const cur=mainTab==="receivables"?fR:fP;
+  const toggleSel=id=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const toggleAll=()=>setSelected(s=>s.size===cur.length?new Set():new Set(cur.map(r=>r.id)));
+  const docInv=docsFor?lR.find(r=>r.id===docsFor):null;
+  return(
+    <div>
+      {logId&&(<Modal title="Log Payment" onClose={()=>setLogId(null)}>
+        {logItem&&<div style={{marginBottom:14,padding:"10px 12px",background:"var(--bg3)",borderRadius:8,fontSize:12}}><strong>{logItem.client||logItem.vendor}</strong> · {logItem.id} · Balance: <strong style={{color:"#A32D2D"}}>{fmtCcy(logItem.amount-logItem.paid,logItem.currency||"NGN",dCcy)}</strong></div>}
+        <FF id="la" label="Amount"><input id="la" className="form-input" type="number" min="0" value={logAmt} onChange={e=>setLogAmt(e.target.value)}/></FF>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:12}}><button className="btn" onClick={()=>setLogId(null)}>Cancel</button><button className="btn btn-primary" onClick={doLog}>Confirm</button></div>
+      </Modal>)}
+      {showInv&&(<Modal title="Create Invoice" onClose={()=>setShowInv(false)}>
+        <FF id="ic" label="Client" error={invE.client}><select id="ic" className={`form-input ${invE.client?"error":""}`} value={invF.client} onChange={e=>setInvF(f=>({...f,client:e.target.value}))}><option value="">— Select —</option>{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select></FF>
+        <FF id="im" label="MPO" error={invE.mpo}><select id="im" className={`form-input ${invE.mpo?"error":""}`} value={invF.mpo} onChange={e=>setInvF(f=>({...f,mpo:e.target.value}))}><option value="">— Select —</option>{mpos.map(m=><option key={m.id} value={m.id}>{m.id} · {m.client}</option>)}</select></FF>
+        <div className="form-grid">
+          <FF id="ia" label="Amount" error={invE.amount}><input id="ia" className={`form-input ${invE.amount?"error":""}`} type="number" min="0" value={invF.amount} onChange={e=>setInvF(f=>({...f,amount:e.target.value}))}/></FF>
+          <FF id="iccy" label="Currency"><select id="iccy" className="form-input" value={invF.currency} onChange={e=>setInvF(f=>({...f,currency:e.target.value}))}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></FF>
+        </div>
+        <FF id="id2" label="Due Date" error={invE.due}><input id="id2" className={`form-input ${invE.due?"error":""}`} type="date" value={invF.due} onChange={e=>setInvF(f=>({...f,due:e.target.value}))}/></FF>
+        {invF.amount&&!isNaN(invF.amount)&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Preview: {fmtCcy(Number(invF.amount),invF.currency,dCcy)}</p>}
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowInv(false)}>Cancel</button><button className="btn btn-primary" onClick={createInv}>Create</button></div>
+      </Modal>)}
+      {showPay&&(<Modal title="Record Payable" onClose={()=>setShowPay(false)}>
+        <FF id="pv" label="Vendor" error={payE.vendor}><select id="pv" className={`form-input ${payE.vendor?"error":""}`} value={payF.vendor} onChange={e=>setPayF(f=>({...f,vendor:e.target.value}))}><option value="">— Select —</option>{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select></FF>
+        <FF id="pm" label="MPO" error={payE.mpo}><select id="pm" className={`form-input ${payE.mpo?"error":""}`} value={payF.mpo} onChange={e=>setPayF(f=>({...f,mpo:e.target.value}))}><option value="">— Select —</option>{mpos.map(m=><option key={m.id} value={m.id}>{m.id} · {m.vendor}</option>)}</select></FF>
+        <FF id="pd" label="Description"><input id="pd" className="form-input" value={payF.description} onChange={e=>setPayF(f=>({...f,description:e.target.value}))}/></FF>
+        <div className="form-grid">
+          <FF id="pa" label="Amount" error={payE.amount}><input id="pa" className={`form-input ${payE.amount?"error":""}`} type="number" min="0" value={payF.amount} onChange={e=>setPayF(f=>({...f,amount:e.target.value}))}/></FF>
+          <FF id="pccy" label="Currency"><select id="pccy" className="form-input" value={payF.currency} onChange={e=>setPayF(f=>({...f,currency:e.target.value}))}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></FF>
+        </div>
+        <FF id="pdd" label="Due Date" error={payE.due}><input id="pdd" className={`form-input ${payE.due?"error":""}`} type="date" value={payF.due} onChange={e=>setPayF(f=>({...f,due:e.target.value}))}/></FF>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowPay(false)}>Cancel</button><button className="btn btn-primary" onClick={createPay}>Record</button></div>
+      </Modal>)}
+      {commentsFor&&(<Modal title="Discussion" onClose={()=>setCommentsFor(null)} wide>
+        <CommentsPanel entityId={commentsFor} entityLabel={`Invoice ${commentsFor} — ${lR.find(r=>r.id===commentsFor)?.client||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
+      </Modal>)}
+      {docsFor&&docInv&&(<Modal title={`Documents — ${docInv.id}`} onClose={()=>setDocsFor(null)}>
+        <DocPanel entityId={docsFor} entityDocs={docInv.docs||[]} onSave={docs=>updateRecDocs(docsFor,docs)} canEdit={canEdit}/>
+      </Modal>)}
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
+        <div className="tabs" style={{marginBottom:0}}>
+          <button className={`tab ${mainTab==="receivables"?"active":""}`} onClick={()=>{setMainTab("receivables");setSelected(new Set());}}>💰 Receivables</button>
+          <button className={`tab ${mainTab==="payables"?"active":""}`} onClick={()=>{setMainTab("payables");setSelected(new Set());}}>🧾 Payables</button>
+        </div>
+        {canEdit&&(mainTab==="receivables"?<button className="btn btn-primary btn-sm" onClick={()=>setShowInv(true)}>+ New Invoice</button>:<button className="btn btn-sm" style={{background:"#FFF4E5",color:"#8B4500",borderColor:"#F5C97A"}} onClick={()=>setShowPay(true)}>+ Record Payable</button>)}
+      </div>
+      {dCcy!=="NGN"&&<div style={{fontSize:11,color:"var(--text3)",marginBottom:12}}>Values shown in {CURRENCIES[dCcy]?.flag} {dCcy} · Converted at indicative rates</div>}
+
+      {mainTab==="receivables"&&(<div>
+        {/* WF pipeline */}
+        {user.permissions.includes("invoice-wf")&&(
+          <div className="card" style={{marginBottom:16}}>
+            <div className="card-header"><span className="card-title">Invoice Pipeline</span></div>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+              {WF_STEPS.map(s=>{const count=lR.filter(r=>r.wfStatus===s).length;return(
+                <div key={s} style={{flex:1,minWidth:80,background:"var(--bg3)",borderRadius:8,padding:"10px 14px",textAlign:"center"}}>
+                  <div style={{fontSize:20,fontWeight:700}}>{count}</div><WFBadge s={s}/>
+                </div>
+              );})}
+            </div>
+          </div>
+        )}
+        <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+          {[{l:"Outstanding",v:fmtK(rOut,sym)},{l:"Collected",v:fmtK(rCol,sym)},{l:"Overdue",v:lR.filter(r=>r.status==="overdue").length},{l:"Rate",v:`${rRate}%`}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+        </div>
+        <div className="card">
+          <div className="card-header"><div className="tabs" style={{marginBottom:0}}>{["all","paid","partial","overdue","pending"].map(t=><button key={t} className={`tab ${recTab===t?"active":""}`} onClick={()=>setRecTab(t)}>{t}</button>)}</div></div>
+          <div className="table-wrap"><table>
+            <thead><tr><th><input type="checkbox" checked={selected.size===fR.length&&fR.length>0} onChange={toggleAll}/></th><th>Invoice</th><th>Client</th><th>Amount</th><th>CCY</th><th>Paid</th><th>Balance</th><th>Due</th><th>Status</th><th>Workflow</th><th></th></tr></thead>
+            <tbody>{fR.length===0?<tr className="empty-row"><td colSpan={11}>No invoices</td></tr>
+            :fR.map(r=>(
+              <tr key={r.id} style={{background:selected.has(r.id)?"var(--brand-light)":""}}>
+                <td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>
+                <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{r.id}</td>
+                <td>{r.client}</td>
+                <td style={{fontWeight:500}}>{fmtCcy(r.amount,r.currency||"NGN",dCcy)}</td>
+                <td><span className="rate-tag">{r.currency||"NGN"}</span></td>
+                <td style={{color:"var(--text2)"}}>{fmtCcy(r.paid,r.currency||"NGN",dCcy)}</td>
+                <td style={{fontWeight:500,color:r.amount-r.paid>0?"#A32D2D":"#3B6D11"}}>{fmtCcy(r.amount-r.paid,r.currency||"NGN",dCcy)}</td>
+                <td style={{fontSize:12,color:r.status==="overdue"?"#A32D2D":"var(--text2)"}}>{r.due}</td>
+                <td><SBadge s={r.status}/></td>
+                <td><WFBadge s={r.wfStatus||"draft"}/></td>
+                <td><div className="action-row">
+                  {r.status!=="paid"&&canEdit&&<button className="btn btn-sm" onClick={()=>openLog(r.id,"rec")}>Pay</button>}
+                  {canEdit&&WF_NEXT[r.wfStatus]&&<button className="btn btn-sm btn-ghost" onClick={()=>advanceWf(r)}>→{WF_LABELS[WF_NEXT[r.wfStatus]]}</button>}
+                  <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[r.id]||[]).length})`} onClick={()=>setCommentsFor(r.id)}>💬{(comments[r.id]||[]).length>0&&<span className="collab-badge">{(comments[r.id]||[]).length}</span>}</button>
+                  <button className="btn btn-sm btn-ghost" title={`Docs (${(r.docs||[]).length})`} onClick={()=>setDocsFor(r.id)}>📎{(r.docs||[]).length>0&&<span style={{fontSize:9}}>{(r.docs||[]).length}</span>}</button>
+                  <button className="btn btn-sm btn-ghost" onClick={()=>printInvoice(r,settings)}>🖨</button>
+                </div></td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </div>
+      </div>)}
+      {mainTab==="payables"&&(<div>
+        <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+          {[{l:"Owed",v:fmtK(pOwed,sym)},{l:"Settled",v:fmtK(pSet,sym)},{l:"Overdue",v:lP.filter(p=>p.status==="overdue").length},{l:"Rate",v:`${pOwed+pSet>0?Math.round(pSet/(pOwed+pSet)*100):0}%`}].map(s=><div key={s.l} className="stat-card" style={{borderLeft:"3px solid #F5C97A"}}><div className="stat-label">{s.l}</div><div className="stat-value" style={{color:"#8B4500"}}>{s.v}</div></div>)}
+        </div>
+        <div className="card">
+          <div className="card-header"><div className="tabs" style={{marginBottom:0}}>{["all","paid","partial","overdue","pending"].map(t=><button key={t} className={`tab ${payTab===t?"active":""}`} onClick={()=>setPayTab(t)}>{t}</button>)}</div></div>
+          <div className="table-wrap"><table>
+            <thead><tr><th><input type="checkbox" checked={selected.size===fP.length&&fP.length>0} onChange={toggleAll}/></th><th>ID</th><th>Vendor</th><th>Desc</th><th>Amount</th><th>CCY</th><th>Paid</th><th>Balance</th><th>Due</th><th>Status</th><th></th></tr></thead>
+            <tbody>{fP.length===0?<tr className="empty-row"><td colSpan={11}>No payables</td></tr>
+            :fP.map(p=>(
+              <tr key={p.id} style={{background:selected.has(p.id)?"#fff8ec":""}}>
+                <td><input type="checkbox" checked={selected.has(p.id)} onChange={()=>toggleSel(p.id)}/></td>
+                <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{p.id}</td>
+                <td>{p.vendor}</td><td style={{fontSize:12,color:"var(--text2)"}}>{p.description}</td>
+                <td style={{fontWeight:500}}>{fmtCcy(p.amount,p.currency||"NGN",dCcy)}</td>
+                <td><span className="rate-tag">{p.currency||"NGN"}</span></td>
+                <td style={{color:"var(--text2)"}}>{fmtCcy(p.paid,p.currency||"NGN",dCcy)}</td>
+                <td style={{fontWeight:500,color:p.amount-p.paid>0?"#8B4500":"#3B6D11"}}>{fmtCcy(p.amount-p.paid,p.currency||"NGN",dCcy)}</td>
+                <td style={{fontSize:12,color:p.status==="overdue"?"#A32D2D":"var(--text2)"}}>{p.due}</td>
+                <td><SBadge s={p.status}/></td>
+                <td>{p.status!=="paid"&&canEdit&&<button className="btn btn-sm" style={{background:"#FFF4E5",color:"#8B4500",borderColor:"#F5C97A"}} onClick={()=>openLog(p.id,"pay")}>Mark paid</button>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </div>
+      </div>)}
+      {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={()=>{const src=mainTab==="receivables"?lR:lP;const rows=[["ID","Party","Amount","Currency","Due","Status"],...src.filter(r=>selected.has(r.id)).map(r=>[r.id,r.client||r.vendor,r.amount,r.currency||"NGN",r.due,r.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="finance.csv";a.click();toast("Exported","info");setSelected(new Set());}}>Export CSV</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
+    </div>
+  );
+}
+
+/* ═══ REPORTS ═══ */
+function ReportsPage({mpos,receivables,payables,settings}){
+  const [tab,setTab]=useState("summary");const [from,setFrom]=useState("");const [to,setTo]=useState("");
+  const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const fM=mpos.filter(m=>(!from||m.start>=from)&&(!to||m.end<=to));
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)})).filter(r=>(!from||r.due>=from)&&(!to||r.due<=to));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)})).filter(p=>(!from||p.due>=from)&&(!to||p.due<=to));
+  const tB=lR.reduce((a,r)=>a+convertAmt(r.amount,r.currency||"NGN",dCcy),0);
+  const tPd=lR.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
+  const cPct=tB>0?Math.round(tPd/tB*100):0;
+  const cSpend=Object.values(fM.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
+  const sDist=[{label:"Active",value:fM.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:fM.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:fM.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
+  const rDonut=[{label:"Collected",value:tPd,color:"#3B6D11"},{label:"Outstanding",value:Math.max(0,tB-tPd),color:"#A32D2D"}].filter(d=>d.value>0);
+  const exportCSV=()=>{const rows=[["Type","ID","Party","MPO","Amount","Currency","Paid","Balance","Due","Status"],...lR.map(r=>["Rec",r.id,r.client,r.mpo,r.amount,r.currency||"NGN",r.paid,r.amount-r.paid,r.due,r.status]),...lP.map(p=>["Pay",p.id,p.vendor,p.mpo,p.amount,p.currency||"NGN",p.paid,p.amount-p.paid,p.due,p.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="report.csv";a.click();};
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,color:"var(--text3)"}}>Period:</span>
+          <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={from} onChange={e=>setFrom(e.target.value)}/>
+          <span style={{fontSize:12,color:"var(--text3)"}}>to</span>
+          <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={to} onChange={e=>setTo(e.target.value)}/>
+          {(from||to)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setFrom("");setTo("");}}>Clear</button>}
+        </div>
+        <button className="btn btn-primary" onClick={exportCSV}>Export CSV</button>
+      </div>
+      <div className="tabs">{["summary","by-client","by-channel","cash-flow"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t.replace("-"," ")}</button>)}</div>
+      {tab==="summary"&&(<div className="grid2">
+        <div className="card"><div className="card-header"><span className="card-title">MPO Status</span></div>{sDist.length>0?<DonutChart data={sDist} size={145}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}</div>
+        <div className="card"><div className="card-header"><span className="card-title">Receivables</span></div>{rDonut.length>0?<DonutChart data={rDonut} size={145}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
+          <div style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--text2)",marginBottom:4}}><span>Collection rate</span><strong>{cPct}%</strong></div><div className="progress-bar"><div className="progress-fill" style={{width:`${cPct}%`}}/></div></div>
+        </div>
+      </div>)}
+      {tab==="by-client"&&(<div className="card"><div className="card-header"><span className="card-title">MPO Value by Client</span></div>{cSpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>:<BarChart data={cSpend.map(c=>({label:c.name.split(" ")[0],value:c.amount}))} height={180} colors={["#534AB7"]}/> }</div>)}
+      {tab==="by-channel"&&(<div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={[{label:"TV",value:9800000},{label:"Digital",value:5600000},{label:"Print",value:4400000},{label:"Radio",value:2400000}]} height={180} colors={["#534AB7","#3B6D11","#185FA5","#854F0B"]}/></div>)}
+      {tab==="cash-flow"&&(<div className="grid2">
+        <div className="card"><div className="card-header"><span className="card-title">Rec vs Pay</span></div><BarChart data={[{label:"Billed",values:[tB,0]},{label:"Collected",values:[tPd,0]},{label:"Payable",values:[0,lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0)]},{label:"Settled",values:[0,lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0)]}]} height={175} colors={["#534AB7","#D85A30"]}/></div>
+        <div className="card"><div className="card-header"><span className="card-title">Net Position ({sym})</span></div>
+          {[{l:"Total Billed",v:fmtK(tB,sym),c:"var(--text)"},{l:"Collected",v:fmtK(tPd,sym),c:"#3B6D11"},{l:"Total Payable",v:fmtK(lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0),sym),c:"#8B4500"},{l:"Net Cash",v:fmtK(tPd-lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0),sym),c:(tPd-lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0))>=0?"#3B6D11":"#A32D2D"}].map(s=>(
+            <div key={s.l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:"var(--border)"}}><span style={{fontSize:13,color:"var(--text2)"}}>{s.l}</span><span style={{fontSize:13,fontWeight:700,color:s.c}}>{s.v}</span></div>
+          ))}
+        </div>
+      </div>)}
+    </div>
+  );
+}
+
+/* ═══ ANALYTICS ═══ */
+function AnalyticsPage({mpos,receivables,payables,user,settings}){
+  return <RoleGuard user={user} require="analytics"><AnalyticsContent mpos={mpos} receivables={receivables} payables={payables} settings={settings}/></RoleGuard>;
+}
+function AnalyticsContent({mpos,receivables,payables,settings}){
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const KPI={revenue:25000000,collection:90,campaigns:8,newClients:4};
+  const actual={revenue:mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),collection:lR.length?Math.round(lR.reduce((a,r)=>a+r.paid,0)/lR.reduce((a,r)=>a+r.amount,0)*100):0,campaigns:mpos.filter(m=>m.status==="active").length,newClients:3};
+  const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+  const avg3=monthly.slice(-3).reduce((a,m)=>a+m.value,0)/3;
+  const forecast=[{label:"Jul*",value:Math.round(avg3*1.08)},{label:"Aug*",value:Math.round(avg3*1.14)},{label:"Sep*",value:Math.round(avg3*1.20)}];
+  const cShare=Object.values(mpos.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
+  const KPICard=({label,actual:a,target,unit})=>{const pct=Math.min(Math.round(a/target*100),100);const met=a>=target;return(
+    <div className="kpi-card"><div className="kpi-target-line" style={{background:met?"#3B6D11":"#D85A30"}}/><div style={{fontSize:11,color:"var(--text3)",marginBottom:4}}>{label}</div><div style={{fontSize:22,fontWeight:700,color:met?"#3B6D11":"var(--text)"}}>{unit==="₦"?fmtK(a,sym):a}{unit!=="₦"&&unit}</div><div style={{fontSize:11,color:"var(--text3)",marginBottom:8}}>Target: {unit==="₦"?fmtK(target,sym):target}{unit!=="₦"&&unit}</div><div className="progress-bar"><div className="progress-fill" style={{width:`${pct}%`,background:met?"#3B6D11":"var(--brand)"}}/></div><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text3)",marginTop:4}}><span>{pct}%</span><span style={{color:met?"#3B6D11":"#854F0B"}}>{met?"✓ Met":"In progress"}</span></div></div>);};
+  return(
+    <div>
+      <div className="grid2" style={{marginBottom:16}}>
+        <KPICard label="Revenue Target" actual={actual.revenue} target={KPI.revenue} unit="₦"/>
+        <KPICard label="Collection Rate" actual={actual.collection} target={KPI.collection} unit="%"/>
+        <KPICard label="Active Campaigns" actual={actual.campaigns} target={KPI.campaigns} unit=""/>
+        <KPICard label="New Clients" actual={actual.newClients} target={KPI.newClients} unit=""/>
+      </div>
+      <div className="grid2">
+        <div className="card"><div className="card-header"><span className="card-title">Revenue & Forecast</span></div><BarChart data={[...monthly,...forecast]} height={155} colors={["#534AB7"]}/></div>
+        <div className="card"><div className="card-header"><span className="card-title">Q3 Forecast</span></div>
+          {forecast.map((f,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"var(--border)",fontSize:13}}><span style={{color:"var(--text2)"}}>{f.label.replace("*","")} 2025</span><div style={{textAlign:"right"}}><div style={{fontWeight:600}}>{fmtK(f.value,sym)}</div><div style={{fontSize:11,color:"#3B6D11"}}>+{((i+1)*6+8).toFixed(0)}%</div></div></div>)}
+          <div style={{marginTop:16,padding:12,background:"var(--brand-light)",borderRadius:8}}><div style={{fontSize:11,color:"var(--brand)",fontWeight:600}}>Q3 Total Forecast</div><div style={{fontSize:20,fontWeight:700,color:"var(--brand)",marginTop:2}}>{fmtK(forecast.reduce((a,f)=>a+f.value,0),sym)}</div></div>
+        </div>
+      </div>
+      <div className="grid2">
+        <div className="card"><div className="card-header"><span className="card-title">Client Concentration</span></div><DonutChart data={cShare.slice(0,5).map((c,i)=>({label:c.name.split(" ")[0],value:c.amount,color:["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"][i]}))} size={148}/></div>
+        <div className="card"><div className="card-header"><span className="card-title">Channel Performance</span></div>
+          {[{ch:"Television",rev:9800000,margin:22},{ch:"Digital",rev:5600000,margin:31},{ch:"Print",rev:4400000,margin:18},{ch:"Radio",rev:2400000,margin:25}].map(r=>(
+            <div key={r.ch} style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{fontWeight:500}}>{r.ch}</span><span style={{color:"var(--text3)"}}>{fmtK(r.rev,sym)} · {r.margin}%</span></div><div className="progress-bar" style={{height:8}}><div className="progress-fill" style={{width:`${Math.round(r.rev/9800000*100)}%`}}/></div></div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══ REMINDERS ═══ */
+function RemindersPage({receivables,payables,mpos,user,toast}){return <RoleGuard user={user} require="reminders"><RemContent receivables={receivables} payables={payables} mpos={mpos} toast={toast}/></RoleGuard>;}
+function RemContent({receivables,payables,mpos,toast}){
+  const [sent,setSent]=usePersisted("reminders_sent",{});
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
+  const reminders=[...lR.filter(r=>r.status==="overdue"||(daysUntil(r.due)<=7&&r.status!=="paid")).map(r=>({key:`rec-${r.id}`,icon:"💰",title:`Invoice ${r.id} — ${r.client}`,detail:`Balance ${fmt(r.amount-r.paid)} due ${r.due}`,urgency:r.status==="overdue"?"overdue":"upcoming",id:r.id})),...lP.filter(p=>p.status==="overdue"||(daysUntil(p.due)<=7&&p.status!=="paid")).map(p=>({key:`pay-${p.id}`,icon:"🧾",title:`Payable ${p.id} — ${p.vendor}`,detail:`Balance ${fmt(p.amount-p.paid)} due ${p.due}`,urgency:p.status==="overdue"?"overdue":"upcoming",id:p.id})),...mpos.filter(m=>m.exec==="delayed").map(m=>({key:`mpo-${m.id}`,icon:"📋",title:`MPO ${m.id} Delayed`,detail:m.campaign,urgency:"overdue",id:m.id}))];
+  const sendR=r=>{setSent(s=>({...s,[r.key]:{ts:new Date().toLocaleTimeString()}}));toast(`Reminder sent for ${r.id}`,"info");};
+  const sendAll=()=>{const u=reminders.filter(r=>!sent[r.key]);if(!u.length){toast("All sent","info");return;}const ns={...sent};u.forEach(r=>{ns[r.key]={ts:new Date().toLocaleTimeString()};});setSent(ns);toast(`${u.length} reminders sent`);};
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div><div style={{fontWeight:500,marginBottom:2}}>Reminder Centre</div><div style={{fontSize:12,color:"var(--text3)"}}>{reminders.filter(r=>!sent[r.key]).length} pending</div></div>
+        <div style={{display:"flex",gap:8}}><button className="btn" onClick={()=>setSent({})}>Clear log</button><button className="btn btn-primary" onClick={sendAll}>Send all pending</button></div>
+      </div>
+      {reminders.length===0&&<div className="card" style={{textAlign:"center",padding:48,color:"var(--text3)"}}><div style={{fontSize:32,marginBottom:12}}>🎉</div><div style={{fontWeight:500}}>No reminders needed</div></div>}
+      {["overdue","upcoming"].map(urg=>{const items=reminders.filter(r=>r.urgency===urg);if(!items.length)return null;return(
+        <div key={urg} className="card"><div className="card-header"><span className="card-title" style={{color:urg==="overdue"?"#A32D2D":"#854F0B"}}>{urg==="overdue"?"🔴 Overdue":"🟡 Due Soon"}</span></div>
+          {items.map(r=><div key={r.key} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"12px 0",borderBottom:"var(--border)",opacity:sent[r.key]?.5:1}}>
+            <div style={{width:30,height:30,borderRadius:8,background:urg==="overdue"?"#FCEBEB":"#FFF4E5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{r.icon}</div>
+            <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{r.title}</div><div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{r.detail}</div>{sent[r.key]&&<div style={{fontSize:10,color:"#3B6D11",marginTop:3}}>✓ {sent[r.key].ts}</div>}</div>
+            <button className="btn btn-sm" style={{background:urg==="overdue"?"#FCEBEB":"#FFF4E5",color:urg==="overdue"?"#A32D2D":"#8B4500",borderColor:urg==="overdue"?"#f5c6c6":"#F5C97A"}} onClick={()=>sendR(r)} disabled={!!sent[r.key]}>{sent[r.key]?"Sent ✓":"Send"}</button>
+          </div>)}
+        </div>
+      );})}
+    </div>
+  );
+}
+
+/* ═══ AUDIT ═══ */
+function AuditPage({auditLog,user}){return <RoleGuard user={user} require="audit"><AuditContent auditLog={auditLog}/></RoleGuard>;}
+function AuditContent({auditLog}){
+  const [filter,setFilter]=useState("all");
+  const tags=["all","create","workflow","payment","reminder","delete","update"];
+  const filtered=filter==="all"?auditLog:auditLog.filter(a=>a.tag===filter);
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div><div style={{fontWeight:500,fontSize:15}}>Audit Log</div><div style={{fontSize:12,color:"var(--text3)"}}>{auditLog.length} events</div></div>
+        <button className="btn btn-sm btn-ghost" onClick={()=>{const rows=[["Ts","User","Action","Entity","ID","Detail"],...auditLog.map(a=>[a.ts,a.userName,a.action,a.entity,a.entityId,a.detail])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="audit.csv";a.click();}}>Export CSV</button>
+      </div>
+      <div className="tabs" style={{marginBottom:16}}>{tags.map(t=><button key={t} className={`tab ${filter===t?"active":""}`} onClick={()=>setFilter(t)}>{t}</button>)}</div>
+      <div className="card">
+        {filtered.length===0?<div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No events</div>
+        :filtered.map(a=>(
+          <div key={a.id} className="audit-item">
+            <div className="audit-avatar" style={{background:a.userColor}}>{a.initials}</div>
+            <div style={{flex:1}}><div style={{fontSize:13}}><strong>{a.userName}</strong> {a.action} <strong>{a.entity} {a.entityId}</strong><span style={{display:"inline-block",padding:"1px 6px",borderRadius:4,fontSize:10,fontWeight:600,marginLeft:6,background:TAG_COLORS[a.tag]||"#eee",color:TAG_TEXT[a.tag]||"#555"}}>{a.tag}</span></div><div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{a.detail}</div></div>
+            <div style={{fontSize:11,color:"var(--text3)",flexShrink:0,paddingTop:2}}>{a.ts}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ USERS ═══ */
+function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser}/></RoleGuard>;}
+function UsersContent({currentUser}){
+  const rc={admin:"badge-purple",manager:"badge-blue",viewer:"badge-gray",client:"badge-gray"};
+  const [profiles,setProfiles]=useState([]);
+  const [loadingProfiles,setLoadingProfiles]=useState(true);
+
+  useEffect(()=>{
+    if(!currentUser?.workspace_id) return;
+    supabase.from("profiles")
+      .select("id,name,role,initials,color,permissions")
+      .eq("workspace_id",currentUser.workspace_id)
+      .then(({data})=>{ if(data) setProfiles(data); setLoadingProfiles(false); });
+  },[currentUser?.workspace_id]);
+
+  const team=profiles.filter(u=>u.role!=="client");
+  return(
+    <div>
+      <div className="stat-grid" style={{gridTemplateColumns:"repeat(3,1fr)"}}>
+        {[{l:"Total",v:team.length},{l:"Admins",v:team.filter(u=>u.role==="admin").length},{l:"Managers",v:team.filter(u=>u.role==="manager").length}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{loadingProfiles?"…":s.v}</div></div>)}
+      </div>
+      <div className="card"><div className="card-header"><span className="card-title">Team Members</span></div>
+        {loadingProfiles
+          ? <div style={{padding:"20px 0",textAlign:"center",color:"var(--text3)",fontSize:12}}>Loading…</div>
+          : team.map(u=>(
+            <div key={u.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"var(--border)"}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:u.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:12,flexShrink:0}}>{u.initials}</div>
+              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:500}}>{u.name}{u.id===currentUser.id&&<span style={{fontSize:10,color:"var(--brand)",marginLeft:4}}>← you</span>}</div></div>
+              <span className={`badge ${rc[u.role]||"badge-gray"}`}>{u.role}</span>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+}
+
+/* ═══ CLIENT PORTAL ═══ */
+function ClientPortal({user,receivables,mpos,onLogout}){
+  const clientName=user.name;
+  const myRec=receivables.map(r=>({...r,status:computeStatus(r)})).filter(r=>r.client===clientName);
+  const myMpos=mpos.filter(m=>m.client===clientName);
+  const tB=myRec.reduce((a,r)=>a+r.amount,0),tPd=myRec.reduce((a,r)=>a+r.paid,0);
+  const [tab,setTab]=useState("overview");
+  return(
+    <div className="portal-wrap">
+      <div className="portal-topbar"><div style={{display:"flex",alignItems:"center",gap:10}}><div className="logo-mark">MH</div><span style={{fontWeight:700,fontSize:15}}>MediaHub</span><span style={{color:"#aaa",fontSize:12}}>Client Portal</span></div><div style={{display:"flex",gap:8,alignItems:"center"}}><div style={{fontSize:12,color:"#666"}}>{user.name}</div><button className="btn btn-sm btn-ghost" onClick={onLogout}>Sign out</button></div></div>
+      <div className="portal-content">
+        <div className="portal-welcome"><div style={{fontSize:13,opacity:.8,marginBottom:4}}>Welcome back 👋</div><div style={{fontSize:22,fontWeight:700,marginBottom:4}}>{clientName}</div><div style={{fontSize:13,opacity:.8}}>{new Date().toLocaleDateString("en-NG",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div></div>
+        <div className="stat-grid" style={{gridTemplateColumns:"repeat(3,1fr)"}}>
+          <div className="portal-card"><div className="stat-label">Active Campaigns</div><div className="stat-value">{myMpos.filter(m=>m.status==="active").length}</div></div>
+          <div className="portal-card"><div className="stat-label">Outstanding</div><div className="stat-value" style={{color:"#A32D2D"}}>{fmtK(tB-tPd)}</div></div>
+          <div className="portal-card"><div className="stat-label">Total Paid</div><div className="stat-value" style={{color:"#3B6D11"}}>{fmtK(tPd)}</div></div>
+        </div>
+        <div className="tabs">{["overview","campaigns","invoices"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div>
+        {tab==="overview"&&<div className="portal-card"><div className="card-header"><span className="card-title">Payment Summary</span></div><div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#666",marginBottom:4}}><span>Progress</span><span>{tB>0?Math.round(tPd/tB*100):0}%</span></div><div className="progress-bar" style={{height:10}}><div className="progress-fill" style={{width:tB>0?`${Math.round(tPd/tB*100)}%`:"0%"}}/></div><div style={{display:"flex",justifyContent:"space-between",marginTop:16,fontSize:12}}><div><div style={{color:"#999"}}>Billed</div><div style={{fontWeight:600}}>{fmt(tB)}</div></div><div style={{textAlign:"center"}}><div style={{color:"#999"}}>Paid</div><div style={{fontWeight:600,color:"#3B6D11"}}>{fmt(tPd)}</div></div><div style={{textAlign:"right"}}><div style={{color:"#999"}}>Balance</div><div style={{fontWeight:600,color:"#A32D2D"}}>{fmt(tB-tPd)}</div></div></div></div>}
+        {tab==="campaigns"&&<div className="portal-card"><div className="card-header"><span className="card-title">Campaigns</span></div>{myMpos.map(m=><div key={m.id} style={{padding:"12px 0",borderBottom:"0.5px solid #eee",display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}><div><div style={{fontWeight:500,fontSize:13}}>{m.campaign}</div><div style={{fontSize:11,color:"#888"}}>{m.start}→{m.end} · {m.vendor}</div></div><div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontWeight:600}}>{fmt(m.amount)}</span><SBadge s={m.status}/></div></div>)}</div>}
+        {tab==="invoices"&&<div className="portal-card"><div className="card-header"><span className="card-title">Invoices</span></div><div style={{overflowX:"auto"}}><table style={{minWidth:400}}><thead><tr><th>Invoice</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Due</th><th>Status</th></tr></thead><tbody>{myRec.map(r=><tr key={r.id}><td style={{fontFamily:"monospace",fontWeight:500}}>{r.id}</td><td>{fmt(r.amount)}</td><td style={{color:"#3B6D11"}}>{fmt(r.paid)}</td><td style={{color:r.amount-r.paid>0?"#A32D2D":"#3B6D11",fontWeight:500}}>{fmt(r.amount-r.paid)}</td><td style={{fontSize:12,color:r.status==="overdue"?"#A32D2D":"inherit"}}>{r.due}</td><td><SBadge s={r.status}/></td></tr>)}</tbody></table></div></div>}
+      </div>
+    </div>
+  );
+}
+
+/* ═══ GLOBAL SEARCH ═══ */
+function GlobalSearch({mpos,clients,receivables,payables,onNavigate,onClose}){
+  const [q,setQ]=useState("");const ref=useRef(null);
+  useEffect(()=>{ref.current?.focus();},[]);
+  useEffect(()=>{const h=e=>e.key==="Escape"&&onClose();document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[onClose]);
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const results=useMemo(()=>{if(q.trim().length<2)return null;const lq=q.toLowerCase();return{mpos:mpos.filter(m=>`${m.id}${m.client}${m.campaign}`.toLowerCase().includes(lq)).slice(0,5),clients:clients.filter(c=>`${c.name}${c.contact}`.toLowerCase().includes(lq)).slice(0,4),invoices:lR.filter(r=>`${r.id}${r.client}`.toLowerCase().includes(lq)).slice(0,4)};},[q,mpos,clients,receivables]);
+  const total=results?Object.values(results).reduce((a,v)=>a+v.length,0):0;
+  const go=page=>{onNavigate(page);onClose();};
+  return(
+    <div className="gsearch-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="gsearch-box">
+        <div className="gsearch-input-wrap"><span style={{fontSize:18,color:"var(--text3)"}}>⌕</span><input ref={ref} className="gsearch-input" placeholder="Search MPOs, clients, invoices…" value={q} onChange={e=>setQ(e.target.value)}/><button className="btn btn-sm btn-ghost" onClick={onClose}>Esc</button></div>
+        <div className="gsearch-results">
+          {!results&&<div style={{padding:"16px 20px",fontSize:12,color:"var(--text3)",textAlign:"center"}}>Type at least 2 characters to search</div>}
+          {results&&total===0&&<div style={{padding:"16px 20px",fontSize:12,color:"var(--text3)",textAlign:"center"}}>No results for "{q}"</div>}
+          {results?.mpos?.length>0&&(<div style={{padding:"8px 0",borderBottom:"var(--border)"}}><div className="gsearch-section-label">MPOs</div>{results.mpos.map(m=><div key={m.id} className="gsearch-item" onClick={()=>go("mpo")}><div className="gsearch-icon" style={{background:"var(--brand-light)"}}>◈</div><div style={{flex:1}}><div style={{fontWeight:500,fontSize:13}}>{m.id} — {m.campaign}</div><div style={{fontSize:11,color:"var(--text3)"}}>{m.client} · {fmtK(m.amount)}</div></div><SBadge s={m.status}/></div>)}</div>)}
+          {results?.clients?.length>0&&(<div style={{padding:"8px 0",borderBottom:"var(--border)"}}><div className="gsearch-section-label">Clients</div>{results.clients.map(c=><div key={c.id} className="gsearch-item" onClick={()=>go("clients")}><div className="gsearch-icon" style={{background:"#EEEDFE",fontSize:11,fontWeight:700,color:"#3C3489"}}>{c.name.slice(0,2)}</div><div style={{flex:1}}><div style={{fontWeight:500,fontSize:13}}>{c.name}</div><div style={{fontSize:11,color:"var(--text3)"}}>{c.industry}</div></div><span className={`badge ${c.type==="Client"?"badge-purple":"badge-blue"}`}>{c.type}</span></div>)}</div>)}
+          {results?.invoices?.length>0&&(<div style={{padding:"8px 0"}}><div className="gsearch-section-label">Invoices</div>{results.invoices.map(r=><div key={r.id} className="gsearch-item" onClick={()=>go("finance")}><div className="gsearch-icon" style={{background:"#EAF3DE"}}>💰</div><div style={{flex:1}}><div style={{fontWeight:500,fontSize:13}}>{r.id} — {r.client}</div><div style={{fontSize:11,color:"var(--text3)"}}>{fmtK(r.amount)} · Due {r.due}</div></div><SBadge s={r.status}/></div>)}</div>)}
+        </div>
+        <div style={{padding:"10px 20px",borderTop:"var(--border)",display:"flex",gap:16,fontSize:11,color:"var(--text3)"}}><span>↵ navigate</span><span>Esc close</span>{total>0&&<span style={{marginLeft:"auto"}}>{total} result{total!==1?"s":""}</span>}</div>
+      </div>
+    </div>
+  );
+}
+
+// LoginScreen removed — replaced by AuthScreen (Supabase email+password auth)
+
+/* ══════════════════════════════════════════════════
+   S6-3: MULTI-AGENCY WORKSPACES
+══════════════════════════════════════════════════ */
+const WORKSPACES = [
+  { id:"ws1", name:"MediaHub Nigeria",   abbr:"MH", color:"#534AB7", plan:"Pro",    country:"🇳🇬", tagline:"Your primary workspace", mpos:6, clients:6, users:3 },
+  { id:"ws2", name:"PanAfrica Media",    abbr:"PA", color:"#185FA5", plan:"Starter",country:"🇬🇭", tagline:"Ghana & West Africa campaigns", mpos:3, clients:4, users:2 },
+  { id:"ws3", name:"East Africa Bureau", abbr:"EA", color:"#3B6D11", plan:"Starter",country:"🇰🇪", tagline:"Kenya, Uganda, Tanzania accounts", mpos:2, clients:3, users:2 },
+];
+
+function AgencySwitcher({ current, onSwitch, onClose }) {
+  return (
+    <div className="agency-switcher-bg" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="agency-switcher">
+        <div className="agency-switcher-header">
+          <div style={{fontWeight:700,fontSize:16,color:"var(--text)"}}>Switch Workspace</div>
+          <div style={{fontSize:12,color:"var(--text3)",marginTop:3}}>Each workspace has isolated data, branding & users</div>
+        </div>
+        {WORKSPACES.map(ws=>(
+          <div key={ws.id} className={`agency-card ${ws.id===current?"active":""}`} onClick={()=>{onSwitch(ws);onClose();}}>
+            <div className="agency-logo" style={{background:ws.color}}>{ws.abbr}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                <span style={{fontWeight:600,fontSize:14,color:"var(--text)"}}>{ws.country} {ws.name}</span>
+                {ws.id===current&&<span className="agency-badge">● Current</span>}
+              </div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{ws.tagline}</div>
+              <div style={{display:"flex",gap:12,marginTop:6,fontSize:11,color:"var(--text2)"}}>
+                <span>◈ {ws.mpos} MPOs</span>
+                <span>◉ {ws.clients} Clients</span>
+                <span>👤 {ws.users} Users</span>
+                <span className={`badge ${ws.plan==="Pro"?"badge-purple":"badge-blue"}`} style={{fontSize:9,padding:"1px 6px"}}>{ws.plan}</span>
+              </div>
+            </div>
+            {ws.id===current
+              ? <span style={{fontSize:18,color:"var(--brand)"}}>✓</span>
+              : <span style={{fontSize:12,color:"var(--text3)"}}>Switch →</span>}
+          </div>
+        ))}
+        <div style={{padding:"12px 20px",borderTop:"var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span style={{fontSize:11,color:"var(--text3)"}}>Workspaces are isolated — switching preserves all data</span>
+          <button className="btn btn-sm btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   S6-1: COLLABORATION — COMMENTS & ACTIVITY FEED
+══════════════════════════════════════════════════ */
+const TEAM_NAMES = ["Amaka","Bolu","Chidi"];
+
+function parseMentions(text) {
+  // Replace @Name with styled span
+  return text.split(/(@\w+)/g).map((part,i) =>
+    part.startsWith("@")
+      ? <span key={i} className="mention">{part}</span>
+      : part
+  );
+}
+
+function CommentsPanel({ entityId, entityLabel, comments, currentUser, onAddComment, onClose }) {
+  const [text, setText] = useState("");
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState("");
+  const listRef = useRef(null);
+
+  const entityComments = (comments[entityId] || []);
+
+  useEffect(() => {
+    if(listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [entityComments.length]);
+
+  const handleInput = e => {
+    const val = e.target.value;
+    setText(val);
+    const atIdx = val.lastIndexOf("@");
+    if(atIdx >= 0 && atIdx === val.length - 1) { setShowMentions(true); setMentionFilter(""); }
+    else if(atIdx >= 0 && !val.slice(atIdx+1).includes(" ")) { setShowMentions(true); setMentionFilter(val.slice(atIdx+1)); }
+    else { setShowMentions(false); }
+  };
+
+  const insertMention = name => {
+    const atIdx = text.lastIndexOf("@");
+    setText(text.slice(0, atIdx) + "@" + name + " ");
+    setShowMentions(false);
+  };
+
+  const submit = () => {
+    if(!text.trim()) return;
+    onAddComment(entityId, {
+      id: `c${Date.now()}`,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      initials: currentUser.initials,
+      color: currentUser.color,
+      text: text.trim(),
+      ts: tsNow(),
+    });
+    setText("");
+  };
+
+  const filteredMentions = TEAM_NAMES.filter(n =>
+    n.toLowerCase().startsWith(mentionFilter.toLowerCase()) && n !== currentUser.name.split(" ")[0]
+  );
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{fontWeight:600,fontSize:14,marginBottom:4,color:"var(--text)"}}>💬 {entityLabel}</div>
+      <div style={{fontSize:11,color:"var(--text3)",marginBottom:14}}>{entityComments.length} comment{entityComments.length!==1?"s":""} · Type @Name to mention a teammate</div>
+      <div ref={listRef} style={{flex:1,overflowY:"auto",minHeight:120,maxHeight:320}}>
+        {entityComments.length===0 && (
+          <div style={{textAlign:"center",padding:"28px 0",color:"var(--text3)",fontSize:12}}>
+            <div style={{fontSize:28,marginBottom:8}}>💬</div>
+            No comments yet. Start the conversation.
+          </div>
+        )}
+        {entityComments.map(c=>(
+          <div key={c.id} className="comment-item" style={{flexDirection:c.userId===currentUser.id?"row-reverse":"row"}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:c.color,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:"#fff",flexShrink:0}}>{c.initials}</div>
+            <div style={{flex:1,maxWidth:"85%"}}>
+              <div className={`comment-bubble ${c.userId===currentUser.id?"own":""}`}>
+                {parseMentions(c.text)}
+              </div>
+              <div className="comment-meta" style={{textAlign:c.userId===currentUser.id?"right":"left"}}>{c.userName.split(" ")[0]} · {c.ts}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{position:"relative",paddingTop:12,borderTop:"var(--border)",marginTop:8}}>
+        {showMentions && filteredMentions.length > 0 && (
+          <div className="mention-list">
+            {filteredMentions.map(n=>(
+              <div key={n} className="mention-opt" onClick={()=>insertMention(n)}>
+                <div style={{width:24,height:24,borderRadius:"50%",background:"var(--brand)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10,fontWeight:700}}>{n[0]}</div>
+                <span>@{n}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+          <textarea
+            className="comment-input"
+            placeholder="Add a comment… (@mention to notify)"
+            value={text}
+            onChange={handleInput}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();submit();}}}
+            rows={1}
+          />
+          <button className="btn btn-primary btn-sm" onClick={submit} disabled={!text.trim()} style={{flexShrink:0,height:38}}>Post</button>
+        </div>
+        <div style={{fontSize:10,color:"var(--text3)",marginTop:4}}>Enter to post · Shift+Enter for new line</div>
+      </div>
+    </div>
+  );
+}
+
+/* Activity feed page */
+function ActivityFeedPage({ comments, mpos, receivables, auditLog, currentUser }) {
+  const [filter, setFilter] = useState("all");
+
+  // Flatten all comments into a feed
+  const commentFeed = Object.entries(comments).flatMap(([entityId, list]) =>
+    list.map(c => ({ ...c, type:"comment", entityId, sortTs: c.id }))
+  );
+  // Merge with recent audit entries (last 20)
+  const auditFeed = auditLog.slice(0,20).map(a => ({ ...a, type:"audit", sortTs: a.id }));
+  const feed = [...commentFeed, ...auditFeed].sort((a,b) => b.sortTs.localeCompare(a.sortTs));
+  const filtered = filter==="all" ? feed : feed.filter(f=>f.type===filter);
+
+  const entityLabel = id => {
+    const mpo = mpos.find(m=>m.id===id);
+    if(mpo) return `MPO ${id} — ${mpo.campaign}`;
+    const rec = receivables.find(r=>r.id===id);
+    if(rec) return `Invoice ${id} — ${rec.client}`;
+    return id;
+  };
+
+  return (
+    <div>
+      <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{fontWeight:500,fontSize:15}}>Activity Feed</div>
+          <div style={{fontSize:12,color:"var(--text3)",marginTop:2}}>All comments and actions across your workspace</div>
+        </div>
+      </div>
+      <div className="tabs">
+        {["all","comment","audit"].map(t=><button key={t} className={`tab ${filter===t?"active":""}`} onClick={()=>setFilter(t)}>{t==="all"?"All":t==="comment"?"Comments":"System Events"}</button>)}
+      </div>
+      <div className="card">
+        {filtered.length===0 && <div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No activity yet</div>}
+        {filtered.map((item,i)=>(
+          <div key={i} className="activity-feed-item">
+            <div className="af-avatar" style={{background:item.userColor||item.color||"#999"}}>{item.initials}</div>
+            <div style={{flex:1}}>
+              {item.type==="comment" ? (
+                <>
+                  <span style={{fontWeight:500}}>{item.userName?.split(" ")[0]}</span>
+                  <span style={{color:"var(--text2)"}}> commented on </span>
+                  <span className="feed-badge" style={{background:"var(--brand-light)",color:"var(--brand)"}}>{item.entityId}</span>
+                  <div style={{marginTop:4,fontSize:12,color:"var(--text)",background:"var(--bg3)",padding:"6px 10px",borderRadius:6,display:"inline-block",maxWidth:"100%"}}>{parseMentions(item.text)}</div>
+                </>
+              ) : (
+                <>
+                  <span style={{fontWeight:500}}>{item.userName?.split(" ")[0]}</span>
+                  <span style={{color:"var(--text2)"}}> {item.action} </span>
+                  <span className="feed-badge" style={{background:TAG_COLORS[item.tag]||"#eee",color:TAG_TEXT[item.tag]||"#555"}}>{item.entityId}</span>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{item.detail}</div>
+                </>
+              )}
+              <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{item.ts}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   S6-2: PWA — SERVICE WORKER + MANIFEST + INSTALL
+══════════════════════════════════════════════════ */
+function usePWA() {
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    // Offline detection
+    const goOffline = () => setIsOffline(true);
+    const goOnline  = () => setIsOffline(false);
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online",  goOnline);
+
+    // Capture install prompt
+    const handler = e => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener("beforeinstallprompt", handler);
+
+    // Already installed?
+    if(window.matchMedia("(display-mode: standalone)").matches) setIsInstalled(true);
+
+    // Service worker is registered by vite-plugin-pwa (Workbox) at build time.
+    // No inline blob SW needed here.
+
+    return () => {
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online",  goOnline);
+      window.removeEventListener("beforeinstallprompt", handler);
+    };
+  }, []);
+
+  const install = async () => {
+    if(!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if(outcome === "accepted") setIsInstalled(true);
+    setInstallPrompt(null);
+  };
+
+  return { installPrompt, isInstalled, isOffline, install };
+}
+
+/* ══════════════════════════════════════════════════
+   S7-1: BUDGET MANAGEMENT
+══════════════════════════════════════════════════ */
+const SEED_BUDGETS = [
+  {id:"B001",mpoId:"MPO-001",label:"Q1 Brand Push — Zenith Bank",  budget:5000000, alertPct:80},
+  {id:"B002",mpoId:"MPO-002",label:"5G Launch — MTN Nigeria",       budget:8500000, alertPct:80},
+  {id:"B003",mpoId:"MPO-003",label:"Heritage Series — Dangote",     budget:3200000, alertPct:90},
+  {id:"B004",mpoId:"MPO-005",label:"Data4Good — Airtel Nigeria",    budget:6000000, alertPct:75},
+];
+
+function variantForPct(pct) {
+  if(pct > 100) return {cls:"variance-over",  label:"Over budget",  barColor:"#A32D2D"};
+  if(pct >= 85) return {cls:"variance-near",  label:"Near limit",   barColor:"#F5A050"};
+  return            {cls:"variance-under", label:"On track",    barColor:"#3B6D11"};
+}
+
+function BudgetCard({budget, mpos, payables}) {
+  const mpo = mpos.find(m => m.id === budget.mpoId);
+  const spent = payables.filter(p => p.mpo === budget.mpoId).reduce((a,p) => a+p.paid, 0);
+  const pct = budget.budget > 0 ? Math.round(spent / budget.budget * 100) : 0;
+  const remaining = budget.budget - spent;
+  const v = variantForPct(pct);
+  const fillColor = v.barColor;
+  return (
+    <div className={`budget-card ${pct>100?"over-budget":pct<85?"on-track":""}`}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8,flexWrap:"wrap",gap:6}}>
+        <div>
+          <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{budget.label}</div>
+          <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{mpo?.channel||"—"} · {mpo?.start||""} → {mpo?.end||""}</div>
+        </div>
+        <span className={`variance-badge ${v.cls}`}>{pct>100?"▲":"●"} {v.label}</span>
+      </div>
+      <div className="budget-bar-wrap">
+        <div className="budget-bar-fill" style={{width:`${Math.min(pct,100)}%`, background:fillColor}}/>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text3)",marginBottom:10}}>
+        <span>{pct}% spent</span>
+        <span>Alert at {budget.alertPct}%</span>
+      </div>
+      <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+        {[
+          {l:"Budget",v:fmtK(budget.budget)},
+          {l:"Spent",v:fmtK(spent),col:pct>100?"#A32D2D":"var(--text)"},
+          {l:"Remaining",v:fmtK(Math.abs(remaining)),col:remaining<0?"#A32D2D":"#3B6D11"},
+          {l:"Utilisation",v:`${pct}%`},
+        ].map(s=>(
+          <div key={s.l} style={{minWidth:70}}>
+            <div style={{fontSize:10,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".4px"}}>{s.l}</div>
+            <div style={{fontSize:14,fontWeight:600,color:s.col||"var(--text)",marginTop:2}}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BudgetsPage({budgets,setBudgets,mpos,payables,toast,user,addAudit}) {
+  const [showForm,setShowForm]=useState(false);
+  const [form,setForm]=useState({mpoId:"",budget:"",alertPct:80});
+  const [errs,setErrs]=useState({});
+  const canEdit = user.permissions.includes("mpo");
+
+  // Compute global alerts
+  const overBudget = budgets.filter(b => {
+    const spent = payables.filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);
+    return spent > b.budget;
+  });
+  const nearLimit = budgets.filter(b => {
+    const spent = payables.filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);
+    const pct = b.budget>0?spent/b.budget*100:0;
+    return pct>=b.alertPct && pct<=100;
+  });
+
+  const totalBudget = budgets.reduce((a,b)=>a+b.budget,0);
+  const totalSpent  = budgets.reduce((a,b)=>{
+    const spent=payables.filter(p=>p.mpo===b.mpoId).reduce((s,p)=>s+p.paid,0);
+    return a+spent;
+  },0);
+  const totalPct = totalBudget>0?Math.round(totalSpent/totalBudget*100):0;
+
+  const val=()=>{const e={};if(!form.mpoId)e.mpoId="Required";if(!form.budget||isNaN(form.budget)||Number(form.budget)<=0)e.budget="Required";setErrs(e);return!Object.keys(e).length;};
+  const save=()=>{
+    if(!val())return;
+    const mpo=mpos.find(m=>m.id===form.mpoId);
+    const newB={id:`B${String(Date.now()).slice(-6)}`,mpoId:form.mpoId,label:`${mpo?.campaign||form.mpoId} — ${mpo?.client||""}`,budget:Number(form.budget),alertPct:Number(form.alertPct)||80};
+    setBudgets(p=>[...p.filter(b=>b.mpoId!==form.mpoId),newB]);
+    addAudit("set budget","Budget",newB.id,`Set ${fmtK(Number(form.budget))} budget for ${form.mpoId}`,"create");
+    toast("Budget saved");setShowForm(false);setForm({mpoId:"",budget:"",alertPct:80});
+  };
+  const delBudget=id=>{if(!confirm("Remove budget?"))return;setBudgets(p=>p.filter(b=>b.id!==id));toast("Budget removed","error");};
+
+  return (
+    <div>
+      {showForm&&(
+        <div className="modal-bg" onClick={e=>e.target===e.currentTarget&&setShowForm(false)}>
+          <div className="modal">
+            <div className="modal-header"><span className="modal-title">Set Campaign Budget</span><button className="close-btn" onClick={()=>setShowForm(false)}>✕</button></div>
+            <div className="form-row"><label className="form-label">MPO / Campaign</label>
+              <select className={`form-input ${errs.mpoId?"error":""}`} value={form.mpoId} onChange={e=>setForm(f=>({...f,mpoId:e.target.value}))}>
+                <option value="">— Select MPO —</option>
+                {mpos.map(m=><option key={m.id} value={m.id}>{m.id} · {m.campaign} ({m.client})</option>)}
+              </select>
+              {errs.mpoId&&<div className="form-error">{errs.mpoId}</div>}
+            </div>
+            <div className="form-grid">
+              <div className="form-row"><label className="form-label">Budget Amount (₦)</label>
+                <input type="number" min="0" className={`form-input ${errs.budget?"error":""}`} value={form.budget} onChange={e=>setForm(f=>({...f,budget:e.target.value}))}/>
+                {errs.budget&&<div className="form-error">{errs.budget}</div>}
+              </div>
+              <div className="form-row"><label className="form-label">Alert threshold (%)</label>
+                <input type="number" min="1" max="100" className="form-input" value={form.alertPct} onChange={e=>setForm(f=>({...f,alertPct:e.target.value}))}/>
+              </div>
+            </div>
+            {form.budget&&!isNaN(form.budget)&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Budget: {fmtK(Number(form.budget))} · Alert at {form.alertPct}% = {fmtK(Number(form.budget)*Number(form.alertPct)/100)}</p>}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowForm(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>Save Budget</button></div>
+          </div>
+        </div>
+      )}
+
+      {overBudget.length>0&&(
+        <div className="budget-alert-banner">
+          <span style={{fontSize:16}}>⚠</span>
+          <span><strong>{overBudget.length} campaign{overBudget.length!==1?"s":""} over budget:</strong> {overBudget.map(b=>b.label.split("—")[0].trim()).join(", ")}</span>
+        </div>
+      )}
+      {nearLimit.length>0&&(
+        <div style={{background:"#FAEEDA",border:"0.5px solid #F5C97A",borderRadius:"var(--radius-md)",padding:"10px 14px",display:"flex",alignItems:"center",gap:10,fontSize:12,color:"#854F0B",marginBottom:12}}>
+          <span style={{fontSize:16}}>◉</span>
+          <span><strong>{nearLimit.length} campaign{nearLimit.length!==1?"s":""} near limit:</strong> {nearLimit.map(b=>b.label.split("—")[0].trim()).join(", ")}</span>
+        </div>
+      )}
+
+      <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)",marginBottom:20}}>
+        {[
+          {l:"Total Budget",v:fmtK(totalBudget)},
+          {l:"Total Spent",v:fmtK(totalSpent),col:totalPct>100?"#A32D2D":"var(--text)"},
+          {l:"Remaining",v:fmtK(Math.abs(totalBudget-totalSpent)),col:totalBudget-totalSpent<0?"#A32D2D":"#3B6D11"},
+          {l:"Utilisation",v:`${totalPct}%`,col:totalPct>100?"#A32D2D":totalPct>=85?"#854F0B":"#3B6D11"},
+        ].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value" style={{color:s.col||"var(--text)"}}>{s.v}</div></div>)}
+      </div>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div style={{fontWeight:500,fontSize:14}}>{budgets.length} campaign budgets</div>
+        {canEdit&&<button className="btn btn-primary" onClick={()=>setShowForm(true)}>+ Set Budget</button>}
+      </div>
+
+      {budgets.length===0&&(
+        <div className="card" style={{textAlign:"center",padding:48,color:"var(--text3)"}}>
+          <div style={{fontSize:40,marginBottom:12}}>📊</div>
+          <div style={{fontWeight:500,marginBottom:4}}>No budgets set yet</div>
+          <div style={{fontSize:12,marginBottom:16}}>Assign budgets to campaigns to track spend and get alerts</div>
+          {canEdit&&<button className="btn btn-primary" onClick={()=>setShowForm(true)}>Set first budget</button>}
+        </div>
+      )}
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
+        {budgets.map(b=>(
+          <div key={b.id} style={{position:"relative"}}>
+            <BudgetCard budget={b} mpos={mpos} payables={payables}/>
+            {canEdit&&<button className="btn btn-sm btn-ghost" style={{position:"absolute",top:14,right:14,color:"var(--text3)",fontSize:11}} onClick={()=>delBudget(b.id)}>✕</button>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   S7-2: CLIENT ONBOARDING WIZARD
+══════════════════════════════════════════════════ */
+const WIZARD_STEPS = [
+  {id:"client",  label:"Client"},
+  {id:"campaign",label:"Campaign"},
+  {id:"invoice", label:"Invoice"},
+  {id:"review",  label:"Review"},
+  {id:"done",    label:"Launch"},
+];
+
+function OnboardingWizard({onClose, onComplete, clients, mpos, settings, currentUser}) {
+  const [step,setStep]=useState(0);
+  const [launched,setLaunched]=useState(false);
+  const dCcy = settings.defaultCurrency||"NGN";
+
+  const [clientData,setClientData]=useState({name:"",industry:"",contact:"",email:"",phone:""});
+  const [campaignData,setCampaignData]=useState({campaign:"",vendor:"",channel:"TV",amount:"",start:"",end:"",currency:dCcy});
+  const [invoiceData,setInvoiceData]=useState({amount:"",due:"",sendNow:true});
+  const [errs,setErrs]=useState({});
+
+  const setC = (field,val) => setClientData(p=>({...p,[field]:val}));
+  const setCamp = (field,val) => setCampaignData(p=>({...p,[field]:val}));
+  const setInv = (field,val) => setInvoiceData(p=>({...p,[field]:val}));
+
+  const validateStep = () => {
+    const e={};
+    if(step===0){if(!clientData.name.trim())e.name="Client name required";if(clientData.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientData.email))e.email="Invalid email";}
+    if(step===1){if(!campaignData.campaign.trim())e.campaign="Campaign name required";if(!campaignData.vendor.trim())e.vendor="Vendor required";if(!campaignData.amount||isNaN(campaignData.amount)||Number(campaignData.amount)<=0)e.amount="Amount required";if(campaignData.start&&campaignData.end&&campaignData.start>campaignData.end)e.end="End must be after start";}
+    if(step===2){if(invoiceData.amount&&(isNaN(invoiceData.amount)||Number(invoiceData.amount)<=0))e.invAmount="Invalid amount";}
+    setErrs(e);
+    return Object.keys(e).length===0;
+  };
+
+  const next=()=>{ if(validateStep()) setStep(s=>Math.min(s+1,4)); };
+  const back=()=>{ setErrs({}); setStep(s=>Math.max(s-1,0)); };
+
+  const launch=()=>{
+    const newClientId = "C"+String(Math.max(0,...clients.filter(c=>c.id.startsWith("C")).map(c=>parseInt(c.id.slice(1))||0))+1).padStart(3,"0");
+    const newMpoId = "MPO-"+String(Math.max(0,...mpos.map(m=>parseInt(m.id.replace("MPO-",""))||0))+1).padStart(3,"0");
+    const newInvId = "INV-"+String(Date.now()).slice(-4);
+    onComplete({
+      client:{id:newClientId,...clientData,type:"Client",spend:Number(campaignData.amount)||0,status:"active"},
+      mpo:{id:newMpoId,client:clientData.name,vendor:campaignData.vendor,campaign:campaignData.campaign,amount:Number(campaignData.amount),status:"active",start:campaignData.start||new Date().toISOString().slice(0,10),end:campaignData.end||"",exec:"on-track",channel:campaignData.channel,currency:campaignData.currency,docs:[]},
+      invoice: invoiceData.amount ? {id:newInvId,client:clientData.name,mpo:newMpoId,amount:Number(invoiceData.amount),due:invoiceData.due||new Date(Date.now()+30*864e5).toISOString().slice(0,10),paid:0,wfStatus:"draft",currency:campaignData.currency,docs:[]} : null,
+    });
+    setLaunched(true);
+    setStep(4);
+  };
+
+  const StepDots=()=>(
+    <div className="wizard-steps">
+      {WIZARD_STEPS.slice(0,4).map((s,i)=>(
+        <Fragment key={s.id}>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+            <div className={`wizard-step-dot ${i<step?"done":i===step?"active":"pending"}`}>{i<step?"✓":i+1}</div>
+            <span style={{fontSize:9,color:i<=step?"var(--brand)":"var(--text3)",fontWeight:i===step?600:400}}>{s.label}</span>
+          </div>
+          {i<3&&<div className={`wizard-step-line ${i<step?"done":""}`}/>}
+        </Fragment>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="wizard-bg" onClick={e=>e.target===e.currentTarget&&!launched&&onClose()}>
+      <div className="wizard">
+        {!launched ? (
+          <>
+            <div className="wizard-header">
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                <div style={{fontWeight:700,fontSize:17,color:"var(--text)"}}>✦ Client Onboarding</div>
+                <button className="close-btn" onClick={onClose}>✕</button>
+              </div>
+              <StepDots/>
+            </div>
+            <div className="wizard-body">
+
+              {/* Step 0: Client details */}
+              {step===0&&(
+                <div>
+                  <div className="wizard-section-title">Tell us about the client</div>
+                  <div className="wizard-section-sub">Basic details — you can always update these later</div>
+                  <div className="form-row"><label className="form-label">Company Name *</label><input className={`form-input ${errs.name?"error":""}`} value={clientData.name} onChange={e=>setC("name",e.target.value)} placeholder="e.g. Zenith Bank"/>{errs.name&&<div className="form-error">{errs.name}</div>}</div>
+                  <div className="form-grid">
+                    <div className="form-row"><label className="form-label">Industry</label><input className="form-input" value={clientData.industry} onChange={e=>setC("industry",e.target.value)} placeholder="Banking, Telecom…"/></div>
+                    <div className="form-row"><label className="form-label">Contact Name</label><input className="form-input" value={clientData.contact} onChange={e=>setC("contact",e.target.value)} placeholder="Full name"/></div>
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-row"><label className="form-label">Email</label><input type="email" className={`form-input ${errs.email?"error":""}`} value={clientData.email} onChange={e=>setC("email",e.target.value)} placeholder="contact@company.com"/>{errs.email&&<div className="form-error">{errs.email}</div>}</div>
+                    <div className="form-row"><label className="form-label">Phone</label><input className="form-input" value={clientData.phone} onChange={e=>setC("phone",e.target.value)} placeholder="+234 …"/></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 1: Campaign */}
+              {step===1&&(
+                <div>
+                  <div className="wizard-section-title">Set up the first campaign</div>
+                  <div className="wizard-section-sub">Create an MPO for {clientData.name||"this client"}</div>
+                  <div className="form-row"><label className="form-label">Campaign Name *</label><input className={`form-input ${errs.campaign?"error":""}`} value={campaignData.campaign} onChange={e=>setCamp("campaign",e.target.value)} placeholder="e.g. Q3 Brand Launch"/>{errs.campaign&&<div className="form-error">{errs.campaign}</div>}</div>
+                  <div className="form-grid">
+                    <div className="form-row"><label className="form-label">Vendor / Media House *</label><input className={`form-input ${errs.vendor?"error":""}`} value={campaignData.vendor} onChange={e=>setCamp("vendor",e.target.value)} placeholder="Channels TV…"/>{errs.vendor&&<div className="form-error">{errs.vendor}</div>}</div>
+                    <div className="form-row"><label className="form-label">Channel</label><select className="form-input" value={campaignData.channel} onChange={e=>setCamp("channel",e.target.value)}><option>TV</option><option>Print</option><option>Radio</option><option>Digital</option></select></div>
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-row"><label className="form-label">Campaign Value *</label><input type="number" min="0" className={`form-input ${errs.amount?"error":""}`} value={campaignData.amount} onChange={e=>setCamp("amount",e.target.value)}/>{errs.amount&&<div className="form-error">{errs.amount}</div>}</div>
+                    <div className="form-row"><label className="form-label">Currency</label><select className="form-input" value={campaignData.currency} onChange={e=>setCamp("currency",e.target.value)}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></div>
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-row"><label className="form-label">Start Date</label><input type="date" className="form-input" value={campaignData.start} onChange={e=>setCamp("start",e.target.value)}/></div>
+                    <div className="form-row"><label className="form-label">End Date</label><input type="date" className={`form-input ${errs.end?"error":""}`} value={campaignData.end} onChange={e=>setCamp("end",e.target.value)}/>{errs.end&&<div className="form-error">{errs.end}</div>}</div>
+                  </div>
+                  {campaignData.amount&&!isNaN(campaignData.amount)&&<p style={{fontSize:12,color:"var(--text3)"}}>Value: {fmtCcy(Number(campaignData.amount),campaignData.currency,"NGN")}</p>}
+                </div>
+              )}
+
+              {/* Step 2: Invoice */}
+              {step===2&&(
+                <div>
+                  <div className="wizard-section-title">Create an opening invoice</div>
+                  <div className="wizard-section-sub">Optional — skip if billing comes later</div>
+                  <div className="form-row" style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 0",borderBottom:"var(--border)"}}>
+                    <div><div style={{fontSize:13,fontWeight:500,color:"var(--text)"}}>Generate invoice now</div><div style={{fontSize:11,color:"var(--text3)"}}>Creates a Draft invoice linked to this campaign</div></div>
+                    <div className="toggle-pill" style={{background:invoiceData.sendNow?"var(--brand)":"var(--bg3)"}} onClick={()=>setInv("sendNow",!invoiceData.sendNow)}>
+                      <div className="toggle-thumb" style={{left:invoiceData.sendNow?20:3}}/>
+                    </div>
+                  </div>
+                  {invoiceData.sendNow&&(
+                    <div style={{marginTop:16}}>
+                      <div className="form-grid">
+                        <div className="form-row"><label className="form-label">Invoice Amount</label><input type="number" min="0" className={`form-input ${errs.invAmount?"error":""}`} value={invoiceData.amount} placeholder={campaignData.amount} onChange={e=>setInv("amount",e.target.value)}/>{errs.invAmount&&<div className="form-error">{errs.invAmount}</div>}<div style={{fontSize:11,color:"var(--text3)",marginTop:3}}>Leave blank to use campaign value</div></div>
+                        <div className="form-row"><label className="form-label">Due Date</label><input type="date" className="form-input" value={invoiceData.due} onChange={e=>setInv("due",e.target.value)}/></div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 3: Review */}
+              {step===3&&(
+                <div>
+                  <div className="wizard-section-title">Review before launching</div>
+                  <div className="wizard-section-sub">Everything looks good? Hit Launch to create all records.</div>
+                  <div style={{background:"var(--bg3)",borderRadius:"var(--radius-lg)",padding:"14px 16px",marginBottom:12}}>
+                    <div style={{fontSize:11,color:"var(--brand)",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:10}}>Client</div>
+                    {[["Name",clientData.name],["Industry",clientData.industry||"—"],["Contact",clientData.contact||"—"],["Email",clientData.email||"—"]].map(([l,v])=><div key={l} className="review-row"><span className="review-label">{l}</span><span className="review-value">{v}</span></div>)}
+                  </div>
+                  <div style={{background:"var(--bg3)",borderRadius:"var(--radius-lg)",padding:"14px 16px",marginBottom:12}}>
+                    <div style={{fontSize:11,color:"var(--brand)",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:10}}>Campaign MPO</div>
+                    {[["Campaign",campaignData.campaign],["Vendor",campaignData.vendor],["Channel",campaignData.channel],["Value",`${fmtCcy(Number(campaignData.amount)||0,campaignData.currency,"NGN")} (${campaignData.currency})`],["Period",`${campaignData.start||"TBD"} → ${campaignData.end||"TBD"}`]].map(([l,v])=><div key={l} className="review-row"><span className="review-label">{l}</span><span className="review-value">{v}</span></div>)}
+                  </div>
+                  {invoiceData.sendNow&&(
+                    <div style={{background:"var(--bg3)",borderRadius:"var(--radius-lg)",padding:"14px 16px"}}>
+                      <div style={{fontSize:11,color:"var(--brand)",fontWeight:700,textTransform:"uppercase",letterSpacing:".5px",marginBottom:10}}>Invoice (Draft)</div>
+                      {[["Amount",fmtCcy(Number(invoiceData.amount||campaignData.amount)||0,campaignData.currency,"NGN")],["Due",invoiceData.due||"Net 30 from today"],["Status","Draft — advance to send"]].map(([l,v])=><div key={l} className="review-row"><span className="review-label">{l}</span><span className="review-value">{v}</span></div>)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="wizard-footer">
+              {step>0?<button className="btn btn-ghost" onClick={back}>← Back</button>:<button className="btn btn-ghost" onClick={onClose}>Cancel</button>}
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:11,color:"var(--text3)"}}>Step {step+1} of 4</span>
+                {step<3
+                  ? <button className="btn btn-primary" onClick={next}>Next →</button>
+                  : <button className="btn btn-primary" style={{background:"#3B6D11",borderColor:"#3B6D11"}} onClick={launch}>🚀 Launch Client</button>
+                }
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="wizard-body">
+            <div className="launch-success">
+              <div className="launch-icon">🚀</div>
+              <div style={{fontSize:20,fontWeight:700,color:"var(--text)",marginBottom:8}}>Client launched!</div>
+              <div style={{fontSize:13,color:"var(--text3)",marginBottom:24}}>
+                <strong>{clientData.name}</strong> is now live in MediaHub.
+                {invoiceData.sendNow&&" Draft invoice created and ready to advance."}
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+                <button className="btn btn-primary" onClick={onClose}>Go to Clients</button>
+                <button className="btn" onClick={onClose}>Done</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   S7-3: PRODUCTION READINESS PAGE
+══════════════════════════════════════════════════ */
+function ProductionPage({user}) {
+  return <RoleGuard user={user} require="settings"><ProductionContent/></RoleGuard>;
+}
+function ProductionContent() {
+  const downloadReadme = () => {
+    const md = `# MediaHub — Media Agency Management Platform
+
+## Overview
+MediaHub is a full-featured media agency management platform covering:
+- Media Purchase Order (MPO) scheduling & tracking
+- Client & vendor management
+- Finance: receivables, payables, invoice workflows
+- Multi-currency support (NGN, USD, GBP, EUR, GHS, KES)
+- Campaign calendar & analytics
+- AI-powered insights (Claude API)
+- Team collaboration with @mentions
+- Multi-agency workspaces
+- Budget management & variance alerts
+- Client onboarding wizard
+- PWA (installable, offline support)
+
+## Current Stack (Prototype)
+- React 18 (UMD CDN)
+- Babel Standalone (in-browser transpilation)
+- localStorage for persistence
+- Single HTML file — no build step
+
+## Recommended Production Stack
+\`\`\`
+Frontend:   React 18 + TypeScript + Vite
+Styling:    Tailwind CSS v4 (or keep CSS custom properties)
+State:      Zustand or React Query
+Backend:    Supabase (PostgreSQL + Auth + Realtime + Storage)
+Deploy:     Vercel or Netlify (frontend) + Supabase (backend)
+Auth:       Supabase Auth (email/password, magic link, OAuth)
+PWA:        Vite PWA plugin (Workbox)
+PDF:        @react-pdf/renderer
+AI:         Anthropic SDK (@anthropic-ai/sdk)
+\`\`\`
+
+## Migration Steps
+1. \`npm create vite@latest mediahub -- --template react-ts\`
+2. Copy components from mediahub.html into \`/src/components/\`
+3. Replace \`usePersisted\` with Supabase hooks
+4. Replace SEED_* data with Supabase table queries
+5. Replace inline Anthropic fetch with server-side API route
+6. Add Vite PWA plugin for service worker
+7. Deploy: \`vercel deploy\`
+
+## Environment Variables
+\`\`\`
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_ANTHROPIC_API_KEY=sk-ant-...   # server-side only!
+\`\`\`
+
+## Database Schema (Supabase)
+Tables: workspaces, users, clients, mpos, invoices, payables, budgets, comments, audit_log, notifications, documents
+
+## Security Notes
+- NEVER expose ANTHROPIC_API_KEY on the client — use a server-side route
+- Enable Row Level Security (RLS) on all Supabase tables
+- Scope queries by workspace_id for multi-tenancy
+
+---
+Generated by MediaHub Stage 7 · ${new Date().toLocaleDateString()}
+`;
+    const a = document.createElement("a");
+    a.href = "data:text/markdown;charset=utf-8," + encodeURIComponent(md);
+    a.download = "MEDIAHUB_README.md";
+    a.click();
+  };
+
+  const checks = [
+    {status:"done", title:"Component architecture", desc:"All UI split into focused, reusable components with clear prop interfaces"},
+    {status:"done", title:"localStorage persistence", desc:"usePersisted() hook abstracts storage — swap for Supabase with minimal changes"},
+    {status:"done", title:"Role-based access control", desc:"RoleGuard component + permissions array on every user — maps directly to Supabase RLS"},
+    {status:"done", title:"Dark mode via CSS custom properties", desc:"Full token-based theming — ready for Tailwind migration"},
+    {status:"done", title:"PWA service worker", desc:"Offline caching registered via blob SW — use Vite PWA plugin in production"},
+    {status:"done", title:"Multi-workspace architecture", desc:"Workspace context in place — add workspace_id FK to all DB tables"},
+    {status:"warn", title:"AI API key exposed on client", desc:"Move Anthropic API calls to a server-side route (Next.js API route or Edge Function)"},
+    {status:"warn", title:"In-browser Babel transpilation", desc:"Replace with Vite build — removes ~1MB Babel bundle, improves load time 10×"},
+    {status:"warn", title:"No real authentication", desc:"Replace demo user selector with Supabase Auth (email + magic link)"},
+    {status:"warn", title:"localStorage has no backup", desc:"Data lives only in the browser — Supabase gives cloud sync, multi-device, team access"},
+    {status:"info", title:"Supabase recommended for backend", desc:"Free tier covers: 500MB DB, 1GB storage, 50k MAU — sufficient for a small agency"},
+    {status:"info", title:"Vite build reduces bundle by ~80%", desc:"Production build outputs ~150KB JS vs the current ~1.2MB single file"},
+  ];
+
+  const iconMap = {done:"✓", warn:"!", info:"i"};
+  const classMap = {done:"prod-check-done", warn:"prod-check-warn", info:"prod-check-info"};
+
+  return (
+    <div style={{maxWidth:720}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontWeight:600,fontSize:16,color:"var(--text)"}}>Production Readiness</div>
+          <div style={{fontSize:12,color:"var(--text3)",marginTop:3}}>What's ready to ship vs what needs attention before going live</div>
+        </div>
+        <button className="btn btn-primary" onClick={downloadReadme}>↓ Download README.md</button>
+      </div>
+
+      <div className="prod-card">
+        <div className="prod-section-title">✦ Recommended Production Stack</div>
+        <div style={{marginBottom:12,flexWrap:"wrap",display:"flex",gap:6}}>
+          {[
+            {label:"React 18 + TypeScript",color:"#E6F1FB"},
+            {label:"Vite",color:"#EAF3DE"},
+            {label:"Supabase",color:"#E6F1FB"},
+            {label:"Tailwind CSS",color:"#EEEDFE"},
+            {label:"Vercel",color:"#F1EFE8"},
+            {label:"Vite PWA",color:"#EAF3DE"},
+            {label:"Anthropic SDK",color:"#f0effe"},
+          ].map(s=><span key={s.label} className="stack-chip" style={{background:s.color}}>{s.label}</span>)}
+        </div>
+        <div className="code-block">{`# Bootstrap production project
+npm create vite@latest mediahub -- --template react-ts
+cd mediahub
+npm install @supabase/supabase-js zustand @anthropic-ai/sdk
+npm install -D vite-plugin-pwa tailwindcss`}</div>
+      </div>
+
+      <div className="prod-card">
+        <div className="prod-section-title">📋 Readiness Checklist</div>
+        {checks.map((c,i)=>(
+          <div key={i} className="prod-check">
+            <div className={`prod-check-icon ${classMap[c.status]}`}>{iconMap[c.status]}</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:500,color:"var(--text)"}}>{c.title}</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{c.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="prod-card">
+        <div className="prod-section-title">🗄️ Supabase Schema (copy-paste)</div>
+        <div className="code-block">{`-- Core tables (add workspace_id FK to each)
+create table workspaces (id uuid primary key, name text, brand_color text, plan text);
+create table clients   (id uuid primary key, workspace_id uuid references workspaces, name text, type text, industry text, contact text, email text);
+create table mpos      (id uuid primary key, workspace_id uuid references workspaces, client text, vendor text, campaign text, amount numeric, currency text, status text, start_date date, end_date date, exec_status text, channel text);
+create table invoices  (id uuid primary key, workspace_id uuid references workspaces, client text, mpo_id uuid references mpos, amount numeric, paid numeric default 0, due_date date, wf_status text, currency text);
+create table budgets   (id uuid primary key, workspace_id uuid references workspaces, mpo_id uuid references mpos, budget_amount numeric, alert_pct int);
+create table comments  (id uuid primary key, entity_id text, user_id uuid, text text, created_at timestamptz default now());
+create table audit_log (id uuid primary key, workspace_id uuid references workspaces, user_id uuid, action text, entity text, entity_id text, detail text, tag text, created_at timestamptz default now());
+
+-- Enable RLS on every table
+alter table mpos enable row level security;
+-- Policy: users only see their workspace
+create policy "workspace_isolation" on mpos using (workspace_id = auth.jwt()->>'workspace_id');`}</div>
+      </div>
+
+      <div className="prod-card">
+        <div className="prod-section-title">🔒 Security Checklist</div>
+        {[
+          {s:"warn",t:"Server-side AI proxy required",d:"Create /api/ai endpoint — never expose sk-ant-* keys in browser code"},
+          {s:"warn",t:"Enable Supabase RLS on all tables",d:"Row Level Security ensures users only query their workspace's data"},
+          {s:"info",t:"Use Supabase Auth for login",d:"Replace demo user selector with email + magic link — zero password storage needed"},
+          {s:"info",t:"Set CORS headers on API routes",d:"Restrict origins to your production domain in Supabase dashboard"},
+        ].map((c,i)=>(
+          <div key={i} className="prod-check">
+            <div className={`prod-check-icon ${classMap[c.s]}`}>{iconMap[c.s]}</div>
+            <div><div style={{fontSize:13,fontWeight:500,color:"var(--text)"}}>{c.t}</div><div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{c.d}</div></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   APP ROOT
+══════════════════════════════════════════════════ */
+const NAV=[
+  {id:"dashboard",label:"Dashboard",   icon:"■", section:"overview"},
+  {id:"mpo",      label:"Scheduling",  icon:"◈", section:"operations"},
+  {id:"clients",  label:"Clients",     icon:"◉", section:"operations"},
+  {id:"calendar", label:"Calendar",    icon:"▦", section:"operations"},
+  {id:"finance",  label:"Finance",     icon:"◎", section:"finance"},
+  {id:"budgets",  label:"Budgets",     icon:"◐", section:"finance"},
+  {id:"reports",  label:"Reports",     icon:"▧", section:"finance"},
+  {id:"analytics",label:"Analytics",   icon:"◑", section:"finance"},
+  {id:"dataviz",  label:"Data Viz",    icon:"◍", section:"finance"},
+  {id:"reminders",label:"Reminders",   icon:"◷", section:"tools"},
+  {id:"audit",    label:"Audit Log",   icon:"◫", section:"tools"},
+  {id:"users",    label:"Users",       icon:"◉", section:"tools"},
+  {id:"settings", label:"Settings",    icon:"⚙", section:"tools"},
+  {id:"feed",     label:"Activity Feed",icon:"◌",section:"tools"},
+  {id:"production",label:"Production", icon:"⬡", section:"tools"},
+];
+const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
+const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management",reports:"Reports",analytics:"Analytics",dataviz:"Data Visualisation",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",feed:"Activity Feed",production:"Production Readiness"};
+const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"feed",label:"Feed",icon:"◌"}];
+
+// ── Column transform helpers ─────────────────────────────────────────────────
+// DB snake_case → app camelCase (and back)
+const toMpo = r => r ? ({
+  id: r.id, client: r.client, vendor: r.vendor, campaign: r.campaign,
+  amount: r.amount, status: r.status, start: r.start_date, end: r.end_date,
+  exec: r.exec_status, channel: r.channel, currency: r.currency,
+  docs: r.docs || [], workspace_id: r.workspace_id,
+}) : null;
+const fromMpo = m => ({
+  client: m.client, vendor: m.vendor, campaign: m.campaign,
+  amount: m.amount, status: m.status, start_date: m.start, end_date: m.end,
+  exec_status: m.exec, channel: m.channel, currency: m.currency || "NGN",
+  docs: m.docs || [],
+});
+
+const toInvoice = r => r ? ({
+  id: r.id, client: r.client, mpo: r.mpo_ref, amount: r.amount, paid: r.paid,
+  due: r.due_date, wfStatus: r.wf_status, currency: r.currency,
+  docs: r.docs || [], workspace_id: r.workspace_id,
+}) : null;
+const fromInvoice = inv => ({
+  client: inv.client, mpo_ref: inv.mpo, amount: inv.amount, paid: inv.paid,
+  due_date: inv.due, wf_status: inv.wfStatus || "draft", currency: inv.currency || "NGN",
+  docs: inv.docs || [],
+});
+
+const toPayable = r => r ? ({
+  id: r.id, vendor: r.vendor, mpo: r.mpo_ref, amount: r.amount, paid: r.paid,
+  due: r.due_date, description: r.description, currency: r.currency,
+  workspace_id: r.workspace_id,
+}) : null;
+const fromPayable = p => ({
+  vendor: p.vendor, mpo_ref: p.mpo, amount: p.amount, paid: p.paid,
+  due_date: p.due, description: p.description, currency: p.currency || "NGN",
+});
+
+const toBudget = r => r ? ({
+  id: r.id, mpoId: r.mpo_id, budget: r.budget_amount, spent: r.spent_amount,
+  alertPct: r.alert_pct, period: r.period, workspace_id: r.workspace_id,
+}) : null;
+const fromBudget = b => ({
+  mpo_id: b.mpoId, budget_amount: b.budget, spent_amount: b.spent,
+  alert_pct: b.alertPct, period: b.period,
+});
+
+const toAudit = r => r ? ({
+  id: r.id, userId: r.user_id, userName: r.user_name, userColor: r.user_color,
+  initials: r.initials, action: r.action, entity: r.entity, entityId: r.entity_id,
+  detail: r.detail, tag: r.tag, ts: r.ts, workspace_id: r.workspace_id,
+}) : null;
+
+// ── makeArraySetter ───────────────────────────────────────────────────────────
+// Returns a React-compatible setter (accepts value or prev=>next) that also
+// dispatches Supabase mutations by diffing old vs new array.
+function makeArraySetter(getLocal, insertFn, updateFn, removeFn, fromRow, workspaceId) {
+  return function(updater) {
+    getLocal(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      // Detect added items
+      const prevIds = new Set(prev.map(x => x.id));
+      const nextIds = new Set(next.map(x => x.id));
+      next.forEach(item => {
+        if (!prevIds.has(item.id)) {
+          // new item — insert
+          const row = fromRow(item);
+          if (workspaceId) row.workspace_id = workspaceId;
+          insertFn(row).catch(e => console.error("Supabase insert failed", e));
+        } else {
+          // existing — check if changed
+          const old = prev.find(x => x.id === item.id);
+          if (old && JSON.stringify(old) !== JSON.stringify(item)) {
+            updateFn(item.id, fromRow(item)).catch(e => console.error("Supabase update failed", e));
+          }
+        }
+      });
+      prev.forEach(item => {
+        if (!nextIds.has(item.id)) {
+          removeFn(item.id).catch(e => console.error("Supabase remove failed", e));
+        }
+      });
+      return next;
+    });
+  };
+}
+
+function App(){
+  // ── Auth ────────────────────────────────────────────────────────────────────
+  const { session, profile, loading: authLoading, signOut } = useAuth();
+  const workspaceId = profile?.workspace_id ?? null;
+  const currentUser = profile ? {
+    ...profile,
+    permissions: profile.permissions || [],
+  } : null;
+
+  // ── Supabase tables ─────────────────────────────────────────────────────────
+  const mposTable       = useSupabaseTable("mpos",       workspaceId);
+  const clientsTable    = useSupabaseTable("clients",    workspaceId);
+  const invoicesTable   = useSupabaseTable("invoices",   workspaceId);
+  const payablesTable   = useSupabaseTable("payables",   workspaceId);
+  const budgetsTable    = useSupabaseTable("budgets",    workspaceId);
+  const auditTable      = useSupabaseTable("audit_log",  workspaceId);
+  const notifTable      = useSupabaseTable("notifications", workspaceId);
+
+  // ── Local state (optimistic, seeded from DB) ────────────────────────────────
+  const [mpos,        _setMpos]        = useState([]);
+  const [clients,     _setClients]     = useState([]);
+  const [receivables, _setReceivables] = useState([]);
+  const [payables,    _setPayables]    = useState([]);
+  const [budgets,     _setBudgets]     = useState([]);
+  const [auditLog,    _setAuditLog]    = useState([]);
+  const [notifications, _setNotifications] = useState([]);
+
+  // Seed local state from DB whenever DB rows change
+  useEffect(()=>{ if(mposTable.data)      _setMpos(mposTable.data.map(toMpo).filter(Boolean));           },[mposTable.data]);
+  useEffect(()=>{ if(clientsTable.data)   _setClients(clientsTable.data);                                },[clientsTable.data]);
+  useEffect(()=>{ if(invoicesTable.data)  _setReceivables(invoicesTable.data.map(toInvoice).filter(Boolean)); },[invoicesTable.data]);
+  useEffect(()=>{ if(payablesTable.data)  _setPayables(payablesTable.data.map(toPayable).filter(Boolean));    },[payablesTable.data]);
+  useEffect(()=>{ if(budgetsTable.data)   _setBudgets(budgetsTable.data.map(toBudget).filter(Boolean));       },[budgetsTable.data]);
+  useEffect(()=>{ if(auditTable.data)     _setAuditLog(auditTable.data.map(toAudit).filter(Boolean));         },[auditTable.data]);
+  useEffect(()=>{ if(notifTable.data)     _setNotifications(notifTable.data);                             },[notifTable.data]);
+
+  // ── Compatibility setters (work like usePersisted setters) ──────────────────
+  const setMpos        = makeArraySetter(_setMpos,        mposTable.insert,     mposTable.update,     mposTable.remove,     fromMpo,     workspaceId);
+  const setClients     = makeArraySetter(_setClients,     clientsTable.insert,  clientsTable.update,  clientsTable.remove,  x=>x,        workspaceId);
+  const setReceivables = makeArraySetter(_setReceivables, invoicesTable.insert, invoicesTable.update, invoicesTable.remove, fromInvoice, workspaceId);
+  const setPayables    = makeArraySetter(_setPayables,    payablesTable.insert, payablesTable.update, payablesTable.remove, fromPayable, workspaceId);
+  const setBudgets     = makeArraySetter(_setBudgets,     budgetsTable.insert,  budgetsTable.update,  budgetsTable.remove,  fromBudget,  workspaceId);
+  const setAuditLog    = (updater) => {
+    _setAuditLog(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const prevIds = new Set(prev.map(x=>x.id));
+      next.forEach(item => {
+        if(!prevIds.has(item.id)){
+          const row = {
+            user_id: item.userId || null, user_name: item.userName,
+            user_color: item.userColor, initials: item.initials,
+            action: item.action, entity: item.entity, entity_id: item.entityId,
+            detail: item.detail, tag: item.tag, ts: item.ts,
+            workspace_id: workspaceId,
+          };
+          auditTable.insert(row).catch(e=>console.error("audit insert failed",e));
+        }
+      });
+      return next;
+    });
+  };
+  const setNotifications = (updater) => {
+    _setNotifications(prev => typeof updater === "function" ? updater(prev) : updater);
+  };
+
+  // ── Other persisted state ───────────────────────────────────────────────────
+  const [darkMode,  setDarkMode]  = useState(()=>{ try{ return JSON.parse(localStorage.getItem("mh_dark")||"false"); }catch{ return false; } });
+  const [settings,  setSettings]  = useState(()=>{ try{ return JSON.parse(localStorage.getItem("mh_settings")||"null")||DEFAULT_SETTINGS; }catch{ return DEFAULT_SETTINGS; } });
+  const [comments,  setComments]  = useState({});
+
+  // Persist dark mode and settings locally
+  useEffect(()=>{ localStorage.setItem("mh_dark",JSON.stringify(darkMode)); },[darkMode]);
+  useEffect(()=>{ localStorage.setItem("mh_settings",JSON.stringify(settings)); },[settings]);
+
+  // Load comments from Supabase (keyed by entity_id)
+  useEffect(()=>{
+    if(!workspaceId) return;
+    supabase.from("comments").select("*").eq("workspace_id",workspaceId).order("created_at",{ascending:true})
+      .then(({data})=>{
+        if(!data) return;
+        const grouped={};
+        data.forEach(row=>{
+          const c={id:row.id,userId:row.user_id,userName:row.user_name,userColor:row.user_color,initials:row.user_initials,text:row.text,ts:row.created_at};
+          if(!grouped[row.entity_id]) grouped[row.entity_id]=[];
+          grouped[row.entity_id].push(c);
+        });
+        setComments(grouped);
+      });
+  },[workspaceId]);
+
+  // ── UI state ────────────────────────────────────────────────────────────────
+  const [wizardOpen,setWizardOpen]=useState(false);
+  const [page,setPage]=useState("dashboard");
+  const [sOpen,setSOpen]=useState(false);
+  const [aOpen,setAOpen]=useState(false);
+  const [notifOpen,setNotifOpen]=useState(false);
+  const [searchOpen,setSearchOpen]=useState(false);
+  const [agencyOpen,setAgencyOpen]=useState(false);
+  const [workspace,setWorkspace]=useState(WORKSPACES[0]);
+  const {ts,show:toast}=useToast();
+  const { installPrompt, isInstalled, isOffline, install } = usePWA();
+  const [pwaBannerDismissed,setPwaBannerDismissed]=useState(false);
+
+  // Sync workspace from profile
+  useEffect(()=>{
+    if(profile?.workspace_id){
+      const ws = WORKSPACES.find(w=>w.id===profile.workspace_id);
+      if(ws) setWorkspace(ws);
+    }
+  },[profile?.workspace_id]);
+
+  useEffect(()=>{ document.documentElement.setAttribute("data-theme",darkMode?"dark":"light"); },[darkMode]);
+
+  useEffect(()=>{
+    if(settings.brandColor){ document.documentElement.style.setProperty("--brand",settings.brandColor); document.documentElement.style.setProperty("--brand-dark",settings.brandColor+"cc"); }
+  },[settings.brandColor]);
+
+  useEffect(()=>{
+    const h=e=>{if((e.metaKey||e.ctrlKey)&&e.key==="k"){e.preventDefault();setSearchOpen(o=>!o);}};
+    document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);
+  },[]);
+
+  // Build and refresh notifications from live data
+  useEffect(()=>{
+    const fresh=buildNotifications(receivables,payables,mpos);
+    setNotifications(prev=>{
+      const existingIds=new Set(prev.map(n=>n.id));
+      const merged=[...prev];
+      fresh.forEach(n=>{if(!existingIds.has(n.id))merged.unshift(n);});
+      return merged.slice(0,50);
+    });
+  },[receivables,payables,mpos]);
+
+  // ── Auth gates ──────────────────────────────────────────────────────────────
+  if(authLoading) return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"var(--bg)"}}>
+      <div style={{width:40,height:40,borderRadius:"50%",border:"3px solid var(--brand)",borderTopColor:"transparent",animation:"spin 0.8s linear infinite"}}/>
+      <div style={{fontSize:13,color:"var(--text3)"}}>Loading MediaHub…</div>
+    </div>
+  );
+
+  if(!session) return <AuthScreen onSuccess={()=>toast("Welcome back!","info")}/>;
+  if(!currentUser) return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"var(--bg)"}}>
+      <div style={{width:40,height:40,borderRadius:"50%",border:"3px solid var(--brand)",borderTopColor:"transparent",animation:"spin 0.8s linear infinite"}}/>
+      <div style={{fontSize:13,color:"var(--text3)"}}>Setting up your profile…</div>
+    </div>
+  );
+  if(currentUser.role==="client") return <ClientPortal user={currentUser} receivables={receivables} mpos={mpos} onLogout={signOut}/>;
+
+  const addAudit=(action,entity,entityId,detail,tag)=>{
+    const entry={id:`a${Date.now()}`,userId:currentUser.id,userName:currentUser.name,userColor:currentUser.color,initials:currentUser.initials,action,entity,entityId,detail,ts:tsNow(),tag};
+    setAuditLog(l=>[entry,...l].slice(0,200));
+  };
+
+  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
+  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
+  const unreadCount=notifications.filter(n=>!n.read).length;
+  const alerts=[...lR.filter(r=>r.status==="overdue").map(r=>({c:"#A32D2D",t:`Invoice ${r.id} overdue — ${r.client}`})),...lP.filter(p=>p.status==="overdue").map(p=>({c:"#D85A30",t:`Payable ${p.id} overdue — ${p.vendor}`})),...mpos.filter(m=>m.exec==="delayed").map(m=>({c:"#854F0B",t:`MPO ${m.id} delayed`}))];
+
+  const readNotif=id=>setNotifications(p=>p.map(n=>n.id===id?{...n,read:true}:n));
+  const readAllNotifs=()=>setNotifications(p=>p.map(n=>({...n,read:true})));
+
+  const visibleNav=NAV.filter(n=>currentUser.permissions.includes(n.id));
+  const sections=[...new Set(visibleNav.map(n=>n.section))];
+  const nav=id=>{setPage(id);setSOpen(false);};
+  const logout=()=>{signOut();setPage("dashboard");};
+
+  const addComment=(entityId, comment)=>{
+    // Optimistic local update
+    setComments(prev=>({...prev,[entityId]:[...(prev[entityId]||[]),comment]}));
+    // Persist to Supabase
+    supabase.from("comments").insert({
+      workspace_id: workspaceId,
+      entity_id: entityId,
+      user_id: currentUser.id,
+      user_name: currentUser.name,
+      user_color: currentUser.color,
+      user_initials: currentUser.initials,
+      text: comment.text,
+    }).catch(e=>console.error("comment insert failed",e));
+    const mentions=[...comment.text.matchAll(/@(\w+)/g)].map(m=>m[1]);
+    if(mentions.length) toast(`Notified: ${mentions.map(m=>"@"+m).join(", ")}`,"info");
+  };
+
+  const handleOnboardingComplete=({client,mpo,invoice})=>{
+    setClients(p=>[...p,client]);
+    setMpos(p=>[...p,mpo]);
+    if(invoice) setReceivables(p=>[...p,{...invoice,status:computeStatus(invoice)}]);
+    addAudit("onboarded","Client",client.id,`Onboarded ${client.name} with ${mpo.id}`,"create");
+    toast(`${client.name} launched!`,"success");
+    setTimeout(()=>setPage("clients"),1800);
+  };
+
+  return(
+    <div className="app">
+      {isOffline&&<div className="offline-bar">You're offline — MediaHub is running from cache</div>}
+
+      {agencyOpen&&<AgencySwitcher current={workspace.id} onSwitch={ws=>{setWorkspace(ws);toast(`Switched to ${ws.name}`,"info");}} onClose={()=>setAgencyOpen(false)}/>}
+
+      {installPrompt&&!isInstalled&&!pwaBannerDismissed&&(
+        <div className="pwa-banner">
+          <div className="pwa-banner-icon">📱</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,marginBottom:2}}>Install MediaHub</div>
+            <div style={{fontSize:11,opacity:.7}}>Add to home screen for offline access</div>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={install}>Install</button>
+          <button className="btn btn-sm btn-ghost" style={{color:"#aaa"}} onClick={()=>setPwaBannerDismissed(true)}>✕</button>
+        </div>
+      )}
+
+      {wizardOpen&&<OnboardingWizard onClose={()=>setWizardOpen(false)} onComplete={handleOnboardingComplete} clients={clients} mpos={mpos} settings={settings} currentUser={currentUser}/>}
+
+      {searchOpen&&<GlobalSearch mpos={mpos} clients={clients} receivables={receivables} payables={payables} onNavigate={nav} onClose={()=>setSearchOpen(false)}/>}
+      <div className={`sidebar-overlay ${sOpen?"open":""}`} onClick={()=>setSOpen(false)} style={{display:sOpen?"block":"none"}}/>
+
+      <aside className={`sidebar ${sOpen?"open":""}`} aria-label="Navigation">
+        <div className="sidebar-logo" style={{cursor:"pointer"}} onClick={()=>setAgencyOpen(true)} title="Switch workspace">
+          <div className="logo-mark" style={{background:workspace.color}}>{workspace.abbr}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="logo-text" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</div>
+            <div style={{fontSize:9,color:"var(--text3)",marginTop:1}}>Click to switch workspace</div>
+          </div>
+          <span style={{fontSize:10,color:"var(--text3)"}}>⇅</span>
+        </div>
+        <nav className="sidebar-nav">
+          {sections.map(sec=>(
+            <div key={sec}>
+              <div className="nav-section">{SECTIONS[sec]}</div>
+              {visibleNav.filter(n=>n.section===sec).map(item=>(
+                <button key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>nav(item.id)} aria-current={page===item.id?"page":undefined}>
+                  <span className="nav-icon">{item.icon}</span>{item.label}
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+            <div style={{width:28,height:28,borderRadius:"50%",background:currentUser.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:11,flexShrink:0}}>{currentUser.initials}</div>
+            <div><div style={{fontWeight:500,fontSize:12,color:"var(--text)"}}>{currentUser.name.split(" ")[0]}</div><div style={{fontSize:10,color:"var(--text3)",textTransform:"capitalize"}}>{currentUser.role}</div></div>
+          </div>
+          <div className="dark-toggle" style={{marginBottom:8,width:"100%",justifyContent:"space-between"}} onClick={()=>setDarkMode(d=>!d)}>
+            <span>{darkMode?"☀️ Light mode":"🌙 Dark mode"}</span>
+            <div style={{width:32,height:18,borderRadius:99,background:darkMode?"var(--brand)":"#ddd",position:"relative",transition:"background .2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:darkMode?14:2,width:14,height:14,background:"#fff",borderRadius:"50%",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.2)"}}/></div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button className="btn btn-ghost btn-sm" style={{fontSize:11,color:"var(--text3)",flex:1,justifyContent:"center"}} onClick={logout}>Sign out</button>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"var(--text3)",marginTop:8}}><span style={{width:6,height:6,borderRadius:"50%",background:"#3B6D11",display:"inline-block"}}/>Synced to Supabase</div>
+        </div>
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
+          <div className="topbar-left">
+            <button className="hamburger" onClick={()=>setSOpen(o=>!o)}>☰</button>
+            <span className="topbar-title">{PTITLES[page]}</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,position:"relative"}}>
+            {(currentUser.role==="admin"||currentUser.role==="manager")&&(
+              <button className="btn btn-sm btn-primary" onClick={()=>setWizardOpen(true)} title="Onboard new client" style={{gap:5}}>
+                <span>+</span><span style={{display:"none"}}>Onboard</span>
+              </button>
+            )}
+            <button className="ws-pill" onClick={()=>setAgencyOpen(true)} title="Switch workspace">
+              <div className="ws-dot" style={{background:workspace.color}}/>
+              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{workspace.name}</span>
+              <span style={{fontSize:10,flexShrink:0}}>⇅</span>
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={()=>setSearchOpen(true)} title="Search ⌘K">⌕</button>
+            <button className="btn btn-sm btn-ghost" onClick={()=>setDarkMode(d=>!d)} title="Dark mode">{darkMode?"☀️":"🌙"}</button>
+            <button className="btn btn-sm" onClick={()=>{setNotifOpen(o=>!o);setAOpen(false);}} style={{position:"relative"}}>
+              🔔
+              {unreadCount>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#534AB7",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{unreadCount}</span>}
+            </button>
+            <button className="btn btn-sm" onClick={()=>{setAOpen(o=>!o);setNotifOpen(false);}} style={{position:"relative"}}>
+              ⚠
+              {alerts.length>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#D85A30",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{alerts.length}</span>}
+            </button>
+            {notifOpen&&<NotificationPanel notifications={notifications} onRead={readNotif} onReadAll={readAllNotifs} onClose={()=>setNotifOpen(false)}/>}
+            {aOpen&&(
+              <div className="alerts-panel">
+                <div className="alerts-header">Alerts <button className="btn btn-sm btn-ghost" style={{float:"right",marginTop:-2}} onClick={()=>setAOpen(false)}>✕</button></div>
+                {alerts.length===0?<div style={{padding:"20px 16px",fontSize:12,color:"var(--text3)",textAlign:"center"}}>All clear 🎉</div>
+                :alerts.map((a,i)=><div key={i} style={{padding:"12px 16px",borderBottom:"var(--border)",fontSize:12,display:"flex",gap:10}}><div style={{width:7,height:7,borderRadius:"50%",background:a.c,flexShrink:0,marginTop:3}}/>{a.t}</div>)}
+              </div>
+            )}
+          </div>
+        </header>
+
+        <div className="content">
+          {page==="dashboard"&&currentUser.role!=="viewer"&&(
+            <AIPanel mpos={mpos} receivables={receivables} payables={payables} clients={clients} toast={toast} currency={settings.defaultCurrency||"NGN"}/>
+          )}
+          {page==="dashboard" &&<Dashboard mpos={mpos} receivables={lR} payables={lP} setPage={setPage} currency={settings.defaultCurrency||"NGN"} settings={settings} toast={toast} onOnboard={()=>setWizardOpen(true)} budgets={budgets} payables2={payables}/>}
+          {page==="mpo"       &&<MPOPage mpos={mpos} setMpos={setMpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
+          {page==="clients"   &&<ClientsPage clients={clients} setClients={setClients} toast={toast} user={currentUser} addAudit={addAudit} onOnboard={()=>setWizardOpen(true)}/>}
+          {page==="calendar"  &&<CalendarPage mpos={mpos}/>}
+          {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
+          {page==="budgets"   &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
+          {page==="reports"   &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} settings={settings}/>}
+          {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
+          {page==="dataviz"   &&<DataVizPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser}/>}
+          {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
+          {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
+          {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
+          {page==="settings"  &&<SettingsPage settings={settings} setSettings={setSettings} user={currentUser} toast={toast}/>}
+          {page==="feed"      &&<ActivityFeedPage comments={comments} mpos={mpos} receivables={receivables} auditLog={auditLog} currentUser={currentUser}/>}
+          {page==="production"&&<ProductionPage user={currentUser}/>}
+        </div>
+      </div>
+
+      <nav className="bottom-nav">
+        {MOBILE_NAV.map(item=>(
+          <button key={item.id} className={`bn-item ${page===item.id?"active":""}`} onClick={()=>nav(item.id)}>
+            <span className="bn-icon">{item.icon}</span><span className="bn-label">{item.label}</span>
+          </button>
+        ))}
+        <button className="bn-item" onClick={()=>setSearchOpen(true)}>
+          <span className="bn-icon">⌕</span><span className="bn-label">Search</span>
+        </button>
+      </nav>
+      <Toasts ts={ts}/>
+    </div>
+  );
+}
+
+
+export default App
