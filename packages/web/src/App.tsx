@@ -320,20 +320,46 @@ function AreaChart({data,height=160,color="#534AB7"}){
 const DOC_ICONS={"pdf":"📄","doc":"📝","docx":"📝","xls":"📊","xlsx":"📊","png":"🖼","jpg":"🖼","default":"📎"};
 function docIcon(name){const ext=name.split(".").pop().toLowerCase();return DOC_ICONS[ext]||DOC_ICONS.default;}
 
-function DocPanel({entityId,entityDocs,onSave,canEdit}){
+function DocPanel({entityId,entityDocs,onSave,canEdit,workspaceId,currentUser}){
   const [drag,setDrag]=useState(false);
+  const [uploading,setUploading]=useState(false);
+  const [uploadErr,setUploadErr]=useState(null);
   const inputRef=useRef(null);
 
-  const handleFiles=files=>{
+  const uploadFiles=async(files)=>{
+    if(!files.length) return;
+    setUploading(true);setUploadErr(null);
     const newDocs=[...entityDocs];
-    Array.from(files).forEach(f=>{
-      newDocs.push({id:`doc-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,name:f.name,size:f.size,type:f.type,ts:tsNow(),uploadedBy:"You"});
-    });
+    for(const file of Array.from(files)){
+      const docId=`doc-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+      const path=`${workspaceId||"shared"}/${entityId}/${docId}-${file.name}`;
+      const {error}=await supabase.storage.from("documents").upload(path,file,{upsert:false});
+      if(error){setUploadErr(`Upload failed: ${error.message}`);continue;}
+      newDocs.push({id:docId,name:file.name,size:file.size,type:file.type,ts:tsNow(),uploadedBy:currentUser?.name||"You",path});
+    }
     onSave(newDocs);
+    setUploading(false);
   };
-  const handleDrop=e=>{e.preventDefault();setDrag(false);handleFiles(e.dataTransfer.files);};
-  const handleInput=e=>handleFiles(e.target.files);
-  const removeDoc=id=>onSave(entityDocs.filter(d=>d.id!==id));
+
+  const openDoc=async(doc)=>{
+    if(!doc.path){
+      // Legacy doc with no storage path — nothing to open
+      return;
+    }
+    const {data,error}=await supabase.storage.from("documents").createSignedUrl(doc.path,3600);
+    if(error||!data?.signedUrl){alert("Could not load file. It may have been deleted.");return;}
+    window.open(data.signedUrl,"_blank");
+  };
+
+  const removeDoc=async(doc)=>{
+    if(doc.path){
+      await supabase.storage.from("documents").remove([doc.path]);
+    }
+    onSave(entityDocs.filter(d=>d.id!==doc.id));
+  };
+
+  const handleDrop=e=>{e.preventDefault();setDrag(false);uploadFiles(e.dataTransfer.files);};
+  const handleInput=e=>uploadFiles(e.target.files);
 
   return(
     <div>
@@ -341,24 +367,29 @@ function DocPanel({entityId,entityDocs,onSave,canEdit}){
       {canEdit&&(
         <>
           <div className={`doc-drop-zone ${drag?"drag":""}`}
-            onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={handleDrop}
-            onClick={()=>inputRef.current?.click()}>
-            <div style={{fontSize:24,marginBottom:6}}>📎</div>
-            <div style={{fontSize:13,fontWeight:500}}>Drop files here or click to browse</div>
-            <div style={{fontSize:11,marginTop:4}}>PDF, Word, Excel, Images</div>
+            onDragOver={e=>{e.preventDefault();setDrag(true);}}
+            onDragLeave={()=>setDrag(false)}
+            onDrop={handleDrop}
+            onClick={()=>!uploading&&inputRef.current?.click()}
+            style={{opacity:uploading?0.6:1,cursor:uploading?"not-allowed":"pointer"}}>
+            {uploading
+              ? <><div style={{fontSize:20,marginBottom:6}}>⏳</div><div style={{fontSize:13}}>Uploading…</div></>
+              : <><div style={{fontSize:24,marginBottom:6}}>📎</div><div style={{fontSize:13,fontWeight:500}}>Drop files here or click to browse</div><div style={{fontSize:11,marginTop:4,color:"var(--text3)"}}>PDF, Word, Excel, Images · max 50 MB</div></>
+            }
           </div>
           <input ref={inputRef} type="file" multiple style={{display:"none"}} onChange={handleInput}/>
+          {uploadErr&&<div style={{fontSize:11,color:"#A32D2D",marginTop:6}}>{uploadErr}</div>}
         </>
       )}
       {entityDocs.length===0&&<div style={{fontSize:12,color:"var(--text3)",textAlign:"center",padding:"16px 0"}}>No attachments yet</div>}
       {entityDocs.map(d=>(
         <div key={d.id} className="doc-item" style={{marginTop:8}}>
-          <div className="doc-icon" style={{background:"var(--bg3)"}}>{docIcon(d.name)}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</div>
+          <div className="doc-icon" style={{background:"var(--bg3)",cursor:d.path?"pointer":"default"}} onClick={()=>openDoc(d)}>{docIcon(d.name)}</div>
+          <div style={{flex:1,minWidth:0,cursor:d.path?"pointer":"default"}} onClick={()=>openDoc(d)}>
+            <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:d.path?"var(--brand)":"var(--text)"}}>{d.name}</div>
             <div style={{fontSize:11,color:"var(--text3)"}}>{d.ts} · {d.uploadedBy} · {d.size?Math.round(d.size/1024)+"KB":""}</div>
           </div>
-          {canEdit&&<button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>removeDoc(d.id)} title="Remove">✕</button>}
+          {canEdit&&<button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>removeDoc(d)} title="Remove">✕</button>}
         </div>
       ))}
     </div>
@@ -763,7 +794,7 @@ function MPOPage({mpos,setMpos,clients,toast,user,addAudit,settings,comments,onA
         <CommentsPanel entityId={commentsFor} entityLabel={`MPO ${commentsFor} — ${mpos.find(m=>m.id===commentsFor)?.campaign||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
       </Modal>)}
       {docsFor&&mpoForDocs&&(<Modal title={`Documents — ${mpoForDocs.id}`} onClose={()=>setDocsFor(null)}>
-        <DocPanel entityId={docsFor} entityDocs={mpoForDocs.docs||[]} onSave={docs=>updateMpoDocs(docsFor,docs)} canEdit={canEdit}/>
+        <DocPanel entityId={docsFor} entityDocs={mpoForDocs.docs||[]} onSave={docs=>updateMpoDocs(docsFor,docs)} canEdit={canEdit} workspaceId={user?.workspace_id} currentUser={user}/>
       </Modal>)}
       <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
         {[{l:"Total",v:mpos.length},{l:"Active",v:mpos.filter(m=>m.status==="active").length},{l:"Pending",v:mpos.filter(m=>m.status==="pending").length},{l:"Value",v:fmtK(mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
@@ -985,7 +1016,7 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
         <CommentsPanel entityId={commentsFor} entityLabel={`Invoice ${commentsFor} — ${lR.find(r=>r.id===commentsFor)?.client||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
       </Modal>)}
       {docsFor&&docInv&&(<Modal title={`Documents — ${docInv.id}`} onClose={()=>setDocsFor(null)}>
-        <DocPanel entityId={docsFor} entityDocs={docInv.docs||[]} onSave={docs=>updateRecDocs(docsFor,docs)} canEdit={canEdit}/>
+        <DocPanel entityId={docsFor} entityDocs={docInv.docs||[]} onSave={docs=>updateRecDocs(docsFor,docs)} canEdit={canEdit} workspaceId={user?.workspace_id} currentUser={user}/>
       </Modal>)}
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8}}>
