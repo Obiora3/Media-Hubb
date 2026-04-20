@@ -748,11 +748,15 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
 }
 
 /* ═══ SCHEDULING PAGE (MPO + RO) ═══ */
-const RO_DRAFT_KEY="mh_draft_ro";
-const MPO_DRAFT_KEY="mh_draft_mpo";
-const getDraft=(key:string)=>{try{const s=localStorage.getItem(key);return s?JSON.parse(s):null;}catch{return null;}};
-const saveDraft=(key:string,data:any)=>{try{localStorage.setItem(key,JSON.stringify({...data,savedAt:new Date().toISOString()}));}catch{}};
-const clearDraft=(key:string)=>{try{localStorage.removeItem(key);}catch{}};
+const RO_DRAFTS_KEY="mh_drafts_ro";
+const MPO_DRAFTS_KEY="mh_drafts_mpo";
+const getDrafts=(key:string):any[]=>{try{const s=localStorage.getItem(key);return s?JSON.parse(s):[];}catch{return[];}};
+const upsertDraft=(key:string,draft:any)=>{try{const arr=getDrafts(key);const i=arr.findIndex((d:any)=>d.id===draft.id);if(i>=0)arr[i]=draft;else arr.push(draft);localStorage.setItem(key,JSON.stringify(arr));}catch{}};
+const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.stringify(getDrafts(key).filter((d:any)=>d.id!==id)));}catch{}};
+const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
+const timeAgo=(iso:string)=>{const m=Math.floor((Date.now()-new Date(iso).getTime())/60000);if(m<1)return"just now";if(m<60)return`${m}m ago`;const h=Math.floor(m/60);if(h<24)return`${h}h ago`;return`${Math.floor(h/24)}d ago`;};
+// keep old keys cleared on first load (migration)
+try{localStorage.removeItem("mh_draft_ro");localStorage.removeItem("mh_draft_mpo");}catch{}
 
 const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
@@ -762,9 +766,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const canEdit=user.permissions.includes("mpo");
   const dCcy=settings.defaultCurrency||"NGN";
 
-  // Close dropdown when clicking outside
+  const draftsMenuRef=useRef(null);
+  const [draftsMenuOpen,setDraftsMenuOpen]=useState(false);
+  // Close dropdowns when clicking outside
   useEffect(()=>{
-    const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setCreateMenu(false);};
+    const h=e=>{
+      if(menuRef.current&&!(menuRef.current as any).contains(e.target))setCreateMenu(false);
+      if(draftsMenuRef.current&&!(draftsMenuRef.current as any).contains(e.target))setDraftsMenuOpen(false);
+    };
     document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
   },[]);
 
@@ -775,26 +784,27 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
   const [docsFor,setDocsFor]=useState(null);
   const [commentsFor,setCommentsFor]=useState(null);
-  // ── MPO Draft persistence ─────────────────────────────────────────────────
+  // ── Draft queues ──────────────────────────────────────────────────────────
+  const [roDrafts,setRoDrafts]=useState<any[]>(()=>getDrafts(RO_DRAFTS_KEY));
+  const [mpoDrafts,setMpoDrafts]=useState<any[]>(()=>getDrafts(MPO_DRAFTS_KEY));
+  const currentMpoDraftId=useRef<string|null>(null);
   const [mpoDraftSavedAt,setMpoDraftSavedAt]=useState<Date|null>(null);
-  // roDraftToLoad: passed to ROForm so it auto-loads without showing a banner
   const [roDraftToLoad,setRoDraftToLoad]=useState<any>(null);
+  // Refresh draft lists when forms close
+  useEffect(()=>{if(!showRoForm)setRoDrafts(getDrafts(RO_DRAFTS_KEY));},[showRoForm]);
+  useEffect(()=>{if(!showF)setMpoDrafts(getDrafts(MPO_DRAFTS_KEY));},[showF]);
+  // MPO auto-save
   useEffect(()=>{
     if(!showF||eid)return;
     if(!form.client&&!form.vendor&&!form.campaign&&!form.amount)return;
-    saveDraft(MPO_DRAFT_KEY,{form});
+    if(!currentMpoDraftId.current)currentMpoDraftId.current=`mpod_${Date.now()}`;
+    upsertDraft(MPO_DRAFTS_KEY,{id:currentMpoDraftId.current,form,savedAt:new Date().toISOString(),label:draftLabel(form)});
     setMpoDraftSavedAt(new Date());
   },[form,showF,eid]);
-  const openMpoWithDraft=()=>{
-    const d=getDraft(MPO_DRAFT_KEY);
-    if(d?.form)setForm({...EMPO,...d.form});
-    setEid(null);setErrs({});setShowF(true);
-  };
-  const openRoWithDraft=()=>{
-    const d=getDraft(RO_DRAFT_KEY);
-    setRoDraftToLoad(d||null);
-    setEditRoId(null);setShowRoForm(true);setDocType("ro");
-  };
+  const resumeRoDraft=(draft:any)=>{setRoDraftToLoad(draft);setEditRoId(null);setShowRoForm(true);setDocType("ro");setDraftsMenuOpen(false);};
+  const resumeMpoDraft=(draft:any)=>{currentMpoDraftId.current=draft.id;setForm({...EMPO,...draft.form});setEid(null);setErrs({});setShowF(true);setDraftsMenuOpen(false);};
+  const deleteRoDraft=(id:string)=>{removeDraft(RO_DRAFTS_KEY,id);setRoDrafts(getDrafts(RO_DRAFTS_KEY));};
+  const deleteMpoDraft=(id:string)=>{removeDraft(MPO_DRAFTS_KEY,id);setMpoDrafts(getDrafts(MPO_DRAFTS_KEY));};
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
     if(tab==="pending"&&m.status!=="pending")return false;
@@ -805,12 +815,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Enter a valid amount";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
   const openNew=()=>{
     if(!canEdit)return;
+    currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
   const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[]});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
-    clearDraft(MPO_DRAFT_KEY);setMpoDraftSavedAt(null);
+    if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
+    setMpoDraftSavedAt(null);
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
     else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
@@ -928,37 +940,69 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <button onClick={()=>setDocType("mpo")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="mpo"?"var(--bg2)":"transparent",color:docType==="mpo"?"var(--brand)":"var(--text3)",boxShadow:docType==="mpo"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◈ MPO</button>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          {/* ── Persistent draft resume chips ── */}
-          {canEdit&&!showRoForm&&getDraft(RO_DRAFT_KEY)&&(
-            <button onClick={openRoWithDraft} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:"1px solid #f59e0b",background:"#fffbeb",color:"#92400e",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-              📝 Resume RO Draft
-            </button>
+          {/* ── Drafts queue button ── */}
+          {canEdit&&(roDrafts.length>0||mpoDrafts.length>0)&&(
+            <div ref={draftsMenuRef} style={{position:"relative"}}>
+              <button onClick={()=>setDraftsMenuOpen(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,border:"1px solid #f59e0b",background:draftsMenuOpen?"#fef3c7":"#fffbeb",color:"#92400e",fontSize:12,fontWeight:600,cursor:"pointer",transition:"background .15s"}}>
+                📝 Drafts <span style={{background:"#f59e0b",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:11,fontWeight:700}}>{roDrafts.length+mpoDrafts.length}</span>
+              </button>
+              {draftsMenuOpen&&(
+                <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:10,zIndex:300,minWidth:300,maxHeight:420,overflowY:"auto",boxShadow:"0 8px 24px rgba(0,0,0,.16)"}}>
+                  {roDrafts.length>0&&(
+                    <>
+                      <div style={{padding:"8px 14px 4px",fontSize:10,fontWeight:800,color:"#3B6D11",textTransform:"uppercase",letterSpacing:".5px",borderBottom:"1px solid var(--border-c)"}}>◉ Release Orders</div>
+                      {roDrafts.map(d=>(
+                        <div key={d.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",borderBottom:"1px solid var(--border-c)"}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:600,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.label||"Untitled"}</div>
+                            <div style={{fontSize:11,color:"var(--text3)"}}>Step {d.step||1}/3 · {timeAgo(d.savedAt)}</div>
+                          </div>
+                          <button className="btn btn-sm btn-primary" style={{flexShrink:0}} onClick={()=>resumeRoDraft(d)}>Resume</button>
+                          <button style={{flexShrink:0,background:"transparent",border:"none",cursor:"pointer",color:"var(--text3)",fontSize:18,lineHeight:1,padding:"0 2px"}} title="Delete draft" onClick={()=>deleteRoDraft(d.id)}>×</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {mpoDrafts.length>0&&(
+                    <>
+                      <div style={{padding:"8px 14px 4px",fontSize:10,fontWeight:800,color:"var(--brand)",textTransform:"uppercase",letterSpacing:".5px",borderBottom:"1px solid var(--border-c)"}}>◈ MPOs</div>
+                      {mpoDrafts.map(d=>(
+                        <div key={d.id} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px",borderBottom:"1px solid var(--border-c)"}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:600,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{d.label||"Untitled"}</div>
+                            <div style={{fontSize:11,color:"var(--text3)"}}>{timeAgo(d.savedAt)}</div>
+                          </div>
+                          <button className="btn btn-sm btn-primary" style={{flexShrink:0}} onClick={()=>resumeMpoDraft(d)}>Resume</button>
+                          <button style={{flexShrink:0,background:"transparent",border:"none",cursor:"pointer",color:"var(--text3)",fontSize:18,lineHeight:1,padding:"0 2px"}} title="Delete draft" onClick={()=>deleteMpoDraft(d.id)}>×</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           )}
-          {canEdit&&!showF&&getDraft(MPO_DRAFT_KEY)&&(
-            <button onClick={openMpoWithDraft} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:"1px solid #f59e0b",background:"#fffbeb",color:"#92400e",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-              📝 Resume MPO Draft
-            </button>
+          {/* ── Create dropdown ── */}
+          {canEdit&&(
+            <div ref={menuRef} style={{position:"relative"}}>
+              <button className="btn btn-primary" style={{display:"flex",alignItems:"center",gap:6}} onClick={()=>setCreateMenu(v=>!v)}>
+                + Create <span style={{fontSize:10,opacity:.8}}>▾</span>
+              </button>
+              {createMenu&&(
+                <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:10,overflow:"hidden",zIndex:300,minWidth:200,boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>
+                  <button onClick={()=>{setCreateMenu(false);setRoDraftToLoad(null);setEditRoId(null);setShowRoForm(true);setDocType("ro");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
+                    <div style={{fontWeight:600}}><span style={{color:"#3B6D11",marginRight:8}}>◉</span>New RO</div>
+                    <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Release Order to vendor</div>
+                  </button>
+                  <div style={{height:1,background:"var(--border-c)"}}/>
+                  <button onClick={()=>{setCreateMenu(false);openNew();setDocType("mpo");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
+                    <div style={{fontWeight:600}}><span style={{color:"var(--brand)",marginRight:8}}>◈</span>New MPO</div>
+                    <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Media Purchase Order</div>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-        {canEdit&&(
-          <div ref={menuRef} style={{position:"relative"}}>
-            <button className="btn btn-primary" style={{display:"flex",alignItems:"center",gap:6}} onClick={()=>setCreateMenu(v=>!v)}>
-              + Create <span style={{fontSize:10,opacity:.8}}>▾</span>
-            </button>
-            {createMenu&&(
-              <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:10,overflow:"hidden",zIndex:300,minWidth:200,boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>
-                <button onClick={()=>{setCreateMenu(false);setEditRoId(null);setShowRoForm(true);setDocType("ro");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
-                  <div style={{fontWeight:600}}><span style={{color:"#3B6D11",marginRight:8}}>◉</span>RO</div>
-                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Release Order to vendor</div>
-                </button>
-                <div style={{height:1,background:"var(--border-c)"}}/>
-                <button onClick={()=>{setCreateMenu(false);openNew();setDocType("mpo");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
-                  <div style={{fontWeight:600}}><span style={{color:"var(--brand)",marginRight:8}}>◈</span>MPO</div>
-                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Media Purchase Order</div>
-                </button>
-              </div>
-            )}
-          </div>
-        )}
         </div>{/* end right-side flex */}
       </div>
 
@@ -1748,13 +1792,14 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const [form,setForm]=useState(seed);
   const [errs,setErrs]=useState({});
   const [step,setStep]=useState(draftInitial?.step||1);
-  // ── RO Draft persistence ───────────────────────────────────────────────
+  // ── RO Draft persistence (queue) ─────────────────────────────────────────
+  const roDraftIdRef=useRef<string|null>(draftInitial?.id||null);
   const [draftSavedAt,setDraftSavedAt]=useState<Date|null>(null);
   useEffect(()=>{
     if(initial)return; // don't draft-save edit mode
-    // only auto-save once user has entered something meaningful
-    if(!form.client&&!form.vendor&&!form.campaign&&step===1)return;
-    saveDraft(RO_DRAFT_KEY,{form,step});
+    if(!form.client&&!form.vendor&&!form.campaign&&step===1)return; // too empty
+    if(!roDraftIdRef.current)roDraftIdRef.current=`rod_${Date.now()}`;
+    upsertDraft(RO_DRAFTS_KEY,{id:roDraftIdRef.current,form,step,savedAt:new Date().toISOString(),label:draftLabel(form)});
     setDraftSavedAt(new Date());
   },[form,step]);
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -1844,7 +1889,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
 
   const handleSave=()=>{
     if(!validateStep(3))return;
-    clearDraft(RO_DRAFT_KEY);
+    if(roDraftIdRef.current)removeDraft(RO_DRAFTS_KEY,roDraftIdRef.current);
     onSave({...form,schedule:form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}))});
   };
 
