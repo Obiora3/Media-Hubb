@@ -124,7 +124,7 @@ function Modal({title,onClose,children,wide}){
     </div>
   );
 }
-function FF({id,label,error,children}){return <div className="form-row"><label className="form-label" htmlFor={id}>{label}</label>{children}{error&&<div className="form-error">{error}</div>}</div>;}
+function FF({id,label,error,err,required,children,style}){const msg=error||err;return <div className="form-row" style={style}><label className="form-label" htmlFor={id}>{label}{required&&<span style={{color:"#e53e3e",marginLeft:2,fontWeight:700}}>*</span>}</label>{children}{msg&&<div className="form-error">{msg}</div>}</div>;}
 function RoleGuard({user,require,children}){
   if(!user.permissions.includes(require)) return <div className="role-lock">🔒 Your role ({user.role}) does not have access to this section.</div>;
   return children;
@@ -825,7 +825,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     if(search&&!`${m.client}${m.campaign}${m.vendor}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
-  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Required";if(form.start&&form.end&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
+  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Enter a valid amount";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
   const openNew=()=>{if(!canEdit)return;setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);};
   const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[]});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{if(!val())return;if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}setShowF(false);};
@@ -876,12 +876,12 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       {/* ── MPO modals ── */}
       {showF&&(<Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
         <div className="form-grid">
-          <FF id="cl" label="Client" error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
-          <FF id="vn" label="Vendor" error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
+          <FF id="cl" label="Client" required error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
+          <FF id="vn" label="Vendor" required error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
         </div>
-        <FF id="cp" label="Campaign"><input id="cp" className="form-input" value={form.campaign} onChange={e=>setForm(f=>({...f,campaign:e.target.value}))}/></FF>
+        <FF id="cp" label="Campaign" required error={errs.campaign}><input id="cp" className={`form-input ${errs.campaign?"error":""}`} value={form.campaign} onChange={e=>setForm(f=>({...f,campaign:e.target.value}))}/></FF>
         <div className="form-grid">
-          <FF id="am" label="Amount" error={errs.amount}><input id="am" className={`form-input ${errs.amount?"error":""}`} type="number" min="0" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></FF>
+          <FF id="am" label="Amount" required error={errs.amount}><input id="am" className={`form-input ${errs.amount?"error":""}`} type="number" min="0" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></FF>
           <FF id="ccy" label="Currency"><select id="ccy" className="form-input" value={form.currency} onChange={e=>setForm(f=>({...f,currency:e.target.value}))}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></FF>
         </div>
         <div className="form-grid">
@@ -889,8 +889,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <span/>
         </div>
         <div className="form-grid">
-          <FF id="sd" label="Start"><input id="sd" className="form-input" type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
-          <FF id="ed" label="End" error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
+          <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
+          <FF id="ed" label="End" required error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
         </div>
         {form.amount&&!isNaN(form.amount)&&Number(form.amount)>0&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Preview: {fmtCcy(Number(form.amount),form.currency,"NGN")}{form.currency!=="NGN"&&` (${fmtCcy(Number(form.amount),form.currency,form.currency)} ${form.currency})`}</p>}
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
@@ -1103,8 +1103,8 @@ function AgencyForm({initial,onSave,onClose}){
       {step===1&&(
         <div style={{display:"flex",flexDirection:"column",gap:12}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 16px"}}>
-            <FF id="ag-name" label="Agency Name" err={errs.name} style={{gridColumn:"1/-1"}}>
-              <input id="ag-name" className="form-input" value={form.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. QVT Media Nigeria"/>
+            <FF id="ag-name" label="Agency Name" required err={errs.name} style={{gridColumn:"1/-1"}}>
+              <input id="ag-name" className={`form-input ${errs.name?"error":""}`} value={form.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. QVT Media Nigeria"/>
             </FF>
             <FF id="ag-industry" label="Industry">
               <select id="ag-industry" className="form-input" value={form.industry} onChange={e=>set("industry",e.target.value)}>
@@ -1114,14 +1114,14 @@ function AgencyForm({initial,onSave,onClose}){
             <FF id="ag-reg" label="RC / Registration Number">
               <input id="ag-reg" className="form-input" value={form.regNumber} onChange={e=>set("regNumber",e.target.value)} placeholder="RC 123456"/>
             </FF>
-            <FF id="ag-contact" label="Primary Contact Person" err={errs.contactPerson}>
-              <input id="ag-contact" className="form-input" value={form.contactPerson} onChange={e=>set("contactPerson",e.target.value)} placeholder="Full name"/>
+            <FF id="ag-contact" label="Primary Contact Person" required err={errs.contactPerson}>
+              <input id="ag-contact" className={`form-input ${errs.contactPerson?"error":""}`} value={form.contactPerson} onChange={e=>set("contactPerson",e.target.value)} placeholder="Full name"/>
             </FF>
             <FF id="ag-role" label="Contact Role / Title">
               <input id="ag-role" className="form-input" value={form.contactRole} onChange={e=>set("contactRole",e.target.value)} placeholder="e.g. Managing Director"/>
             </FF>
-            <FF id="ag-email" label="Email Address" err={errs.email}>
-              <input id="ag-email" type="email" className="form-input" value={form.email} onChange={e=>set("email",e.target.value)} placeholder="agency@example.com"/>
+            <FF id="ag-email" label="Email Address" required err={errs.email}>
+              <input id="ag-email" type="email" className={`form-input ${errs.email?"error":""}`} value={form.email} onChange={e=>set("email",e.target.value)} placeholder="agency@example.com"/>
             </FF>
             <FF id="ag-phone" label="Phone Number">
               <input id="ag-phone" className="form-input" value={form.phone} onChange={e=>set("phone",e.target.value)} placeholder="+234 800 000 0000"/>
@@ -1251,7 +1251,7 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
     <div>
       {showF&&(<Modal title={eid?"Edit":"Add Client / Vendor"} onClose={()=>setShowF(false)}>
         <FF id="tp" label="Type"><select id="tp" className="form-input" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}><option>Client</option><option>Vendor</option></select></FF>
-        <FF id="nm" label="Name" err={errs.name}><input id="nm" className={`form-input ${errs.name?"error":""}`} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></FF>
+        <FF id="nm" label="Name" required err={errs.name}><input id="nm" className={`form-input ${errs.name?"error":""}`} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></FF>
         <div className="form-grid"><FF id="in" label="Industry"><input id="in" className="form-input" value={form.industry} onChange={e=>setForm(f=>({...f,industry:e.target.value}))}/></FF><FF id="co" label="Contact"><input id="co" className="form-input" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))}/></FF></div>
         <FF id="em" label="Email" err={errs.email}><input id="em" type="email" className={`form-input ${errs.email?"error":""}`} value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></FF>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Add"}</button></div>
@@ -1817,7 +1817,8 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
       if(!form.campaignMonth)e.campaignMonth="Required";
     }
     if(s===3){
-      if(Number(form.rate)<0)e.rate="Must be 0 or more";
+      if(!form.rate&&form.rate!==0)e.rate="Required";
+      else if(Number(form.rate)<0)e.rate="Must be 0 or more";
       if(Number(form.volumeDiscount)<0)e.volumeDiscount="Must be 0 or more";
       if(Number(form.agencyCommission)<0)e.agencyCommission="Must be 0 or more";
     }
@@ -1870,16 +1871,16 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
       {/* ── Step 1: Order Details ── */}
       {step===1&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:8}}>
-          <FF id="ro-client" label="Client" err={errs.client}>
-            <input id="ro-client" className="form-input" list="ro-client-list" value={form.client} onChange={e=>set("client",e.target.value)} placeholder="Select or type client"/>
+          <FF id="ro-client" label="Client" required err={errs.client}>
+            <input id="ro-client" className={`form-input ${errs.client?"error":""}`} list="ro-client-list" value={form.client} onChange={e=>set("client",e.target.value)} placeholder="Select or type client"/>
             <datalist id="ro-client-list">{clientList.map(c=><option key={c} value={c}/>)}</datalist>
           </FF>
-          <FF id="ro-vendor" label="Vendor / Station" err={errs.vendor}>
-            <input id="ro-vendor" className="form-input" list="ro-vendor-list" value={form.vendor} onChange={e=>set("vendor",e.target.value)} placeholder="Select or type vendor"/>
+          <FF id="ro-vendor" label="Vendor / Station" required err={errs.vendor}>
+            <input id="ro-vendor" className={`form-input ${errs.vendor?"error":""}`} list="ro-vendor-list" value={form.vendor} onChange={e=>set("vendor",e.target.value)} placeholder="Select or type vendor"/>
             <datalist id="ro-vendor-list">{vendorList.map(v=><option key={v} value={v}/>)}</datalist>
           </FF>
-          <FF id="ro-campaign" label="Campaign" err={errs.campaign} style={{gridColumn:"1/-1"}}>
-            <input id="ro-campaign" className="form-input" value={form.campaign} onChange={e=>set("campaign",e.target.value)} placeholder="Campaign name"/>
+          <FF id="ro-campaign" label="Campaign" required err={errs.campaign} style={{gridColumn:"1/-1"}}>
+            <input id="ro-campaign" className={`form-input ${errs.campaign?"error":""}`} value={form.campaign} onChange={e=>set("campaign",e.target.value)} placeholder="Campaign name"/>
           </FF>
           <FF id="ro-mpo" label="MPO Ref (optional)">
             <select id="ro-mpo" className="form-input" value={form.mpoId} onChange={e=>set("mpoId",e.target.value)}>
@@ -1909,8 +1910,8 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
       {step===2&&(
         <div style={{marginBottom:8}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:12}}>
-            <FF id="ro-month" label="Campaign Month" err={errs.campaignMonth}>
-              <input id="ro-month" className="form-input" type="month" value={form.campaignMonth} onChange={e=>onCampaignMonthChange(e.target.value)}/>
+            <FF id="ro-month" label="Campaign Month" required err={errs.campaignMonth}>
+              <input id="ro-month" className={`form-input ${errs.campaignMonth?"error":""}`} type="month" value={form.campaignMonth} onChange={e=>onCampaignMonthChange(e.target.value)}/>
             </FF>
             <FF id="ro-timeslot" label="Time Slot">
               <input id="ro-timeslot" className="form-input" placeholder="e.g. 07:00–08:00" value={form.timeSlot} onChange={e=>applyTimeSlotToSchedule(e.target.value)}/>
@@ -2015,8 +2016,8 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:8,alignItems:"start"}}>
           {/* Left: fields */}
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <FF id="ro-rate" label={`Rate per Spot (${sym})`} err={errs.rate}>
-              <input id="ro-rate" className="form-input" type="number" min="0" value={form.rate||""} onChange={e=>applyRateToSchedule(Number(e.target.value)||0)} placeholder="Enter rate"/>
+            <FF id="ro-rate" label={`Rate per Spot (${sym})`} required err={errs.rate}>
+              <input id="ro-rate" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" value={form.rate||""} onChange={e=>applyRateToSchedule(Number(e.target.value)||0)} placeholder="Enter rate"/>
             </FF>
             <FF id="ro-volume-discount" label="Volume Discount (%)" err={errs.volumeDiscount}>
               <input id="ro-volume-discount" className="form-input" type="number" min="0" value={form.volumeDiscount||""} onChange={e=>set("volumeDiscount",Number(e.target.value)||0)} placeholder="0"/>
