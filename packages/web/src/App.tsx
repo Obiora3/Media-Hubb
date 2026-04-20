@@ -180,13 +180,13 @@ function BarChart({data,height=170,colors=["#534AB7","#D85A30"]}){
   const isG=Array.isArray(data[0]?.values);
   const allV=isG?data.flatMap(d=>d.values):data.map(d=>d.value);
   const maxV=Math.max(...allV,1);
-  const W=500,H=height,pL=4,pB=26,pT=14,pR=4,pw=W-pL-pR,ph=H-pB-pT,gw=pw/data.length;
+  const W=500,H=height,pL=52,pB=26,pT=14,pR=4,pw=W-pL-pR,ph=H-pB-pT,gw=pw/data.length;
   const bc=isG?data[0].values.length:1,bw=Math.min((gw-6)/bc,44);
   const tks=Array.from({length:5},(_,i)=>({v:Math.round(maxV*i/4),y:pT+ph*(1-i/4)}));
   return(
     <div style={{position:"relative"}}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height,overflow:"visible"}}>
-        {tks.map((t,i)=><g key={i}><line x1={pL} y1={t.y} x2={W-pR} y2={t.y} stroke="var(--border-c)" strokeWidth=".5"/><text x={pL} y={t.y-3} fontSize={8} fill="var(--text3)">{fmtK(t.v)}</text></g>)}
+        {tks.map((t,i)=><g key={i}><line x1={pL} y1={t.y} x2={W-pR} y2={t.y} stroke="var(--border-c)" strokeWidth=".5"/><text x={pL-6} y={t.y+3} textAnchor="end" fontSize={9} fill="var(--text3)">{fmtK(t.v)}</text></g>)}
         {data.map((d,gi)=>{
           const cx2=pL+gi*gw+gw/2,vals=isG?d.values:[d.value];
           return <g key={gi}>{vals.map((v,bi)=>{const bh=mounted?(v/maxV)*ph:0,bx=cx2-(bc*bw+(bc-1)*2)/2+bi*(bw+2),by=pT+ph-bh;return <rect key={bi} x={bx} y={by} width={bw} height={bh} rx={3} fill={colors[bi%colors.length]} style={{transition:"height .5s,y .5s",cursor:"pointer"}} onMouseEnter={()=>setTip({gx:(bx+bw/2)/W,gy:by/H,txt:`${d.label}: ${fmtK(v)}`,col:colors[bi%colors.length]})} onMouseLeave={()=>setTip(null)}/>;})}<text x={cx2} y={H-6} textAnchor="middle" fontSize={9} fill="var(--text3)">{d.label}</text></g>;
