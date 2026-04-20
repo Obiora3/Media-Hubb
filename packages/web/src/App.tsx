@@ -457,6 +457,86 @@ function AIPanel(){
 }
 
 /* ═══ S5-6: SETTINGS PAGE ═══ */
+/* ═══ USER PROFILE MODAL ═══ */
+const AVATAR_COLORS=["#534AB7","#185FA5","#3B6D11","#A32D2D","#854F0B","#D85A30","#0E7C7B","#1a1a1a","#7B2D8B","#C0392B"];
+function ProfileModal({user,onClose,toast}){
+  const isAdmin=user?.role==="admin";
+  const [name,setName]=useState(user?.name||"");
+  const [email,setEmail]=useState(user?.email||"");
+  const [color,setColor]=useState(user?.color||"#534AB7");
+  const [saving,setSaving]=useState(false);
+  const initials=name.split(" ").filter(Boolean).map(w=>w[0].toUpperCase()).slice(0,2).join("")||"?";
+
+  const save=async()=>{
+    if(!user?.id){toast("No user session","error");return;}
+    setSaving(true);
+    const {error}=await supabase.from("profiles").update({name,color,initials}).eq("id",user.id);
+    if(error) toast("Save failed: "+error.message,"error");
+    else{ toast("Profile updated — refresh to see changes","success"); onClose(); }
+    setSaving(false);
+  };
+
+  return(
+    <Modal title="My Profile" onClose={onClose}>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        {/* Avatar preview */}
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,paddingBottom:16,borderBottom:"1px solid var(--border-c)"}}>
+          <div style={{width:64,height:64,borderRadius:"50%",background:color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:22,boxShadow:"0 4px 14px rgba(0,0,0,.18)"}}>{initials}</div>
+          <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{name||"Your Name"}</div>
+          <span className="badge" style={{textTransform:"capitalize",fontSize:10}}>{user?.role}</span>
+        </div>
+
+        {/* Fields */}
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <FF id="pf-name" label="Full Name">
+            <input id="pf-name" className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="Your full name"/>
+          </FF>
+          <FF id="pf-email" label="Email Address">
+            <input id="pf-email" className="form-input" value={email} disabled style={{opacity:.6,cursor:"not-allowed"}} title="Email is managed through your login"/>
+            <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>Email changes require signing in again — contact your admin.</div>
+          </FF>
+        </div>
+
+        {/* Avatar colour */}
+        <div>
+          <div style={{fontSize:11,fontWeight:600,color:"var(--text2)",marginBottom:8}}>Avatar Colour</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {AVATAR_COLORS.map(c=>(
+              <div key={c} onClick={()=>setColor(c)} style={{
+                width:28,height:28,borderRadius:"50%",background:c,cursor:"pointer",
+                border:color===c?"3px solid var(--text)":"3px solid transparent",
+                boxSizing:"border-box",transition:"border-color .15s",flexShrink:0,
+              }}/>
+            ))}
+          </div>
+        </div>
+
+        {isAdmin?(
+          <FF id="pf-role" label="Role">
+            <select id="pf-role" className="form-input" value={user?.role||"viewer"} onChange={async e=>{
+              const newRole=e.target.value;
+              const {error}=await supabase.from("profiles").update({role:newRole,permissions:ROLE_PERMISSIONS[newRole]||[]}).eq("id",user.id);
+              if(error) toast("Role update failed: "+error.message,"error");
+              else toast("Role updated — refresh to apply","success");
+            }}>
+              {["admin","manager","viewer","client"].map(r=><option key={r}>{r}</option>)}
+            </select>
+          </FF>
+        ):(
+          <div style={{fontSize:11,color:"var(--text3)",padding:"8px 10px",background:"var(--bg3)",borderRadius:8}}>
+            Role and permission changes must be made by an Admin from the Users page.
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:8,borderTop:"1px solid var(--border-c)"}}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?"Saving…":"Save Profile"}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function SettingsPage({settings,setSettings,user,toast}){
   return <RoleGuard user={user} require="settings"><SettingsContent settings={settings} setSettings={setSettings} toast={toast} user={user}/></RoleGuard>;
 }
@@ -470,7 +550,6 @@ function SettingsContent({settings,setSettings,toast,user}){
     const {error}=await supabase.from("workspaces").update({
       name: settings.companyName||undefined,
       brand_color: settings.brandColor,
-      settings: settings,
     }).eq("id",user.workspace_id);
     if(error) toast("Save failed: "+error.message,"error");
     else toast("Settings saved","success");
@@ -511,6 +590,27 @@ function SettingsContent({settings,setSettings,toast,user}){
           </div>
         </div>
         <FF id="ctag" label="Agency Tagline (shown on invoices)"><input id="ctag" className="form-input" value={settings.tagline||""} onChange={e=>set("tagline",e.target.value)} placeholder="Media Agency Platform · Lagos, Nigeria"/></FF>
+        <div className="settings-row">
+          <div>
+            <div className="settings-label">Company Logo</div>
+            <div className="settings-desc">Embedded in all PDF and Excel report exports</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            {settings.logoDataUrl&&(
+              <img src={settings.logoDataUrl} alt="Logo" style={{height:40,maxWidth:120,objectFit:"contain",borderRadius:4,border:"1px solid var(--border-c)",padding:4,background:"#fff"}}/>
+            )}
+            <label style={{cursor:"pointer"}}>
+              <span className="btn btn-sm btn-ghost">{settings.logoDataUrl?"Change Logo":"Upload Logo"}</span>
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                const file=e.target.files?.[0];if(!file)return;
+                const reader=new FileReader();
+                reader.onload=ev=>{ set("logoDataUrl",ev.target?.result as string); };
+                reader.readAsDataURL(file);
+              }}/>
+            </label>
+            {settings.logoDataUrl&&<button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>set("logoDataUrl","")}>Remove</button>}
+          </div>
+        </div>
       </div>
 
       <div className="settings-section">
@@ -530,6 +630,10 @@ function SettingsContent({settings,setSettings,toast,user}){
         <div className="settings-row">
           <div><div className="settings-label">Tax Rate (%)</div><div className="settings-desc">Default VAT/tax applied on invoices</div></div>
           <input type="number" className="form-input" style={{width:80}} min="0" max="50" value={settings.taxRate||7.5} onChange={e=>set("taxRate",Number(e.target.value))}/>
+        </div>
+        <div className="settings-row">
+          <div><div className="settings-label">WHT Rate (%)</div><div className="settings-desc">Withholding tax auto-deducted from RO net total before payment</div></div>
+          <input type="number" className="form-input" style={{width:80}} min="0" max="30" value={settings.whtRate??5} onChange={e=>set("whtRate",Number(e.target.value))}/>
         </div>
         <div className="settings-row">
           <div><div className="settings-label">Payment Terms (days)</div><div className="settings-desc">Default net days on new invoices</div></div>
@@ -554,6 +658,17 @@ function SettingsContent({settings,setSettings,toast,user}){
         ))}
       </div>
 
+      <div className="settings-section">
+        <div className="settings-section-title">Analytics KPI Targets</div>
+        <div style={{fontSize:11,color:"var(--text3)",marginBottom:12}}>These targets appear on the Analytics page as progress indicators.</div>
+        <div className="form-grid">
+          <FF id="kpi-rev" label="Revenue Target (NGN)"><input id="kpi-rev" type="number" className="form-input" min="0" value={settings.revenueTarget||25000000} onChange={e=>set("revenueTarget",Number(e.target.value))}/></FF>
+          <FF id="kpi-col" label="Collection Rate Target (%)"><input id="kpi-col" type="number" className="form-input" min="0" max="100" value={settings.collectionTarget||90} onChange={e=>set("collectionTarget",Number(e.target.value))}/></FF>
+          <FF id="kpi-cam" label="Active Campaigns Target"><input id="kpi-cam" type="number" className="form-input" min="0" value={settings.campaignTarget||8} onChange={e=>set("campaignTarget",Number(e.target.value))}/></FF>
+          <FF id="kpi-cli" label="New Clients Target"><input id="kpi-cli" type="number" className="form-input" min="0" value={settings.newClientsTarget||4} onChange={e=>set("newClientsTarget",Number(e.target.value))}/></FF>
+        </div>
+      </div>
+
       <div style={{display:"flex",gap:8,marginTop:8,flexWrap:"wrap"}}>
         <button className="btn btn-primary" onClick={saveToSupabase} disabled={saving}>
           {saving?"Saving…":"Save Changes"}
@@ -570,8 +685,9 @@ const DEFAULT_SETTINGS={
   address:"14 Adeyemi Bero Crescent, Wuse 2, Abuja",phone:"+234 812 000 0000",
   regNumber:"RC 1234567",tagline:"Media Agency Platform · Lagos, Nigeria",
   brandColor:"#534AB7",fiscalYearStart:"January",
-  taxRate:7.5,paymentTerms:30,defaultCurrency:"NGN",
+  taxRate:7.5,whtRate:5,paymentTerms:30,defaultCurrency:"NGN",
   notifOverdue:true,notifUpcoming:true,notifWorkflow:true,notifAI:false,
+  revenueTarget:25000000,collectionTarget:90,campaignTarget:8,newClientsTarget:4,
 };
 
 /* ═══ DATA VIZ PAGE ═══ */
@@ -683,7 +799,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
 /* ═══ SCHEDULING PAGE (MPO + RO) ═══ */
 const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
-  const [docType,setDocType]=useState("mpo"); // "mpo" | "ro"
+  const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
   const menuRef=useRef(null);
   const canEdit=user.permissions.includes("mpo");
@@ -738,7 +854,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       addAudit("updated","RO",editRoId,`Updated ${editRoId}`,"update");
       toast("RO updated");
     }else{
-      const newId=nextId(ros||[],"RO");
+      const prefix="RO-"+(form.client||"GEN").replace(/\s+/g,"").slice(0,3).toUpperCase();
+      const existing=(ros||[]).filter(r=>r.id.startsWith(prefix));
+      const seq=Math.max(0,...existing.map(r=>parseInt(r.id.split("-").pop()||"0")||0))+1;
+      const newId=`${prefix}-${String(seq).padStart(3,"0")}`;
       setRos(p=>[...p,{id:newId,...form,docs:[]}]);
       addAudit("created","RO",newId,`Created ${newId} for ${form.client}`,"create");
       toast("RO created");
@@ -800,12 +919,12 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[selRo.status]||"#f0f0f0",color:RO_STATUS_COLOR[selRo.status]||"#888",textTransform:"uppercase"}}>{selRo.status}</span>
             <span style={{fontSize:11,color:"var(--text3)"}}>{selRo.channel}</span>
           </div>
-          {[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days",selRo.schedule?.length||0],["Grand Total",fmt(selRo.schedule?.reduce((a,s)=>a+(s.spots*s.rate),0)||0)+" "+(selRo.currency||"NGN")]].map(([k,v])=>(
+          {[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["Programme",selRo.programme||"—"],["Material Title",selRo.materialTitle||"—"],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days",selRo.schedule?.length||0],["Grand Total",fmt(selRo.schedule?.reduce((a,s)=>a+(s.spots*s.rate),0)||0)+" "+(selRo.currency||"NGN")]].map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
           ))}
           <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
-            <button className="btn btn-primary btn-sm" onClick={()=>printRO(selRo,settings||{})}>↓ PDF</button>
-            <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(selRo)}>↓ Excel</button>
+            <button className="btn btn-primary btn-sm" onClick={()=>printROCalendarLegacy(selRo,settings||{})}>↓ PDF</button>
+            <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(selRo,settings||{})}>↓ Excel</button>
             {canEdit&&<button className="btn btn-sm btn-ghost" onClick={()=>{setSelRo(null);setEditRoId(selRo.id);setShowRoForm(true);}}>Edit</button>}
             {canEdit&&<button className="btn btn-sm" style={{color:"#A32D2D",background:"transparent",border:"1px solid #A32D2D"}} onClick={()=>deleteRo(selRo.id)}>Delete</button>}
           </div>
@@ -815,8 +934,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       {/* ── Page header: file-type selector + Create dropdown ── */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div style={{display:"flex",gap:2,background:"var(--bg3)",borderRadius:8,padding:3}}>
-          <button onClick={()=>setDocType("mpo")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="mpo"?"var(--bg2)":"transparent",color:docType==="mpo"?"var(--brand)":"var(--text3)",boxShadow:docType==="mpo"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◈ MPO</button>
           <button onClick={()=>setDocType("ro")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="ro"?"var(--bg2)":"transparent",color:docType==="ro"?"#3B6D11":"var(--text3)",boxShadow:docType==="ro"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◉ RO</button>
+          <button onClick={()=>setDocType("mpo")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="mpo"?"var(--bg2)":"transparent",color:docType==="mpo"?"var(--brand)":"var(--text3)",boxShadow:docType==="mpo"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◈ MPO</button>
         </div>
         {canEdit&&(
           <div ref={menuRef} style={{position:"relative"}}>
@@ -825,14 +944,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             </button>
             {createMenu&&(
               <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:10,overflow:"hidden",zIndex:300,minWidth:200,boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>
-                <button onClick={()=>{setCreateMenu(false);openNew();setDocType("mpo");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
-                  <div style={{fontWeight:600}}><span style={{color:"var(--brand)",marginRight:8}}>◈</span>MPO</div>
-                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Media Purchase Order</div>
-                </button>
-                <div style={{height:1,background:"var(--border-c)"}}/>
                 <button onClick={()=>{setCreateMenu(false);setEditRoId(null);setShowRoForm(true);setDocType("ro");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
                   <div style={{fontWeight:600}}><span style={{color:"#3B6D11",marginRight:8}}>◉</span>RO</div>
                   <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Release Order to vendor</div>
+                </button>
+                <div style={{height:1,background:"var(--border-c)"}}/>
+                <button onClick={()=>{setCreateMenu(false);openNew();setDocType("mpo");}} style={{display:"block",width:"100%",padding:"12px 16px",textAlign:"left",background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"var(--text)"}}>
+                  <div style={{fontWeight:600}}><span style={{color:"var(--brand)",marginRight:8}}>◈</span>MPO</div>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2,paddingLeft:22}}>Media Purchase Order</div>
                 </button>
               </div>
             )}
@@ -911,8 +1030,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td style={{fontWeight:600}}>{sym}{total.toLocaleString("en")}</td>
                       <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
                       <td><div className="action-row" onClick={e=>e.stopPropagation()}>
-                        <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printRO(r,settings||{})}>PDF</button>
-                        <button className="btn btn-sm btn-ghost" style={{padding:"2px 8px",fontSize:11}} onClick={()=>exportROExcel(r)}>XLS</button>
+                        <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printROCalendarLegacy(r,settings||{})}>PDF</button>
+                        <button className="btn btn-sm btn-ghost" style={{padding:"2px 8px",fontSize:11}} onClick={()=>exportROExcel(r,settings||{})}>XLS</button>
                         {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>{setEditRoId(r.id);setShowRoForm(true);}}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>deleteRo(r.id)}>✕</button></>}
                       </div></td>
                     </tr>
@@ -927,6 +1046,161 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   );
 }
 
+/* ═══ AGENCY REGISTRATION FORM ═══ */
+const EMPTY_BRAND={name:"",industry:"",contact:"",email:""};
+const EMPTY_AGENCY={name:"",phone:"",email:"",address:"",regNumber:"",contactPerson:"",contactRole:"",website:"",industry:"Media",status:"active",brands:[]};
+
+function AgencyForm({initial,onSave,onClose}){
+  const [step,setStep]=useState(1);
+  const [form,setForm]=useState(initial?{...EMPTY_AGENCY,...initial,brands:initial.brands||[]}:{...EMPTY_AGENCY});
+  const [errs,setErrs]=useState({});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const addBrand=()=>setForm(f=>({...f,brands:[...f.brands,{...EMPTY_BRAND,id:`b${Date.now()}`}]}));
+  const setBrand=(i,k,v)=>setForm(f=>{const b=[...f.brands];b[i]={...b[i],[k]:v};return{...f,brands:b};});
+  const removeBrand=(i)=>setForm(f=>({...f,brands:f.brands.filter((_,j)=>j!==i)}));
+
+  const validate=(s)=>{
+    const e={};
+    if(s===1){
+      if(!form.name.trim())e.name="Required";
+      if(form.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))e.email="Invalid email";
+      if(!form.contactPerson.trim())e.contactPerson="Required";
+    }
+    if(s===2){
+      form.brands.forEach((b,i)=>{if(!b.name.trim())e[`brand_${i}`]="Brand name required";});
+    }
+    setErrs(e);return Object.keys(e).length===0;
+  };
+
+  const handleNext=()=>{if(validate(step))setStep(s=>s+1);};
+  const handleSave=()=>{if(validate(2))onSave(form);};
+
+  const STEPS=[{n:1,label:"Agency Info"},{n:2,label:"Brands"}];
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:0}}>
+      {/* Step indicator */}
+      <div style={{display:"flex",alignItems:"flex-start",marginBottom:20}}>
+        {STEPS.map((s,i)=>{
+          const done=step>s.n,active=step===s.n;
+          return(
+            <Fragment key={s.n}>
+              {i>0&&<div style={{flex:1,height:2,marginTop:13,background:done?"var(--brand)":"var(--border-c)",transition:"background .3s"}}/>}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:done?"pointer":"default",minWidth:0}}
+                onClick={done?()=>{setErrs({});setStep(s.n);}:undefined}>
+                <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0,background:done||active?"var(--brand)":"var(--bg3)",color:done||active?"#fff":"var(--text3)",boxShadow:active?"0 0 0 3px var(--brand)22":undefined,transition:"all .2s"}}>
+                  {done?"✓":s.n}
+                </div>
+                <span style={{fontSize:10,fontWeight:active?700:500,color:active?"var(--brand)":done?"var(--text2)":"var(--text3)",whiteSpace:"nowrap"}}>{s.label}</span>
+              </div>
+            </Fragment>
+          );
+        })}
+      </div>
+
+      {/* Step 1: Agency Info */}
+      {step===1&&(
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 16px"}}>
+            <FF id="ag-name" label="Agency Name" err={errs.name} style={{gridColumn:"1/-1"}}>
+              <input id="ag-name" className="form-input" value={form.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. QVT Media Nigeria"/>
+            </FF>
+            <FF id="ag-industry" label="Industry">
+              <select id="ag-industry" className="form-input" value={form.industry} onChange={e=>set("industry",e.target.value)}>
+                {["Media","Advertising","PR & Communications","Digital","OOH","Production","Other"].map(o=><option key={o}>{o}</option>)}
+              </select>
+            </FF>
+            <FF id="ag-reg" label="RC / Registration Number">
+              <input id="ag-reg" className="form-input" value={form.regNumber} onChange={e=>set("regNumber",e.target.value)} placeholder="RC 123456"/>
+            </FF>
+            <FF id="ag-contact" label="Primary Contact Person" err={errs.contactPerson}>
+              <input id="ag-contact" className="form-input" value={form.contactPerson} onChange={e=>set("contactPerson",e.target.value)} placeholder="Full name"/>
+            </FF>
+            <FF id="ag-role" label="Contact Role / Title">
+              <input id="ag-role" className="form-input" value={form.contactRole} onChange={e=>set("contactRole",e.target.value)} placeholder="e.g. Managing Director"/>
+            </FF>
+            <FF id="ag-email" label="Email Address" err={errs.email}>
+              <input id="ag-email" type="email" className="form-input" value={form.email} onChange={e=>set("email",e.target.value)} placeholder="agency@example.com"/>
+            </FF>
+            <FF id="ag-phone" label="Phone Number">
+              <input id="ag-phone" className="form-input" value={form.phone} onChange={e=>set("phone",e.target.value)} placeholder="+234 800 000 0000"/>
+            </FF>
+            <FF id="ag-website" label="Website (optional)">
+              <input id="ag-website" className="form-input" value={form.website} onChange={e=>set("website",e.target.value)} placeholder="www.agency.com"/>
+            </FF>
+            <FF id="ag-address" label="Office Address" style={{gridColumn:"1/-1"}}>
+              <input id="ag-address" className="form-input" value={form.address} onChange={e=>set("address",e.target.value)} placeholder="Street, City, State"/>
+            </FF>
+            <FF id="ag-status" label="Status">
+              <select id="ag-status" className="form-input" value={form.status} onChange={e=>set("status",e.target.value)}>
+                {["active","inactive","prospect"].map(s=><option key={s}>{s}</option>)}
+              </select>
+            </FF>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Brands */}
+      {step===2&&(
+        <div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>Brands Under {form.name||"this Agency"}</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>Add all brands this agency manages. You can add more later.</div>
+            </div>
+            <button type="button" className="btn btn-sm btn-primary" onClick={addBrand}>+ Add Brand</button>
+          </div>
+
+          {form.brands.length===0?(
+            <div style={{padding:"32px 16px",background:"var(--bg3)",borderRadius:10,textAlign:"center",border:"2px dashed var(--border-c)"}}>
+              <div style={{fontSize:24,marginBottom:8}}>🏷</div>
+              <div style={{fontSize:13,fontWeight:600,color:"var(--text2)",marginBottom:4}}>No brands added yet</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginBottom:12}}>Click "+ Add Brand" to register brands managed by this agency</div>
+              <button type="button" className="btn btn-primary btn-sm" onClick={addBrand}>+ Add First Brand</button>
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {form.brands.map((b,i)=>(
+                <div key={i} style={{background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:10,padding:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--brand)"}}>Brand {i+1}</div>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{color:"#A32D2D",padding:"2px 6px"}} onClick={()=>removeBrand(i)}>✕ Remove</button>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>
+                    <FF id={`bn-${i}`} label="Brand Name" err={errs[`brand_${i}`]} style={{gridColumn:"1/-1"}}>
+                      <input className="form-input" value={b.name} onChange={e=>setBrand(i,"name",e.target.value)} placeholder="e.g. Nivea, MTN, Peak Milk"/>
+                    </FF>
+                    <FF id={`bi-${i}`} label="Industry / Category">
+                      <input className="form-input" value={b.industry} onChange={e=>setBrand(i,"industry",e.target.value)} placeholder="e.g. FMCG, Telecom"/>
+                    </FF>
+                    <FF id={`bc-${i}`} label="Brand Contact Person">
+                      <input className="form-input" value={b.contact} onChange={e=>setBrand(i,"contact",e.target.value)} placeholder="Marketing manager"/>
+                    </FF>
+                    <FF id={`be-${i}`} label="Brand Email">
+                      <input className="form-input" type="email" value={b.email} onChange={e=>setBrand(i,"email",e.target.value)} placeholder="brand@client.com"/>
+                    </FF>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Navigation */}
+      <div style={{display:"flex",justifyContent:"space-between",paddingTop:14,borderTop:"1px solid var(--border-c)",marginTop:16}}>
+        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <div style={{display:"flex",gap:8}}>
+          {step>1&&<button className="btn btn-ghost" onClick={()=>{setErrs({});setStep(s=>s-1);}}>← Back</button>}
+          {step<2&&<button className="btn btn-primary" onClick={handleNext}>Continue →</button>}
+          {step===2&&<button className="btn btn-primary" onClick={handleSave}>Save Agency</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ═══ CLIENTS ═══ */
 const ECLI={name:"",type:"Client",industry:"",contact:"",email:""};
 function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
@@ -934,11 +1208,18 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(ECLI);const [errs,setErrs]=useState({});
   const [selected,setSelected]=useState(new Set());
+  const [showAgencyForm,setShowAgencyForm]=useState(false);
+  const [editAgencyId,setEditAgencyId]=useState(null);
+  const [viewAgency,setViewAgency]=useState(null);
   const canEdit=user.permissions.includes("clients");
+
+  const agencies=clients.filter(r=>r.type==="Agency");
+
   const filtered=clients.filter(r=>{
     if(tab==="clients"&&r.type!=="Client")return false;
     if(tab==="vendors"&&r.type!=="Vendor")return false;
-    if(search&&!`${r.name}${r.contact}${r.industry}`.toLowerCase().includes(search.toLowerCase()))return false;
+    if(tab==="agencies"&&r.type!=="Agency")return false;
+    if(search&&!`${r.name}${r.contact||""}${r.contactPerson||""}${r.industry}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
   const val=()=>{const e={};if(!form.name.trim())e.name="Required";if(form.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))e.email="Invalid email";setErrs(e);return!Object.keys(e).length;};
@@ -946,40 +1227,175 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
   const openEdit=r=>{if(!canEdit)return;setForm({name:r.name,type:r.type,industry:r.industry,contact:r.contact,email:r.email});setEid(r.id);setErrs({});setShowF(true);};
   const save=()=>{if(!val())return;if(eid){setClients(p=>p.map(r=>r.id===eid?{...r,...form}:r));toast("Updated");addAudit("updated","Client",eid,`Updated ${form.name}`,"update");}else{const px=form.type==="Client"?"C":"V";const n=Math.max(0,...clients.filter(c=>c.id.startsWith(px)).map(c=>parseInt(c.id.slice(1))||0))+1;const newId=`${px}${String(n).padStart(3,"0")}`;setClients(p=>[...p,{id:newId,...form,spend:0,status:"active"}]);toast(`${form.type} added`);addAudit("created","Client",newId,`Added ${form.name}`,"create");}setShowF(false);};
   const del=id=>{if(!canEdit||!confirm("Delete?"))return;const r=clients.find(c=>c.id===id);setClients(p=>p.filter(c=>c.id!==id));addAudit("deleted","Client",id,`Deleted ${r?.name}`,"delete");toast("Deleted","error");};
+
+  const saveAgency=(data)=>{
+    if(editAgencyId){
+      setClients(p=>p.map(r=>r.id===editAgencyId?{...r,...data,type:"Agency"}:r));
+      toast("Agency updated","success");addAudit("updated","Agency",editAgencyId,`Updated ${data.name}`,"update");
+    }else{
+      const n=Math.max(0,...clients.filter(c=>c.id.startsWith("AG")).map(c=>parseInt(c.id.slice(2))||0))+1;
+      const newId=`AG${String(n).padStart(3,"0")}`;
+      setClients(p=>[...p,{id:newId,...data,type:"Agency",spend:0}]);
+      toast("Agency registered","success");addAudit("created","Agency",newId,`Registered agency ${data.name}`,"create");
+    }
+    setShowAgencyForm(false);setEditAgencyId(null);
+  };
+
+  const delAgency=id=>{if(!canEdit||!confirm("Delete this agency and all its brands?"))return;const r=clients.find(c=>c.id===id);setClients(p=>p.filter(c=>c.id!==id));addAudit("deleted","Agency",id,`Deleted ${r?.name}`,"delete");toast("Agency deleted","error");};
+
   const toggleSel=id=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const toggleAll=()=>setSelected(s=>s.size===filtered.length?new Set():new Set(filtered.map(r=>r.id)));
-  const bulkExport=()=>{const rows=[["ID","Name","Type","Industry","Contact","Email"],...clients.filter(c=>selected.has(c.id)).map(c=>[c.id,c.name,c.type,c.industry,c.contact,c.email])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="clients.csv";a.click();toast(`Exported`,"info");};
+  const bulkExport=()=>{const rows=[["ID","Name","Type","Industry","Contact","Email"],...clients.filter(c=>selected.has(c.id)).map(c=>[c.id,c.name,c.type,c.industry,c.contact||c.contactPerson||"",c.email])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="clients.csv";a.click();toast(`Exported`,"info");};
+
   return(
     <div>
-      {showF&&(<Modal title={eid?"Edit":"Add"} onClose={()=>setShowF(false)}>
+      {showF&&(<Modal title={eid?"Edit":"Add Client / Vendor"} onClose={()=>setShowF(false)}>
         <FF id="tp" label="Type"><select id="tp" className="form-input" value={form.type} onChange={e=>setForm(f=>({...f,type:e.target.value}))}><option>Client</option><option>Vendor</option></select></FF>
-        <FF id="nm" label="Name" error={errs.name}><input id="nm" className={`form-input ${errs.name?"error":""}`} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></FF>
+        <FF id="nm" label="Name" err={errs.name}><input id="nm" className={`form-input ${errs.name?"error":""}`} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></FF>
         <div className="form-grid"><FF id="in" label="Industry"><input id="in" className="form-input" value={form.industry} onChange={e=>setForm(f=>({...f,industry:e.target.value}))}/></FF><FF id="co" label="Contact"><input id="co" className="form-input" value={form.contact} onChange={e=>setForm(f=>({...f,contact:e.target.value}))}/></FF></div>
-        <FF id="em" label="Email" error={errs.email}><input id="em" type="email" className={`form-input ${errs.email?"error":""}`} value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></FF>
+        <FF id="em" label="Email" err={errs.email}><input id="em" type="email" className={`form-input ${errs.email?"error":""}`} value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></FF>
         <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Add"}</button></div>
       </Modal>)}
-      <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
-        {[{l:"Clients",v:clients.filter(r=>r.type==="Client").length},{l:"Vendors",v:clients.filter(r=>r.type==="Vendor").length},{l:"Active",v:clients.filter(r=>r.status==="active").length},{l:"Spend",v:fmtK(clients.filter(r=>r.type==="Client").reduce((a,r)=>a+r.spend,0))}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+
+      {showAgencyForm&&(
+        <Modal title={editAgencyId?"Edit Agency":"Register Agency"} onClose={()=>{setShowAgencyForm(false);setEditAgencyId(null);}}>
+          <AgencyForm
+            initial={editAgencyId?clients.find(c=>c.id===editAgencyId):null}
+            onSave={saveAgency}
+            onClose={()=>{setShowAgencyForm(false);setEditAgencyId(null);}}
+          />
+        </Modal>
+      )}
+
+      {viewAgency&&(
+        <Modal title="Agency Profile" onClose={()=>setViewAgency(null)}>
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,paddingBottom:14,borderBottom:"1px solid var(--border-c)"}}>
+              <div style={{width:52,height:52,borderRadius:12,background:"var(--brand)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:18,flexShrink:0}}>{viewAgency.name.slice(0,2).toUpperCase()}</div>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"var(--text)"}}>{viewAgency.name}</div>
+                <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{viewAgency.industry} · {viewAgency.regNumber||"No RC"}</div>
+                <SBadge s={viewAgency.status}/>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 20px",fontSize:12}}>
+              {[["Contact",viewAgency.contactPerson],["Role",viewAgency.contactRole],["Email",viewAgency.email],["Phone",viewAgency.phone],["Website",viewAgency.website],["Address",viewAgency.address]].map(([l,v])=>v?(
+                <div key={l}><div style={{fontSize:10,fontWeight:600,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".05em",marginBottom:2}}>{l}</div><div style={{color:"var(--text)"}}>{v}</div></div>
+              ):null)}
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--text2)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:8}}>Brands ({(viewAgency.brands||[]).length})</div>
+              {(viewAgency.brands||[]).length===0?(
+                <div style={{fontSize:12,color:"var(--text3)",fontStyle:"italic"}}>No brands registered</div>
+              ):(
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {(viewAgency.brands||[]).map((b,i)=>(
+                    <div key={i} style={{background:"var(--bg3)",borderRadius:8,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div>
+                        <div style={{fontWeight:600,fontSize:13,color:"var(--text)"}}>{b.name}</div>
+                        <div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>{b.industry||""}{b.contact?` · ${b.contact}`:""}</div>
+                      </div>
+                      {b.email&&<a href={`mailto:${b.email}`} style={{fontSize:11,color:"var(--brand)"}}>{b.email}</a>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {canEdit&&(
+              <div style={{display:"flex",gap:8,paddingTop:8,borderTop:"1px solid var(--border-c)"}}>
+                <button className="btn btn-primary btn-sm" onClick={()=>{setEditAgencyId(viewAgency.id);setShowAgencyForm(true);setViewAgency(null);}}>✏ Edit Agency</button>
+                <button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>{delAgency(viewAgency.id);setViewAgency(null);}}>Delete</button>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
+      <div className="stat-grid" style={{gridTemplateColumns:"repeat(5,1fr)"}}>
+        {[{l:"Agencies",v:agencies.length},{l:"Clients",v:clients.filter(r=>r.type==="Client").length},{l:"Vendors",v:clients.filter(r=>r.type==="Vendor").length},{l:"Active",v:clients.filter(r=>r.status==="active").length},{l:"Total Brands",v:agencies.reduce((a,ag)=>a+(ag.brands||[]).length,0)}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
       </div>
+
       <div className="card">
-        <div className="card-header"><div className="tabs" style={{marginBottom:0}}>{["all","clients","vendors"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div><div style={{display:"flex",gap:8}}><div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>{onOnboard&&canEdit&&<button className="btn btn-sm" style={{background:"#EAF3DE",color:"#3B6D11",borderColor:"rgba(59,109,17,.2)"}} onClick={onOnboard}>✦ Onboard</button>}{canEdit&&<button className="btn btn-primary" onClick={openNew}>+ Add</button>}</div></div>
-        <div className="table-wrap"><table>
-          <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>Name</th><th>Type</th><th>Industry</th><th>Contact</th><th>Email</th><th>Status</th><th></th></tr></thead>
-          <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={8}>No records</td></tr>
-          :filtered.map(r=>(
-            <tr key={r.id} style={{background:selected.has(r.id)?"var(--brand-light)":""}}>
-              <td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>
-              <td><div style={{display:"flex",alignItems:"center",gap:8}}><div className="avatar">{r.name.slice(0,2).toUpperCase()}</div><span style={{fontWeight:500}}>{r.name}</span></div></td>
-              <td><span className={`badge ${r.type==="Client"?"badge-purple":"badge-blue"}`}>{r.type}</span></td>
-              <td style={{color:"var(--text2)"}}>{r.industry}</td><td>{r.contact}</td>
-              <td style={{color:"var(--text2)",fontSize:12}}><a href={`mailto:${r.email}`} style={{color:"inherit"}}>{r.email}</a></td>
-              <td><SBadge s={r.status}/></td>
-              <td><div className="action-row">{canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(r)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(r.id)}>✕</button></>}</div></td>
-            </tr>
-          ))}</tbody>
-        </table></div>
+        <div className="card-header">
+          <div className="tabs" style={{marginBottom:0}}>{["all","agencies","clients","vendors"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+            {onOnboard&&canEdit&&<button className="btn btn-sm" style={{background:"#EAF3DE",color:"#3B6D11",borderColor:"rgba(59,109,17,.2)"}} onClick={onOnboard}>✦ Onboard</button>}
+            {canEdit&&<button className="btn btn-sm" style={{background:"#E6F1FB",color:"#185FA5",borderColor:"rgba(24,95,165,.2)"}} onClick={()=>{setEditAgencyId(null);setShowAgencyForm(true);}}>+ Register Agency</button>}
+            {canEdit&&tab!=="agencies"&&<button className="btn btn-primary" onClick={openNew}>+ Add</button>}
+          </div>
+        </div>
+
+        {tab==="agencies"?(
+          agencies.length===0?(
+            <div style={{padding:"48px 24px",textAlign:"center",color:"var(--text3)"}}>
+              <div style={{fontSize:32,marginBottom:8}}>🏢</div>
+              <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>No agencies registered</div>
+              <div style={{fontSize:12,marginBottom:16}}>Register agencies and the brands they manage</div>
+              {canEdit&&<button className="btn btn-primary" onClick={()=>{setEditAgencyId(null);setShowAgencyForm(true);}}>+ Register First Agency</button>}
+            </div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:10,padding:"4px 0"}}>
+              {agencies.filter(a=>!search||a.name.toLowerCase().includes(search.toLowerCase())||a.contactPerson?.toLowerCase().includes(search.toLowerCase())).map(ag=>(
+                <div key={ag.id} style={{border:"1px solid var(--border-c)",borderRadius:10,padding:"14px 16px",background:"var(--bg1)",cursor:"pointer",transition:"box-shadow .15s"}}
+                  onClick={()=>setViewAgency(ag)}
+                  onMouseEnter={e=>(e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,.08)")}
+                  onMouseLeave={e=>(e.currentTarget.style.boxShadow="none")}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{width:40,height:40,borderRadius:10,background:"var(--brand)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:800,fontSize:14,flexShrink:0}}>{ag.name.slice(0,2).toUpperCase()}</div>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:14,color:"var(--text)"}}>{ag.name}</div>
+                        <div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>{ag.industry} · {ag.contactPerson||"—"}{ag.contactRole?` (${ag.contactRole})`:""}</div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <SBadge s={ag.status}/>
+                      {canEdit&&<div className="action-row" onClick={e=>e.stopPropagation()}>
+                        <button className="btn btn-sm btn-ghost" onClick={()=>{setEditAgencyId(ag.id);setShowAgencyForm(true);}}>✏</button>
+                        <button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>delAgency(ag.id)}>✕</button>
+                      </div>}
+                    </div>
+                  </div>
+                  {(ag.brands||[]).length>0&&(
+                    <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--border-c)",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                      <span style={{fontSize:10,fontWeight:600,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".05em",marginRight:2}}>Brands:</span>
+                      {(ag.brands||[]).map((b,i)=>(
+                        <span key={i} style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"var(--bg3)",border:"1px solid var(--border-c)",color:"var(--text2)",fontWeight:500}}>{b.name}</span>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{marginTop:8,display:"flex",gap:16,fontSize:11,color:"var(--text3)"}}>
+                    {ag.email&&<span>✉ {ag.email}</span>}
+                    {ag.phone&&<span>📞 {ag.phone}</span>}
+                    {ag.address&&<span>📍 {ag.address}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        ):(
+          <>
+            <div className="table-wrap"><table>
+              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>Name</th><th>Type</th><th>Industry</th><th>Contact</th><th>Email</th><th>Status</th><th></th></tr></thead>
+              <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={8}>No records</td></tr>
+              :filtered.map(r=>(
+                <tr key={r.id} style={{background:selected.has(r.id)?"var(--brand-light)":""}}>
+                  <td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>
+                  <td><div style={{display:"flex",alignItems:"center",gap:8}}><div className="avatar">{r.name.slice(0,2).toUpperCase()}</div><span style={{fontWeight:500}}>{r.name}</span></div></td>
+                  <td><span className={`badge ${r.type==="Client"?"badge-purple":r.type==="Vendor"?"badge-blue":"badge-green"}`}>{r.type}</span></td>
+                  <td style={{color:"var(--text2)"}}>{r.industry}</td>
+                  <td>{r.contact||r.contactPerson||"—"}</td>
+                  <td style={{color:"var(--text2)",fontSize:12}}><a href={`mailto:${r.email}`} style={{color:"inherit"}}>{r.email}</a></td>
+                  <td><SBadge s={r.status}/></td>
+                  <td><div className="action-row">{canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(r)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(r.id)}>✕</button></>}</div></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExport}>Export CSV</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
+          </>
+        )}
       </div>
-      {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExport}>Export CSV</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
     </div>
   );
 }
@@ -991,190 +1407,660 @@ function printRO(ro, settings={}){
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
   const fa=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
-  const total=ro.schedule.reduce((a,s)=>a+(s.spots*s.rate),0);
+  const totals=calcRoTotals(ro);
   const rows=ro.schedule.map(s=>{
     const dn=DNAMES[new Date(s.date+"T12:00:00").getDay()];
     const st=s.spots*s.rate;
     return `<tr><td>${s.date}</td><td>${dn}</td><td>${s.timeSlot||"—"}</td><td style="text-align:center">${s.spots}</td><td style="text-align:right">${fa(s.rate)}</td><td style="text-align:right;font-weight:600">${fa(st)}</td></tr>`;
   }).join("");
   const statusColor=ro.status==="confirmed"?"#3B6D11":ro.status==="executed"?"#185FA5":ro.status==="sent"?"#854F0B":"#888";
+  const logoHtml=settings.logoDataUrl?`<img src="${settings.logoDataUrl}" alt="Logo" style="height:48px;max-width:140px;object-fit:contain;margin-bottom:4px;display:block"/>`:""
   const html=`<!DOCTYPE html><html><head><title>Release Order ${ro.id}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui;color:#1a1a1a;padding:40px;max-width:760px;margin:auto;font-size:13px}.hdr{display:flex;justify-content:space-between;margin-bottom:32px}.brand{font-size:20px;font-weight:800;color:#534AB7}.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:uppercase;background:#f0f0f0;color:${statusColor};border:1px solid ${statusColor}}hr{border:none;border-top:1px solid #eee;margin:20px 0}.meta{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px}.meta-block label{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:3px}.meta-block span{font-size:13px;font-weight:600;color:#222}table{width:100%;border-collapse:collapse;margin-bottom:20px}th{text-align:left;font-size:11px;color:#999;padding:8px 10px;background:#f8f8f6;border-bottom:1px solid #eee}td{padding:9px 10px;border-bottom:1px solid #f4f4f4;font-size:12px}.total-row{display:flex;justify-content:flex-end;gap:32px;padding:12px 16px;background:#f8f8f6;border-radius:8px;font-weight:700;font-size:14px;margin-top:4px}.footer{margin-top:40px;font-size:11px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:14px}</style></head><body>
-  <div class="hdr"><div><div class="brand">${settings.companyName||"MediaHub"}</div><div style="font-size:11px;color:#aaa;margin-top:2px">${settings.tagline||"Media Agency · Lagos, Nigeria"}</div></div><div style="text-align:right"><h1 style="font-size:24px;font-weight:800;color:#534AB7">RELEASE ORDER</h1><p style="font-size:12px;color:#666;margin-top:2px"><b>${ro.id}</b></p><div class="badge" style="margin-top:6px">${ro.status}</div></div></div>
+  <div class="hdr"><div>${logoHtml}<div class="brand">${settings.companyName||"MediaHub"}</div><div style="font-size:11px;color:#aaa;margin-top:2px">${settings.tagline||"Media Agency · Lagos, Nigeria"}</div></div><div style="text-align:right"><h1 style="font-size:24px;font-weight:800;color:#534AB7">RELEASE ORDER</h1><p style="font-size:12px;color:#666;margin-top:2px"><b>${ro.id}</b></p><div class="badge" style="margin-top:6px">${ro.status}</div></div></div>
   <hr/>
   <div class="meta"><div class="meta-block"><label>Client</label><span>${ro.client}</span></div><div class="meta-block"><label>Vendor / Station</label><span>${ro.vendor}</span></div><div class="meta-block"><label>Campaign</label><span>${ro.campaign}</span></div><div class="meta-block"><label>Channel</label><span>${ro.channel||"—"}</span></div><div class="meta-block"><label>Period</label><span>${ro.start} → ${ro.end}</span></div><div class="meta-block"><label>MPO Ref</label><span>${ro.mpoId||"—"}</span></div></div>
   <hr/>
   <table><thead><tr><th>Date</th><th>Day</th><th>Time Slot</th><th style="text-align:center">Spots</th><th style="text-align:right">Rate</th><th style="text-align:right">Total</th></tr></thead><tbody>${rows}</tbody></table>
-  <div class="total-row"><span>Grand Total</span><span style="color:#534AB7">${fa(total)}</span></div>
+  <div class="total-row"><span>Gross Total</span><span>${fa(totals.gross)}</span></div>
+  <div class="total-row"><span>Net Total</span><span style="color:#534AB7">${fa(totals.netTotal)}</span></div>
   <div class="footer">Generated by ${settings.companyName||"MediaHub"} · ${new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"})}</div>
   </body></html>`;
   const w=window.open("","_blank","width=820,height=960");w.document.write(html);w.document.close();w.onload=()=>w.print();
 }
 
+function printROCalendarLegacy(ro, settings={}){
+  const DOW_SHORT=["SU","M","T","W","TH","FR","SA"];
+  const MONTH_ABBR=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
+  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
+  const whtRate=Number(settings.whtRate??5);
+  const totals=calcRoTotals(ro,whtRate);
+  const statusColor=ro.status==="confirmed"?"#3B6D11":ro.status==="executed"?"#185FA5":ro.status==="sent"?"#854F0B":"#888";
+
+  // ── Month / days setup ────────────────────────────────────────────────────
+  const monthKey=ro.campaignMonth||ro.start?.slice(0,7)||"";
+  const [yr,mo]=(monthKey?monthKey.split("-").map(Number):[null,null]) as [number|null,number|null];
+  const daysInMonth=yr&&mo?new Date(yr,mo,0).getDate():31;
+  const titleLabel=yr&&mo?`${MONTH_ABBR[mo-1]}-${String(yr).slice(2)} SCHEDULE`:"SCHEDULE";
+
+  // ── Build per-day DOW row ─────────────────────────────────────────────────
+  const dayDOW:string[]=Array.from({length:daysInMonth},(_,i)=>{
+    if(!yr||!mo) return "";
+    const date=`${yr}-${String(mo).padStart(2,"0")}-${String(i+1).padStart(2,"0")}`;
+    return DOW_SHORT[new Date(`${date}T12:00:00`).getDay()];
+  });
+
+  // ── Group schedule entries by timeSlot ────────────────────────────────────
+  const slotMap=new Map<string,Map<number,number>>();
+  (ro.schedule||[]).forEach((s:any)=>{
+    const slot=s.timeSlot||ro.timeSlot||"—";
+    if(!slotMap.has(slot)) slotMap.set(slot,new Map());
+    const d=parseInt(s.date?.slice(8,10)||"0",10);
+    if(d>0) slotMap.get(slot)!.set(d,(slotMap.get(slot)!.get(d)||0)+Number(s.spots||0));
+  });
+  if(slotMap.size===0) slotMap.set(ro.timeSlot||"—",new Map());
+
+  // ── Build HTML rows ───────────────────────────────────────────────────────
+  const rows=([...slotMap.entries()] as [string,Map<number,number>][]).map(([slot,daySpots])=>{
+    const cells:Array<number|string>=Array.from({length:daysInMonth},(_,i)=>{
+      const v=daySpots.get(i+1)||0;
+      return v>0?v:"";
+    });
+    const rowTotal=[...daySpots.values()].reduce((a,v)=>a+v,0);
+    const dayCells=cells.map(c=>`<td class="dc">${c}</td>`).join("");
+    return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${ro.programme||""}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${ro.materialTitle||""}</td></tr>`};
+  });
+
+  const grandSpots=rows.reduce((a,r)=>a+r.rowTotal,0);
+
+  // ── Totals row ────────────────────────────────────────────────────────────
+  const totalDayCells=Array.from({length:daysInMonth},(_,i)=>{
+    const v=rows.reduce((a,r)=>a+(Number(r.cells[i])||0),0);
+    return `<td class="dc" style="font-weight:700">${v>0?v:""}</td>`;
+  }).join("");
+
+  // ── Column header cells ───────────────────────────────────────────────────
+  const dayNumCells=Array.from({length:daysInMonth},(_,i)=>`<th class="dc">${i+1}</th>`).join("");
+  const dayDOWCells=dayDOW.map(d=>`<td class="dc dow">${d}</td>`).join("");
+
+  const css=`*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:20px 18px;font-size:11px}
+@page{size:landscape;margin:12mm}
+@media print{body{padding:0}}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+.brand{font-size:17px;font-weight:800;color:#1a2d5a}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;color:${statusColor};border:1px solid ${statusColor}}
+hr{border:none;border-top:1px solid #ddd;margin:10px 0}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 18px;margin-bottom:12px}
+.meta label{font-size:8.5px;color:#999;text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:1px}
+.meta span{font-size:10.5px;font-weight:600;color:#222}
+.sched-title{text-align:center;font-weight:800;font-size:12px;letter-spacing:.18em;color:#1a2d5a;padding:8px 0 5px;text-transform:uppercase}
+table{width:100%;border-collapse:collapse;table-layout:auto}
+th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px;white-space:nowrap}
+.th-hdr{background:#1a2d5a;color:#fff;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.06em;padding:5px 3px}
+.th-side{background:#1a2d5a;color:#fff;font-weight:700;font-size:8.5px;text-align:left;padding:4px 5px}
+.dc{width:18px;min-width:16px;font-size:8px;padding:2px 1px;background:#dde6f7}
+.dow{background:#c8d5ee;font-weight:700;color:#1a2d5a;font-size:7.5px}
+.tb{text-align:left;padding:3px 5px;font-weight:700;font-size:9px;min-width:72px;background:#fff}
+.pg{text-align:left;padding:3px 5px;font-size:9px;min-width:80px;background:#fff}
+.dc.spot{font-weight:800;color:#1a2d5a}
+.st{font-weight:800;font-size:10px;color:#1a2d5a;background:#dde6f7;min-width:34px}
+.mc{text-align:left;padding:3px 5px;font-size:8.5px;min-width:90px;background:#fff}
+.tr-tot td{background:#eef3ff;font-weight:700}
+.cst{width:300px;border-collapse:collapse;font-size:10px}
+.cst thead th{background:#1a2d5a;color:#fff;font-weight:700;font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;text-align:left}
+.cst tbody td{padding:4px 10px;border-bottom:1px solid #e8ecf4;color:#222}
+.cst tbody td:last-child{text-align:right;font-weight:600;min-width:90px}
+.cst .neg td:last-child{color:#a32d2d}
+.cst .subtotal td{font-weight:700;border-top:1.5px solid #9aabcc;border-bottom:1.5px solid #9aabcc;background:#f4f7fc}
+.cst .payable td{font-weight:800;font-size:11px;color:#1a2d5a;background:#e6eef9;border-top:2px solid #1a2d5a}
+.footer{margin-top:14px;font-size:8.5px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:8px}`;
+
+  const logoHtml=settings.logoDataUrl?`<img src="${settings.logoDataUrl}" alt="Logo" style="height:36px;max-width:110px;object-fit:contain;margin-bottom:3px;display:block"/>`:"";
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Release Order ${ro.id}</title><style>${css}</style></head><body>
+<div class="hdr">
+  <div>${logoHtml}<div class="brand">${settings.companyName||"MediaHub"}</div><div style="font-size:9px;color:#aaa;margin-top:2px">${settings.tagline||"Media Agency · Lagos, Nigeria"}</div></div>
+  <div style="text-align:right"><div style="font-size:15px;font-weight:800;color:#1a2d5a">RELEASE ORDER</div><div style="font-size:9.5px;color:#666;margin-top:2px"><b>${ro.id}</b></div><div class="badge" style="margin-top:4px">${ro.status}</div></div>
+</div>
+<hr/>
+<div class="meta">
+  <div><label>Client</label><span>${ro.client}</span></div>
+  <div><label>Vendor / Station</label><span>${ro.vendor}</span></div>
+  <div><label>Campaign</label><span>${ro.campaign}</span></div>
+  <div><label>Channel</label><span>${ro.channel||"—"}</span></div>
+  <div><label>Period</label><span>${yr&&mo?new Date(yr,mo-1,1).toLocaleDateString("en-NG",{month:"long",year:"numeric"}):(ro.start||"—")}</span></div>
+  <div><label>MPO Ref</label><span>${ro.mpoId||"—"}</span></div>
+  <div><label>Status</label><span>${ro.status}</span></div>
+  <div><label>Currency</label><span>${ro.currency||"NGN"}</span></div>
+</div>
+<hr/>
+<div class="sched-title">${titleLabel}</div>
+<table>
+  <thead>
+    <tr>
+      <th class="th-side" rowspan="3" style="vertical-align:middle">Time Belt</th>
+      <th class="th-side" rowspan="3" style="vertical-align:middle">Programme</th>
+      <th class="th-hdr" colspan="${daysInMonth}">S C H E D U L E</th>
+      <th class="th-hdr" rowspan="3" style="vertical-align:middle;min-width:34px">NO OF<br/>SPOTS</th>
+      <th class="th-hdr" rowspan="3" style="vertical-align:middle;text-align:left;padding-left:5px;min-width:90px">MATERIAL TITLE/<br/>SPECIFICATION</th>
+    </tr>
+    <tr>${dayNumCells}</tr>
+    <tr>${dayDOWCells}</tr>
+  </thead>
+  <tbody>
+    ${rows.map(r=>r.html).join("")}
+    <tr class="tr-tot">
+      <td colspan="2" style="text-align:right;padding-right:6px;font-size:9px;font-weight:700">TOTAL</td>
+      ${totalDayCells}
+      <td class="st">${grandSpots}</td>
+      <td class="mc"></td>
+    </tr>
+  </tbody>
+</table>
+<div style="display:flex;justify-content:flex-end;margin-top:12px">
+<table class="cst">
+  <thead><tr><th colspan="2">COSTING SUMMARY</th></tr></thead>
+  <tbody>
+    <tr><td>Rate per Spot</td><td>${fa(ro.rate||0)}</td></tr>
+    <tr><td>Gross Total</td><td>${fa(totals.gross)}</td></tr>
+    <tr><td>Volume Discount (${totals.volumeDiscountPct}%)</td><td class="neg">- ${fa(totals.volumeDiscountAmount)}</td></tr>
+    <tr><td>Agency Commission (${totals.agencyCommissionPct}%)</td><td class="neg">- ${fa(totals.agencyCommissionAmount)}</td></tr>
+    <tr class="subtotal"><td>Net Total</td><td>${fa(totals.netTotal)}</td></tr>
+    <tr><td>WHT (${totals.whtPct}%)</td><td class="neg">- ${fa(totals.whtAmount)}</td></tr>
+    <tr class="payable"><td>Amount Payable</td><td>${fa(totals.amountPayable)}</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="footer">Generated by ${settings.companyName||"MediaHub"} · ${new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"})}</div>
+</body></html>`;
+  const w=window.open("","_blank","width=1400,height=960");w.document.write(html);w.document.close();w.onload=()=>w.print();
+}
+
 // ── RO Excel/CSV export ───────────────────────────────────────────────────────
-function exportROExcel(ro){
-  const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const total=ro.schedule.reduce((a,s)=>a+(s.spots*s.rate),0);
-  const header=[["Release Order",ro.id],["Client",ro.client],["Vendor",ro.vendor],["Campaign",ro.campaign],["Channel",ro.channel||""],["Period",`${ro.start} to ${ro.end}`],["MPO Ref",ro.mpoId||""],["Status",ro.status],["Currency",ro.currency||"NGN"],[],["Date","Day","Time Slot","Spots","Rate per Spot","Row Total"]];
-  const dataRows=ro.schedule.map(s=>[s.date,DNAMES[new Date(s.date+"T12:00:00").getDay()],s.timeSlot||"",s.spots,s.rate,s.spots*s.rate]);
-  const footer=[[],["","","","","TOTAL",total]];
-  const all=[...header,...dataRows,...footer];
-  const csv=all.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
-  const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,\uFEFF"+encodeURIComponent(csv);a.download=`${ro.id}_release_order.csv`;a.click();
+async function exportROExcel(ro, settings={}){
+  const whtRate=Number((settings as any).whtRate??5);
+  const XLS=await import("xlsx-js-style");
+  const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const totals=calcRoTotals(ro,whtRate);
+  const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
+  const numFmt="#,##0.00";
+  const border={top:{style:"thin",color:{rgb:"AAAAAA"}},bottom:{style:"thin",color:{rgb:"AAAAAA"}},left:{style:"thin",color:{rgb:"AAAAAA"}},right:{style:"thin",color:{rgb:"AAAAAA"}}};
+  const hdrS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"DCE6F1"}},border,alignment:{horizontal:"center",wrapText:true}};
+  const metaLabel={font:{bold:true,sz:10},fill:{fgColor:{rgb:"F2F2F2"}},border};
+  const metaVal={font:{sz:10},border};
+  const numCell=(v,extra={})=>({v,t:"n",z:numFmt,s:{border,alignment:{horizontal:"center"},...extra}});
+  const txtCell=(v,s={})=>({v:v||"",t:"s",s:{border,alignment:{horizontal:"center"},...s}});
+
+  // ── Section 1: RO header info (2-col label-value pairs) ───────────────────
+  const companyName=(settings as any).companyName||"MediaHub";
+  const tagline=(settings as any).tagline||"Media Agency · Lagos, Nigeria";
+  const metaRows=[
+    [{v:companyName,t:"s",s:{font:{bold:true,sz:15,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},{v:tagline,t:"s",s:{font:{sz:9,italic:true,color:{rgb:"999999"}},alignment:{horizontal:"right"}}}],
+    [{v:"",t:"s",s:{}},{v:"",t:"s",s:{}}], // spacer
+    [{v:"RELEASE ORDER",t:"s",s:{font:{bold:true,sz:14},alignment:{horizontal:"center"}}},{v:"",t:"s",s:{}}],
+    [{v:"RO Number:",t:"s",s:metaLabel},{v:ro.id,t:"s",s:{...metaVal,font:{bold:true,color:{rgb:"534AB7"}}}}],
+    [{v:"Client:",t:"s",s:metaLabel},{v:ro.client||"",t:"s",s:metaVal}],
+    [{v:"Vendor / Station:",t:"s",s:metaLabel},{v:ro.vendor||"",t:"s",s:metaVal}],
+    [{v:"Campaign:",t:"s",s:metaLabel},{v:ro.campaign||"",t:"s",s:metaVal}],
+    [{v:"Programme:",t:"s",s:metaLabel},{v:ro.programme||"",t:"s",s:metaVal}],
+    [{v:"Material Title:",t:"s",s:metaLabel},{v:ro.materialTitle||"",t:"s",s:metaVal}],
+    [{v:"Channel:",t:"s",s:metaLabel},{v:ro.channel||"",t:"s",s:metaVal}],
+    [{v:"Time Slot:",t:"s",s:metaLabel},{v:ro.timeSlot||"",t:"s",s:metaVal}],
+    [{v:"Period:",t:"s",s:metaLabel},{v:`${ro.start||""} to ${ro.end||""}`,t:"s",s:metaVal}],
+    [{v:"MPO Ref:",t:"s",s:metaLabel},{v:ro.mpoId||"—",t:"s",s:metaVal}],
+    [{v:"Status:",t:"s",s:metaLabel},{v:ro.status||"",t:"s",s:metaVal}],
+    [{v:"Currency:",t:"s",s:metaLabel},{v:ro.currency||"NGN",t:"s",s:metaVal}],
+    [{v:"",t:"s",s:{}},{v:"",t:"s",s:{}}], // spacer
+  ];
+
+  // ── Section 2: Horizontal calendar ─────────────────────────────────────
+  // Group schedule days (only those with spots > 0)
+  const activeDays=(ro.schedule||[]).filter(s=>Number(s.spots)>0);
+  // Build one header row + one spots row (days across columns)
+  const dayNumbers=activeDays.map(s=>new Date(s.date+"T12:00:00").getDate());
+  const dayNames=activeDays.map(s=>DOW[new Date(s.date+"T12:00:00").getDay()]);
+
+  const calTitle=[{v:"BROADCAST SCHEDULE",t:"s",s:{font:{bold:true,sz:11},fill:{fgColor:{rgb:"1F3864"}},alignment:{horizontal:"center"},font:{bold:true,color:{rgb:"FFFFFF"},sz:11}}},...Array(activeDays.length+1).fill({v:"",t:"s",s:{}})];
+  const calHdr1=[{v:"TIME BELT",t:"s",s:hdrS},{v:"PROGRAMME",t:"s",s:hdrS},...dayNumbers.map(d=>({v:d,t:"n",s:{...hdrS,alignment:{horizontal:"center"}}})),(activeDays.length>0?{v:"NO OF SPOTS",t:"s",s:hdrS}:{v:"",t:"s",s:{}}),(activeDays.length>0?{v:"MATERIAL TITLE",t:"s",s:hdrS}:{v:"",t:"s",s:{}})];
+  const calHdr2=[{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS},...dayNames.map(d=>({v:d,t:"s",s:{...hdrS}})),{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS}];
+
+  // Group by time slot
+  const slotMap=new Map();
+  (ro.schedule||[]).forEach(s=>{
+    if(Number(s.spots)>0){const slot=s.timeSlot||ro.timeSlot||"—";if(!slotMap.has(slot))slotMap.set(slot,new Map());slotMap.get(slot).set(new Date(s.date+"T12:00:00").getDate(),Number(s.spots));}
+  });
+  const calDataRows=[...slotMap.entries()].map(([slot,dayMap])=>{
+    const rowTotal=[...dayMap.values()].reduce((a,v)=>a+v,0);
+    return [
+      txtCell(slot,{alignment:{horizontal:"left"}}),
+      txtCell(ro.programme||"",{alignment:{horizontal:"left"}}),
+      ...dayNumbers.map(d=>dayMap.has(d)?numCell(dayMap.get(d),{s:{border,alignment:{horizontal:"center"},font:{bold:true}}}):txtCell("",{fill:{fgColor:{rgb:"F9F9F9"}}})),
+      numCell(rowTotal,{s:{border,font:{bold:true},fill:{fgColor:{rgb:"EAF3DE"}},alignment:{horizontal:"center"}}}),
+      txtCell(ro.materialTitle||"",{alignment:{horizontal:"left"}}),
+    ];
+  });
+  if(calDataRows.length===0) calDataRows.push([txtCell("No spots selected",{alignment:{horizontal:"left"}}),...Array(activeDays.length+3).fill(txtCell(""))]);
+
+  // ── Section 3: Costing summary ───────────────────────────────────────────
+  const spacer=[{v:"",t:"s",s:{}}];
+  const costHdr=[{v:"COSTING SUMMARY",t:"s",s:{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"center"}}},{v:"",t:"s",s:{}}];
+  const costRows=[
+    [{v:"Rate per Spot",t:"s",s:metaLabel},{v:totals.gross>0&&activeDays.length>0?totals.gross/activeDays.reduce((a,s)=>a+Number(s.spots),0):Number(ro.rate)||0,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"}}}],
+    [{v:`Gross Total (${activeDays.reduce((a,s)=>a+Number(s.spots),0)} spots)`,t:"s",s:metaLabel},{v:totals.gross,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"}}}],
+    [{v:`Volume Discount (${totals.volumeDiscountPct}%)`,t:"s",s:metaLabel},{v:-totals.volumeDiscountAmount,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"A32D2D"}}}}],
+    [{v:`Agency Commission (${totals.agencyCommissionPct}%)`,t:"s",s:metaLabel},{v:-totals.agencyCommissionAmount,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"A32D2D"}}}}],
+    [{v:"Net Total",t:"s",s:{...metaLabel,font:{bold:true}}},{v:totals.netTotal,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{bold:true}}}],
+    [{v:`WHT (${totals.whtPct}%)`,t:"s",s:metaLabel},{v:-totals.whtAmount,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"A32D2D"}}}}],
+    [{v:"AMOUNT PAYABLE",t:"s",s:{...metaLabel,font:{bold:true,sz:11}}},{v:totals.amountPayable,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{bold:true,sz:12,color:{rgb:"1F5C1F"}},fill:{fgColor:{rgb:"EAF3DE"}}}}],
+  ];
+
+  // ── Assemble sheet ────────────────────────────────────────────────────────
+  const sheetData=[...metaRows,calTitle,calHdr1,calHdr2,...calDataRows,spacer,costHdr,...costRows];
+  const ws=XLS.utils.aoa_to_sheet(sheetData);
+
+  // Merges: company header, RO title, broadcast title, costing title
+  const mergeWidth=activeDays.length+3; // timebelt + programme + days + no.spots + material
+  ws["!merges"]=[
+    {s:{r:0,c:0},e:{r:0,c:mergeWidth}}, // company name row
+    {s:{r:2,c:0},e:{r:2,c:1}}, // RELEASE ORDER title (row index 2, after company + spacer)
+    {s:{r:metaRows.length,c:0},e:{r:metaRows.length,c:mergeWidth}}, // BROADCAST SCHEDULE
+    {s:{r:metaRows.length+calDataRows.length+3,c:0},e:{r:metaRows.length+calDataRows.length+3,c:1}}, // COSTING SUMMARY
+  ];
+
+  ws["!cols"]=[{wch:18},{wch:20},...Array(activeDays.length).fill({wch:5}),{wch:12},{wch:22}];
+  const wb=XLS.utils.book_new();
+  XLS.utils.book_append_sheet(wb,ws,"Release Order");
+  XLS.writeFile(wb,`${ro.id}_release_order.xlsx`);
 }
 
 // ── Schedule helper ───────────────────────────────────────────────────────────
-function buildScheduleDays(start,end,existing=[]){
+function buildScheduleDays(start,end,existing=[],defaultRate=0){
   if(!start||!end||start>end) return [];
   const days=[];const cur=new Date(start+"T12:00:00");const last=new Date(end+"T12:00:00");
   while(cur<=last){
-    const ds=cur.toISOString().slice(0,10);
+    // Use local getters to avoid UTC-offset date shifting (e.g. WAT UTC+1)
+    const ds=`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}-${String(cur.getDate()).padStart(2,"0")}`;
     const ex=existing.find(e=>e.date===ds);
-    days.push(ex||{date:ds,timeSlot:"",spots:1,rate:0});
+    days.push(ex||{date:ds,timeSlot:"",spots:0,rate:defaultRate});
     cur.setDate(cur.getDate()+1);
   }
   return days;
 }
 
+function getMonthBounds(monthKey){
+  if(!monthKey) return {start:"",end:""};
+  const [year,month]=monthKey.split("-").map(Number);
+  if(!year||!month) return {start:"",end:""};
+  const start=`${year}-${String(month).padStart(2,"0")}-01`;
+  // Use getDate() instead of toISOString() to avoid UTC offset shifting
+  const lastDay=new Date(year,month,0).getDate();
+  const end=`${year}-${String(month).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`;
+  return {start,end};
+}
+
+function calcRoTotals(ro, whtRate=0){
+  const gross=(ro.schedule||[]).reduce((a,s)=>a+(Number(s.spots)||0)*(Number(s.rate)||0),0);
+  const volumeDiscountPct=Number(ro.volumeDiscount)||0;
+  const agencyCommissionPct=Number(ro.agencyCommission)||0;
+  const volumeDiscountAmount=gross*(volumeDiscountPct/100);
+  const agencyCommissionAmount=gross*(agencyCommissionPct/100);
+  const netTotal=gross-volumeDiscountAmount-agencyCommissionAmount;
+  const whtPct=Number(whtRate)||0;
+  const whtAmount=netTotal*(whtPct/100);
+  const amountPayable=netTotal-whtAmount;
+  return {gross,volumeDiscountPct,agencyCommissionPct,volumeDiscountAmount,agencyCommissionAmount,netTotal,whtPct,whtAmount,amountPayable};
+}
+
+function getRoCalendarCells(ro){
+  const monthKey=ro.campaignMonth || ro.start?.slice(0,7) || "";
+  if(!monthKey) return null;
+  const [year,month]=monthKey.split("-").map(Number);
+  if(!year||!month) return null;
+  const firstDay=new Date(year,month-1,1).getDay();
+  const daysInMonth=new Date(year,month,0).getDate();
+  const scheduleByDate=new Map((ro.schedule||[]).map(s=>[s.date,s]));
+  const leading=Array.from({length:firstDay},(_,i)=>({key:`blank-start-${i}`,empty:true}));
+  const dates=Array.from({length:daysInMonth},(_,i)=>{
+    const day=i+1;
+    const date=`${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    return {key:date,date,day,entry:scheduleByDate.get(date)||null};
+  });
+  const trailingCount=(7-((leading.length+dates.length)%7))%7;
+  const trailing=Array.from({length:trailingCount},(_,i)=>({key:`blank-end-${i}`,empty:true}));
+  return {
+    label:new Date(`${monthKey}-01T12:00:00`).toLocaleDateString("en-NG",{month:"long",year:"numeric"}),
+    cells:[...leading,...dates,...trailing]
+  };
+}
+
 // ── RO form (create / edit) ───────────────────────────────────────────────────
-const EMPTY_RO={mpoId:"",client:"",vendor:"",campaign:"",channel:"TV",start:"",end:"",status:"draft",currency:"NGN",schedule:[],docs:[]};
+const EMPTY_RO={mpoId:"",client:"",vendor:"",campaign:"",programme:"",materialTitle:"",materialDuration:"",campaignMonth:"",channel:"TV",start:"",end:"",status:"draft",currency:"NGN",rate:0,timeSlot:"",volumeDiscount:0,agencyCommission:0,schedule:[],docs:[]};
 function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
-  const [form,setForm]=useState(initial||EMPTY_RO);
+  const initialRate=initial?.rate ?? initial?.schedule?.find(s=>Number(s.rate)>0)?.rate ?? 0;
+  const initialMonth=initial?.campaignMonth || initial?.start?.slice(0,7) || "";
+  const initialTimeSlot=initial?.timeSlot ?? initial?.schedule?.find(s=>s.timeSlot)?.timeSlot ?? "";
+  const [form,setForm]=useState(initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:initial.materialDuration||""}:{...EMPTY_RO});
   const [errs,setErrs]=useState({});
+  const [step,setStep]=useState(1);
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const sym=CURRENCIES[form.currency||"NGN"]?.symbol||"₦";
+  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
 
-  // Regenerate schedule when dates change (preserve existing data)
-  const onDateChange=(k,v)=>{
-    const next={...form,[k]:v};
-    const ns=buildScheduleDays(k==="start"?v:form.start,k==="end"?v:form.end,form.schedule);
-    setForm({...next,schedule:ns});
+  const applyRateToSchedule=rate=>setForm(f=>({
+    ...f,
+    rate,
+    schedule:f.schedule.map(s=>({...s,rate:Number(rate)||0}))
+  }));
+
+  const applyTimeSlotToSchedule=timeSlot=>setForm(f=>({
+    ...f,
+    timeSlot,
+    schedule:f.schedule.map(s=>({...s,timeSlot}))
+  }));
+
+  const applyQuickScheduleAction=mode=>setForm(f=>({
+    ...f,
+    schedule:f.schedule.map(s=>({
+      ...s,
+      spots:mode==="clear"?0:1,
+      timeSlot:f.timeSlot||s.timeSlot||""
+    }))
+  }));
+
+  const toggleScheduleDay=(date)=>setForm(f=>({
+    ...f,
+    schedule:f.schedule.map(s=>s.date!==date?s:{...s,spots:Number(s.spots)>0?0:Math.max(1,Number(s.spots)||1),timeSlot:f.timeSlot||s.timeSlot||""})
+  }));
+
+  const onCampaignMonthChange=monthKey=>{
+    const {start,end}=getMonthBounds(monthKey);
+    setForm(f=>({
+      ...f,
+      campaignMonth:monthKey,
+      start,
+      end,
+      schedule:buildScheduleDays(start,end,f.schedule,f.rate)
+    }));
   };
 
   const setScheduleRow=(i,k,v)=>setForm(f=>{
-    const s=[...f.schedule];s[i]={...s[i],[k]:k==="spots"||k==="rate"?Number(v)||0:v};return{...f,schedule:s};
+    const s=[...f.schedule];s[i]={...s[i],[k]:k==="spots"?Number(v)||0:v};return{...f,schedule:s};
   });
 
-  const grandTotal=form.schedule.reduce((a,s)=>a+(s.spots*s.rate),0);
+  const totals=calcRoTotals(form,settings?.whtRate??5);
+  const monthInfo=useMemo(()=>{
+    if(!form.campaignMonth) return null;
+    const [year,month]=form.campaignMonth.split("-").map(Number);
+    if(!year||!month) return null;
+    const firstDay=new Date(year,month-1,1).getDay();
+    const daysInMonth=new Date(year,month,0).getDate();
+    const leading=Array.from({length:firstDay},(_,i)=>({key:`blank-start-${i}`,empty:true}));
+    const dates=Array.from({length:daysInMonth},(_,i)=>{
+      const day=i+1;
+      const date=`${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+      return {key:date,date,day,entry:form.schedule.find(s=>s.date===date)};
+    });
+    const trailingCount=(7-((leading.length+dates.length)%7))%7;
+    const trailing=Array.from({length:trailingCount},(_,i)=>({key:`blank-end-${i}`,empty:true}));
+    return {label:new Date(`${form.campaignMonth}-01T12:00:00`).toLocaleDateString("en-NG",{month:"long",year:"numeric"}),cells:[...leading,...dates,...trailing]};
+  },[form.campaignMonth,form.schedule]);
 
-  const validate=()=>{
-    const e={};
-    if(!form.client.trim())e.client="Required";
-    if(!form.vendor.trim())e.vendor="Required";
-    if(!form.campaign.trim())e.campaign="Required";
-    if(!form.start)e.start="Required";
-    if(!form.end)e.end="Required";
-    if(form.start&&form.end&&form.start>form.end)e.end="Must be after start";
-    setErrs(e);return!Object.keys(e).length;
+  const validateStep=(s:number)=>{
+    const e:Record<string,string>={};
+    if(s===1){
+      if(!form.client.trim())e.client="Required";
+      if(!form.vendor.trim())e.vendor="Required";
+      if(!form.campaign.trim())e.campaign="Required";
+    }
+    if(s===2){
+      if(!form.campaignMonth)e.campaignMonth="Required";
+    }
+    if(s===3){
+      if(Number(form.rate)<0)e.rate="Must be 0 or more";
+      if(Number(form.volumeDiscount)<0)e.volumeDiscount="Must be 0 or more";
+      if(Number(form.agencyCommission)<0)e.agencyCommission="Must be 0 or more";
+    }
+    setErrs(e);return Object.keys(e).length===0;
   };
 
-  const handleSave=()=>{if(validate())onSave(form);};
+  const handleNext=()=>{if(validateStep(step))setStep(s=>s+1);};
+
+  const handleSave=()=>{
+    if(!validateStep(3))return;
+    onSave({...form,schedule:form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}))});
+  };
 
   const vendorList=[...new Set([...mpos.map(m=>m.vendor),...(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name)])].sort();
   const clientList=[...(clients||[]).filter(c=>c.type==="Client").map(c=>c.name)].sort();
 
+  const totalSpots=form.schedule.reduce((a,s)=>a+Number(s.spots||0),0);
+  const activeDays=form.schedule.filter(s=>Number(s.spots)>0).length;
+
+  const STEPS=[{n:1,label:"Order Details"},{n:2,label:"Schedule"},{n:3,label:"Rates & Review"}];
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:0}}>
-      {/* ── Basic fields ── */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:16}}>
-        <FF id="ro-client" label="Client" err={errs.client}>
-          <select id="ro-client" className="form-input" value={form.client} onChange={e=>set("client",e.target.value)}>
-            <option value="">Select…</option>
-            {clientList.map(c=><option key={c}>{c}</option>)}
-            <option value={form.client||"__custom"}>{form.client&&!clientList.includes(form.client)?form.client:"Other…"}</option>
-          </select>
-          {(!clientList.includes(form.client)||form.client==="")&&<input className="form-input" style={{marginTop:4}} placeholder="Type client name" value={form.client} onChange={e=>set("client",e.target.value)}/>}
-        </FF>
-        <FF id="ro-vendor" label="Vendor / Station" err={errs.vendor}>
-          <select id="ro-vendor" className="form-input" value={form.vendor} onChange={e=>set("vendor",e.target.value)}>
-            <option value="">Select…</option>
-            {vendorList.map(v=><option key={v}>{v}</option>)}
-          </select>
-          {!vendorList.includes(form.vendor)&&<input className="form-input" style={{marginTop:4}} placeholder="Type vendor name" value={form.vendor} onChange={e=>set("vendor",e.target.value)}/>}
-        </FF>
-        <FF id="ro-campaign" label="Campaign" err={errs.campaign} style={{gridColumn:"1/-1"}}>
-          <input id="ro-campaign" className="form-input" value={form.campaign} onChange={e=>set("campaign",e.target.value)}/>
-        </FF>
-        <FF id="ro-mpo" label="MPO Ref (optional)">
-          <select id="ro-mpo" className="form-input" value={form.mpoId} onChange={e=>set("mpoId",e.target.value)}>
-            <option value="">None</option>
-            {mpos.map(m=><option key={m.id} value={m.id}>{m.id} – {m.campaign}</option>)}
-          </select>
-        </FF>
-        <FF id="ro-channel" label="Channel">
-          <select id="ro-channel" className="form-input" value={form.channel} onChange={e=>set("channel",e.target.value)}>
-            {["TV","Radio","Print","Digital","OOH","Cinema"].map(c=><option key={c}>{c}</option>)}
-          </select>
-        </FF>
-        <FF id="ro-start" label="Start Date" err={errs.start}>
-          <input id="ro-start" className="form-input" type="date" value={form.start} onChange={e=>onDateChange("start",e.target.value)}/>
-        </FF>
-        <FF id="ro-end" label="End Date" err={errs.end}>
-          <input id="ro-end" className="form-input" type="date" value={form.end} onChange={e=>onDateChange("end",e.target.value)}/>
-        </FF>
-        <FF id="ro-status" label="Status">
-          <select id="ro-status" className="form-input" value={form.status} onChange={e=>set("status",e.target.value)}>
-            {["draft","sent","confirmed","executed"].map(s=><option key={s}>{s}</option>)}
-          </select>
-        </FF>
-        <FF id="ro-currency" label="Currency">
-          <select id="ro-currency" className="form-input" value={form.currency} onChange={e=>set("currency",e.target.value)}>
-            {Object.keys(CURRENCIES).map(c=><option key={c}>{c}</option>)}
-          </select>
-        </FF>
+
+      {/* ── Step indicator ── */}
+      <div style={{display:"flex",alignItems:"flex-start",marginBottom:20}}>
+        {STEPS.map((s,i)=>{
+          const done=step>s.n;
+          const active=step===s.n;
+          return(
+            <Fragment key={s.n}>
+              {i>0&&<div style={{flex:1,height:2,marginTop:13,background:done?"var(--brand)":"var(--border-c)",transition:"background .3s"}}/>}
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:done?"pointer":"default",minWidth:0}}
+                onClick={done?()=>{setErrs({});setStep(s.n);}:undefined}>
+                <div style={{width:26,height:26,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:11,fontWeight:800,flexShrink:0,
+                  background:done||active?"var(--brand)":"var(--bg3)",
+                  color:done||active?"#fff":"var(--text3)",
+                  boxShadow:active?"0 0 0 3px var(--brand)22":undefined,
+                  transition:"all .2s"}}>
+                  {done?"✓":s.n}
+                </div>
+                <span style={{fontSize:10,fontWeight:active?700:500,color:active?"var(--brand)":done?"var(--text2)":"var(--text3)",whiteSpace:"nowrap"}}>{s.label}</span>
+              </div>
+            </Fragment>
+          );
+        })}
       </div>
 
-      {/* ── Daily schedule ── */}
-      {form.schedule.length>0&&(
-        <div style={{marginBottom:16}}>
-          <div style={{fontSize:12,fontWeight:600,color:"var(--text2)",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>Daily Schedule ({form.schedule.length} days)</span>
-            <span style={{fontSize:12,color:"var(--brand)",fontWeight:700}}>Total: {sym}{grandTotal.toLocaleString("en")}</span>
+      {/* ── Step 1: Order Details ── */}
+      {step===1&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:8}}>
+          <FF id="ro-client" label="Client" err={errs.client}>
+            <input id="ro-client" className="form-input" list="ro-client-list" value={form.client} onChange={e=>set("client",e.target.value)} placeholder="Select or type client"/>
+            <datalist id="ro-client-list">{clientList.map(c=><option key={c} value={c}/>)}</datalist>
+          </FF>
+          <FF id="ro-vendor" label="Vendor / Station" err={errs.vendor}>
+            <input id="ro-vendor" className="form-input" list="ro-vendor-list" value={form.vendor} onChange={e=>set("vendor",e.target.value)} placeholder="Select or type vendor"/>
+            <datalist id="ro-vendor-list">{vendorList.map(v=><option key={v} value={v}/>)}</datalist>
+          </FF>
+          <FF id="ro-campaign" label="Campaign" err={errs.campaign} style={{gridColumn:"1/-1"}}>
+            <input id="ro-campaign" className="form-input" value={form.campaign} onChange={e=>set("campaign",e.target.value)} placeholder="Campaign name"/>
+          </FF>
+          <FF id="ro-mpo" label="MPO Ref (optional)">
+            <select id="ro-mpo" className="form-input" value={form.mpoId} onChange={e=>set("mpoId",e.target.value)}>
+              <option value="">None</option>
+              {mpos.map(m=><option key={m.id} value={m.id}>{m.id} – {m.campaign}</option>)}
+            </select>
+          </FF>
+          <FF id="ro-channel" label="Channel">
+            <select id="ro-channel" className="form-input" value={form.channel} onChange={e=>set("channel",e.target.value)}>
+              {["TV","Radio","Print","Digital","OOH","Cinema"].map(c=><option key={c}>{c}</option>)}
+            </select>
+          </FF>
+          <FF id="ro-status" label="Status">
+            <select id="ro-status" className="form-input" value={form.status} onChange={e=>set("status",e.target.value)}>
+              {["draft","sent","confirmed","executed"].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </FF>
+          <FF id="ro-currency" label="Currency">
+            <select id="ro-currency" className="form-input" value={form.currency} onChange={e=>set("currency",e.target.value)}>
+              {Object.keys(CURRENCIES).map(c=><option key={c}>{c}</option>)}
+            </select>
+          </FF>
+        </div>
+      )}
+
+      {/* ── Step 2: Schedule ── */}
+      {step===2&&(
+        <div style={{marginBottom:8}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:12}}>
+            <FF id="ro-month" label="Campaign Month" err={errs.campaignMonth}>
+              <input id="ro-month" className="form-input" type="month" value={form.campaignMonth} onChange={e=>onCampaignMonthChange(e.target.value)}/>
+            </FF>
+            <FF id="ro-timeslot" label="Time Slot">
+              <input id="ro-timeslot" className="form-input" placeholder="e.g. 07:00–08:00" value={form.timeSlot} onChange={e=>applyTimeSlotToSchedule(e.target.value)}/>
+            </FF>
+            <FF id="ro-programme" label="Programme">
+              <input id="ro-programme" className="form-input" placeholder="e.g. Good Morning Nigeria" value={form.programme} onChange={e=>set("programme",e.target.value)}/>
+            </FF>
+            <FF id="ro-material" label="Material Title / Specification">
+              <input id="ro-material" className="form-input" placeholder="e.g. Thematic, Product Launch" value={form.materialTitle} onChange={e=>set("materialTitle",e.target.value)}/>
+            </FF>
+            <FF id="ro-duration" label="Material Duration" style={{gridColumn:"1/-1"}}>
+              <select id="ro-duration" className="form-input" value={form.materialDuration||""} onChange={e=>set("materialDuration",e.target.value)}>
+                <option value="">Select duration…</option>
+                {['5" Secs','10" Secs','15" Secs Prime Time','20" Secs','30" Secs Prime Time','30" Secs Off Peak','45" Secs','60" Secs Prime Time','60" Secs Off Peak','90" Secs','120" Secs / 2 Mins','Sponsored Mention','Live Mention','Product Placement','Other'].map(d=><option key={d}>{d}</option>)}
+              </select>
+            </FF>
           </div>
-          <div style={{overflowX:"auto",maxHeight:320,overflowY:"auto",border:"1px solid var(--border-c)",borderRadius:8}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-              <thead>
-                <tr style={{background:"var(--bg3)",position:"sticky",top:0}}>
-                  <th style={{padding:"6px 8px",textAlign:"left",fontWeight:600,color:"var(--text2)",whiteSpace:"nowrap"}}>Date</th>
-                  <th style={{padding:"6px 8px",textAlign:"left",fontWeight:600,color:"var(--text2)"}}>Day</th>
-                  <th style={{padding:"6px 8px",textAlign:"left",fontWeight:600,color:"var(--text2)"}}>Time Slot</th>
-                  <th style={{padding:"6px 8px",textAlign:"center",fontWeight:600,color:"var(--text2)"}}>Spots</th>
-                  <th style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:"var(--text2)"}}>Rate ({sym})</th>
-                  <th style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:"var(--text2)"}}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {form.schedule.map((s,i)=>(
-                  <tr key={s.date} style={{borderBottom:"1px solid var(--border-c)"}}>
-                    <td style={{padding:"5px 8px",color:"var(--text2)",whiteSpace:"nowrap"}}>{s.date}</td>
-                    <td style={{padding:"5px 8px",color:"var(--text3)",fontSize:11}}>{DNAMES[new Date(s.date+"T12:00:00").getDay()]}</td>
-                    <td style={{padding:"4px 8px"}}>
-                      <input className="form-input" style={{padding:"3px 6px",fontSize:11,width:120}} placeholder="e.g. 07:00–08:00" value={s.timeSlot} onChange={e=>setScheduleRow(i,"timeSlot",e.target.value)}/>
-                    </td>
-                    <td style={{padding:"4px 8px",textAlign:"center"}}>
-                      <input className="form-input" style={{padding:"3px 6px",fontSize:11,width:52,textAlign:"center"}} type="number" min="0" value={s.spots} onChange={e=>setScheduleRow(i,"spots",e.target.value)}/>
-                    </td>
-                    <td style={{padding:"4px 8px",textAlign:"right"}}>
-                      <input className="form-input" style={{padding:"3px 6px",fontSize:11,width:88,textAlign:"right"}} type="number" min="0" value={s.rate} onChange={e=>setScheduleRow(i,"rate",e.target.value)}/>
-                    </td>
-                    <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,color:"var(--brand)",whiteSpace:"nowrap"}}>{sym}{(s.spots*s.rate).toLocaleString("en")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+          {!form.campaignMonth&&(
+            <div style={{padding:"20px 16px",background:"var(--bg3)",borderRadius:10,fontSize:12,color:"var(--text3)",textAlign:"center"}}>
+              Select a campaign month above to load the scheduling calendar.
+            </div>
+          )}
+
+          {monthInfo&&form.schedule.length>0&&(
+            <div>
+              {/* Calendar header */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>{monthInfo.label}</div>
+                  <div style={{fontSize:11,color:"var(--text3)",marginTop:1}}>
+                    {activeDays} day{activeDays!==1?"s":""} selected · {totalSpots} total spot{totalSpots!==1?"s":""}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <button type="button" className="btn btn-sm" onClick={()=>applyQuickScheduleAction("all")}>Select All</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={()=>applyQuickScheduleAction("clear")}>Clear</button>
+                </div>
+              </div>
+
+              {/* Calendar grid — overflow:hidden keeps cells inside the container */}
+              <div style={{background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:12,padding:10,overflow:"hidden"}}>
+                {/* DOW headers */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",marginBottom:4}}>
+                  {["SUN","MON","TUE","WED","THU","FRI","SAT"].map(d=>(
+                    <div key={d} style={{textAlign:"center",fontSize:8,fontWeight:700,letterSpacing:".05em",color:"var(--text3)",paddingBottom:5,textTransform:"uppercase"}}>{d}</div>
+                  ))}
+                </div>
+                {/* Day cells */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:3}}>
+                  {monthInfo.cells.map((cell)=>{
+                    if(cell.empty) return <div key={cell.key}/>;
+                    const rowIndex=form.schedule.findIndex(s=>s.date===cell.date);
+                    const spots=Number(cell.entry?.spots)||0;
+                    const isActive=spots>0;
+                    return(
+                      <div key={cell.key}
+                        onClick={()=>setScheduleRow(rowIndex,"spots",spots+1)}
+                        style={{
+                          display:"flex",flexDirection:"column",alignItems:"center",
+                          padding:"5px 2px 4px",borderRadius:7,cursor:"pointer",
+                          border:isActive?"2px solid var(--brand)":"1px solid var(--border-c)",
+                          background:isActive?"#eef3ff":"var(--bg1)",
+                          boxShadow:isActive?"0 2px 8px rgba(var(--brand-rgb,83,74,183),.18)":undefined,
+                          gap:2,overflow:"hidden",minWidth:0,
+                          transform:isActive?"scale(1.04)":"scale(1)",
+                          transition:"border-color .15s,background .15s,box-shadow .15s,transform .15s",
+                        }}>
+                        <span style={{fontSize:13,fontWeight:800,lineHeight:1,color:isActive?"var(--brand)":"var(--text)"}}>{cell.day}</span>
+                        <span style={{fontSize:7,fontWeight:600,letterSpacing:".03em",color:"var(--text3)",textTransform:"uppercase"}}>
+                          {["SU","M","T","W","TH","FR","SA"][new Date(`${cell.date}T12:00:00`).getDay()]}
+                        </span>
+                        {/* Stepper */}
+                        <div style={{display:"flex",alignItems:"center",gap:2,marginTop:2,width:"100%",justifyContent:"center"}}>
+                          <button type="button" disabled={spots===0}
+                            onClick={e=>{e.stopPropagation();setScheduleRow(rowIndex,"spots",Math.max(0,spots-1));}}
+                            style={{width:16,height:16,borderRadius:4,border:"none",cursor:spots===0?"default":"pointer",
+                              background:spots>0?"var(--brand)":"var(--border-c)",color:"#fff",
+                              fontWeight:900,fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",
+                              flexShrink:0,opacity:spots===0?.3:1,transition:"background .12s,opacity .12s",padding:0}}>−</button>
+                          <span style={{fontSize:11,fontWeight:800,minWidth:12,textAlign:"center",color:isActive?"var(--brand)":"var(--text3)",lineHeight:1}}>{spots}</span>
+                          <button type="button"
+                            onClick={e=>{e.stopPropagation();setScheduleRow(rowIndex,"spots",spots+1);}}
+                            style={{width:16,height:16,borderRadius:4,border:"none",cursor:"pointer",
+                              background:"var(--brand)",color:"#fff",
+                              fontWeight:900,fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",
+                              flexShrink:0,transition:"background .12s",padding:0}}>+</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{marginTop:7,fontSize:11,color:"var(--text3)"}}>Click a day to add a spot · use <b>+</b> / <b>−</b> for finer control · days at 0 are excluded from the RO.</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 3: Rates & Review ── */}
+      {step===3&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:8,alignItems:"start"}}>
+          {/* Left: fields */}
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <FF id="ro-rate" label={`Rate per Spot (${sym})`} err={errs.rate}>
+              <input id="ro-rate" className="form-input" type="number" min="0" value={form.rate||""} onChange={e=>applyRateToSchedule(Number(e.target.value)||0)} placeholder="Enter rate"/>
+            </FF>
+            <FF id="ro-volume-discount" label="Volume Discount (%)" err={errs.volumeDiscount}>
+              <input id="ro-volume-discount" className="form-input" type="number" min="0" value={form.volumeDiscount||""} onChange={e=>set("volumeDiscount",Number(e.target.value)||0)} placeholder="0"/>
+            </FF>
+            <FF id="ro-agency-commission" label="Agency Commission (%)" err={errs.agencyCommission}>
+              <input id="ro-agency-commission" className="form-input" type="number" min="0" value={form.agencyCommission||""} onChange={e=>set("agencyCommission",Number(e.target.value)||0)} placeholder="0"/>
+            </FF>
+            <FF id="ro-programme" label="Programme">
+              <input id="ro-programme" className="form-input" placeholder="e.g. Good Morning" value={form.programme} onChange={e=>set("programme",e.target.value)}/>
+            </FF>
+            <FF id="ro-material" label="Material Title / Specification">
+              <input id="ro-material" className="form-input" placeholder="e.g. Thematic, Product Launch" value={form.materialTitle} onChange={e=>set("materialTitle",e.target.value)}/>
+            </FF>
+          </div>
+
+          {/* Right: live costing summary */}
+          <div style={{background:"var(--bg3)",borderRadius:12,padding:16,border:"1px solid var(--border-c)",position:"sticky",top:0}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"var(--text3)",marginBottom:12}}>Costing Summary</div>
+            {([
+              {label:"Rate per Spot",val:fa(form.rate||0)},
+              {label:`Gross Total (${totalSpots} spot${totalSpots!==1?"s":""})`,val:fa(totals.gross),sep:false},
+              {label:`Volume Discount (${totals.volumeDiscountPct}%)`,val:`− ${fa(totals.volumeDiscountAmount)}`,red:true},
+              {label:`Agency Commission (${totals.agencyCommissionPct}%)`,val:`− ${fa(totals.agencyCommissionAmount)}`,red:true},
+              {label:"Net Total",val:fa(totals.netTotal),bold:true,sep:true},
+              ...(totals.whtPct>0?[{label:`WHT (${totals.whtPct}%)`,val:`− ${fa(totals.whtAmount)}`,red:true}]:[]),
+              {label:"Amount Payable",val:fa(totals.amountPayable),payable:true,sep:true},
+            ] as any[]).map((row,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderTop:i>0?"1px solid var(--border-c)":undefined,marginTop:row.sep?4:0,paddingTop:row.sep?8:6}}>
+                <span style={{fontSize:11,color:row.payable?"var(--text)":"var(--text2)",fontWeight:row.bold||row.payable?700:400}}>{row.label}</span>
+                <span style={{fontSize:row.payable?14:11,fontWeight:row.bold||row.payable?800:600,color:row.red?"#A32D2D":row.payable?"var(--brand)":"var(--text)"}}>{row.val}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
-      {form.start&&form.end&&form.schedule.length===0&&(
-        <div style={{padding:"12px 16px",background:"var(--bg3)",borderRadius:8,fontSize:12,color:"var(--text3)",marginBottom:16}}>Date range too large or invalid — max 90 days.</div>
-      )}
-      {(!form.start||!form.end)&&(
-        <div style={{padding:"12px 16px",background:"var(--bg3)",borderRadius:8,fontSize:12,color:"var(--text3)",marginBottom:16}}>Set start and end dates to generate the daily schedule.</div>
-      )}
 
-      <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:8,borderTop:"1px solid var(--border-c)"}}>
+      {/* ── Navigation ── */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:14,borderTop:"1px solid var(--border-c)",marginTop:8}}>
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={handleSave}>Save RO</button>
+        <div style={{display:"flex",gap:8}}>
+          {step>1&&<button className="btn btn-ghost" onClick={()=>{setErrs({});setStep(s=>s-1);}}>← Back</button>}
+          {step<3&&<button className="btn btn-primary" onClick={handleNext}>Continue →</button>}
+          {step===3&&<button className="btn btn-primary" onClick={handleSave}>Save RO</button>}
+        </div>
       </div>
     </div>
   );
@@ -1224,8 +2110,8 @@ function CalendarPage({mpos,ros,settings}){
           ))}
           {sel._type==="ro"&&(
             <div style={{display:"flex",gap:8,marginTop:14}}>
-              <button className="btn btn-primary btn-sm" onClick={()=>printRO(sel,settings||{})}>↓ PDF</button>
-              <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(sel)}>↓ Excel</button>
+              <button className="btn btn-primary btn-sm" onClick={()=>printROCalendarLegacy(sel,settings||{})}>↓ PDF</button>
+              <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(sel,settings||{})}>↓ Excel</button>
             </div>
           )}
         </Modal>
@@ -1479,9 +2365,13 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 }
 
 /* ═══ REPORTS ═══ */
-function ReportsPage({mpos,receivables,payables,settings}){
+function ReportsPage({mpos,receivables,payables,ros,settings}){
   const [tab,setTab]=useState("summary");const [from,setFrom]=useState("");const [to,setTo]=useState("");
+  const [mbClient,setMbClient]=useState("");const [mbMpo,setMbMpo]=useState("");
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const taxRate=Number(settings.taxRate)||7.5;
+  const whtRate=Number(settings.whtRate)||5;
+  const agencyName=settings.companyName||"MediaHub";
   const fM=mpos.filter(m=>(!from||m.start>=from)&&(!to||m.end<=to));
   const lR=receivables.map(r=>({...r,status:computeStatus(r)})).filter(r=>(!from||r.due>=from)&&(!to||r.due<=to));
   const lP=payables.map(p=>({...p,status:computeStatus(p)})).filter(p=>(!from||p.due>=from)&&(!to||p.due<=to));
@@ -1491,7 +2381,125 @@ function ReportsPage({mpos,receivables,payables,settings}){
   const cSpend=Object.values(fM.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
   const sDist=[{label:"Active",value:fM.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:fM.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:fM.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
   const rDonut=[{label:"Collected",value:tPd,color:"#3B6D11"},{label:"Outstanding",value:Math.max(0,tB-tPd),color:"#A32D2D"}].filter(d=>d.value>0);
-  const exportCSV=()=>{const rows=[["Type","ID","Party","MPO","Amount","Currency","Paid","Balance","Due","Status"],...lR.map(r=>["Rec",r.id,r.client,r.mpo,r.amount,r.currency||"NGN",r.paid,r.amount-r.paid,r.due,r.status]),...lP.map(p=>["Pay",p.id,p.vendor,p.mpo,p.amount,p.currency||"NGN",p.paid,p.amount-p.paid,p.due,p.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="report.csv";a.click();};
+
+  // ── Media Buy rows (one row per RO) ──────────────────────────────────────────
+  const mbRows=useMemo(()=>{
+    return (ros||[]).filter(ro=>{
+      if(mbClient&&ro.client!==mbClient) return false;
+      if(mbMpo&&ro.mpoId!==mbMpo) return false;
+      if(from&&ro.start<from) return false;
+      if(to&&ro.end>to) return false;
+      return true;
+    }).map(ro=>{
+      const mpo=mpos.find(m=>m.id===ro.mpoId)||null;
+      const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0);
+      const rate=Number(ro.rate)||0;
+      const gross=totalSpots*rate;
+      const volDisc=gross*(Number(ro.volumeDiscount)||0)/100;
+      const agComm=gross*(Number(ro.agencyCommission)||0)/100;
+      const netBeforeWht=gross-volDisc-agComm;
+      const whtAmt=netBeforeWht*(whtRate/100);
+      const netAfterWht=netBeforeWht-whtAmt;
+      const vatMult=1+(taxRate/100);
+      const roAmtInclVat=gross*vatMult;
+      const mpoAmtInclVat=mpo?mpo.amount*vatMult:0;
+      const ratePerSpot=totalSpots>0?netAfterWht/totalSpots:0;
+      const monthLabel=ro.campaignMonth?new Date(ro.campaignMonth+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
+      return {ro,mpo,totalSpots,rate,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel};
+    });
+  },[ros,mpos,mbClient,mbMpo,from,to,whtRate,taxRate]);
+
+  const mbClients=[...new Set((ros||[]).map(r=>r.client))].sort();
+  const mbMpos=[...new Set((ros||[]).filter(r=>r.mpoId).map(r=>r.mpoId))].sort();
+
+  const exportExcel=async()=>{
+    const XLS=await import("xlsx-js-style");
+    if(tab==="media-buy"){
+      // ── helpers ──────────────────────────────────────────────────────────────
+      const COLS=13;
+      const numFmt="#,##0.00";
+      const border={top:{style:"thin",color:{rgb:"BBBBBB"}},bottom:{style:"thin",color:{rgb:"BBBBBB"}},left:{style:"thin",color:{rgb:"BBBBBB"}},right:{style:"thin",color:{rgb:"BBBBBB"}}};
+      const cell=(v,s={})=>({v,t:typeof v==="number"?"n":"s",...(s as any)});
+      const num=(v,extra={})=>({v,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},...extra}});
+
+      // ── title ─────────────────────────────────────────────────────────────────
+      // Build a period label from the filtered rows (first month found)
+      const periodLabel=mbRows.length?mbRows[0].monthLabel.toUpperCase():"";
+      const mbCompanyName=(settings as any)?.companyName||"MediaHub";
+      const mbTagline=(settings as any)?.tagline||"Media Agency · Lagos, Nigeria";
+      const logoRow=[{v:mbCompanyName,t:"s",s:{font:{bold:true,sz:15,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{}}),{v:mbTagline,t:"s",s:{font:{sz:9,italic:true,color:{rgb:"999999"}},alignment:{horizontal:"right"}}},...Array(COLS-8).fill({v:"",t:"s",s:{}})];
+      const title=`${agencyName.toUpperCase()} MEDIA BUY REPORT — ${periodLabel}`;
+      const titleCell={v:title,t:"s",s:{font:{bold:true,sz:13},alignment:{horizontal:"center",vertical:"center"},fill:{fgColor:{rgb:"FFFFFF"}}}};
+
+      // ── column headers ────────────────────────────────────────────────────────
+      const HEADERS=["Month","Agency Name","Client Name","Brand Name","Media Order Number","RO Number","Material Duration","MPO Amt (incl VAT)","RO Amt (incl VAT)","RO Amt less VAT","Net Amount less WHT NGN","Nos of Spot","Rate Per Spot"];
+      const hdrStyle=(isYellow=false)=>({font:{bold:true,sz:10},fill:{fgColor:{rgb:isYellow?"FFFF00":"DCE6F1"}},border,alignment:{horizontal:"center",wrapText:true}});
+      const hdrRow=HEADERS.map((h,i)=>({v:h,t:"s",s:hdrStyle(i===7)}));
+
+      // ── data rows ─────────────────────────────────────────────────────────────
+      const dataRows=mbRows.map(({ro,totalSpots,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel})=>[
+        cell(monthLabel,{s:{border,alignment:{horizontal:"center"}}}),
+        cell(agencyName,{s:{border}}),
+        cell(ro.client,{s:{border}}),
+        cell(ro.campaign,{s:{border}}),
+        cell(ro.mpoId||"",{s:{border,font:{name:"Courier New",sz:9}}}),
+        cell(ro.id,{s:{border,font:{name:"Courier New",sz:9}}}),
+        cell(ro.materialTitle||ro.timeSlot||"",{s:{border}}),
+        num(mpoAmtInclVat,{s:{border,fill:{fgColor:{rgb:"FFFF00"}},font:{bold:true},alignment:{horizontal:"right"},z:numFmt}}),
+        num(roAmtInclVat),
+        num(gross),
+        num(netAfterWht,{s:{border,font:{bold:true,color:{rgb:"1F5C1F"}},alignment:{horizontal:"right"},z:numFmt}}),
+        {v:totalSpots,t:"n",s:{border,alignment:{horizontal:"center"},font:{bold:true}}},
+        num(ratePerSpot),
+      ]);
+
+      // ── totals ────────────────────────────────────────────────────────────────
+      const totMpoVat=mbRows.reduce((a,r)=>a+r.mpoAmtInclVat,0);
+      const totRoVat=mbRows.reduce((a,r)=>a+r.roAmtInclVat,0);
+      const totGross=mbRows.reduce((a,r)=>a+r.gross,0);
+      const totNet=mbRows.reduce((a,r)=>a+r.netAfterWht,0);
+      const totSpots=mbRows.reduce((a,r)=>a+r.totalSpots,0);
+      const totRate=totSpots>0?totNet/totSpots:0;
+      const totStyle={font:{bold:true,sz:10},fill:{fgColor:{rgb:"E8E8E8"}},border};
+      const totRow=[
+        {v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},
+        {v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},
+        {v:"TOTALS",t:"s",s:{...totStyle,alignment:{horizontal:"right"}}},
+        {v:totMpoVat,t:"n",z:numFmt,s:{...totStyle,fill:{fgColor:{rgb:"FFFF00"}},alignment:{horizontal:"right"}}},
+        {v:totRoVat,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
+        {v:totGross,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
+        {v:totNet,t:"n",z:numFmt,s:{...totStyle,font:{bold:true,color:{rgb:"1F5C1F"}},alignment:{horizontal:"right"}}},
+        {v:totSpots,t:"n",s:{...totStyle,alignment:{horizontal:"center"}}},
+        {v:totRate,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
+      ];
+
+      // ── assemble sheet ────────────────────────────────────────────────────────
+      const sheetData=[logoRow,[titleCell,...Array(COLS-1).fill({v:"",t:"s"})],hdrRow,...dataRows,totRow];
+      const ws=XLS.utils.aoa_to_sheet(sheetData);
+
+      // Merge title across all columns (rows 0 and 1)
+      ws["!merges"]=[{s:{r:1,c:0},e:{r:1,c:COLS-1}}];
+
+      // Column widths
+      ws["!cols"]=[{wch:12},{wch:16},{wch:20},{wch:18},{wch:22},{wch:16},{wch:20},{wch:16},{wch:16},{wch:16},{wch:22},{wch:10},{wch:14}];
+
+      // Row heights: logo row + title row taller
+      ws["!rows"]=[{hpt:22},{hpt:24},{hpt:32}];
+
+      const wb=XLS.utils.book_new();
+      XLS.utils.book_append_sheet(wb,ws,"Media Buy");
+      XLS.writeFile(wb,"media-buy-report.xlsx");
+      return;
+    }
+    // ── other tabs: plain CSV ─────────────────────────────────────────────────
+    const rows=[["Type","ID","Party","MPO","Amount","Currency","Paid","Balance","Due","Status"],...lR.map(r=>["Rec",r.id,r.client,r.mpo,r.amount,r.currency||"NGN",r.paid,r.amount-r.paid,r.due,r.status]),...lP.map(p=>["Pay",p.id,p.vendor,p.mpo,p.amount,p.currency||"NGN",p.paid,p.amount-p.paid,p.due,p.status])];
+    const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="report.csv";a.click();
+  };
+
+  const TABS=["summary","by-client","by-channel","cash-flow","media-buy"];
+  const TAB_LABELS={"summary":"Summary","by-client":"By Client","by-channel":"By Channel","cash-flow":"Cash Flow","media-buy":"Media Buy"};
+
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
@@ -1502,15 +2510,165 @@ function ReportsPage({mpos,receivables,payables,settings}){
           <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={to} onChange={e=>setTo(e.target.value)}/>
           {(from||to)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setFrom("");setTo("");}}>Clear</button>}
         </div>
-        <button className="btn btn-primary" onClick={exportCSV}>Export CSV</button>
+        <button className="btn btn-primary" onClick={exportExcel}>{tab==="media-buy"?"Export Excel":"Export CSV"}</button>
       </div>
-      <div className="tabs">{["summary","by-client","by-channel","cash-flow"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t.replace("-"," ")}</button>)}</div>
-      {tab==="summary"&&(<div className="grid2">
-        <div className="card"><div className="card-header"><span className="card-title">MPO Status</span></div>{sDist.length>0?<DonutChart data={sDist} size={145}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}</div>
-        <div className="card"><div className="card-header"><span className="card-title">Receivables</span></div>{rDonut.length>0?<DonutChart data={rDonut} size={145}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
-          <div style={{marginTop:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--text2)",marginBottom:4}}><span>Collection rate</span><strong>{cPct}%</strong></div><div className="progress-bar"><div className="progress-fill" style={{width:`${cPct}%`}}/></div></div>
-        </div>
-      </div>)}
+      <div className="tabs">{TABS.map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{TAB_LABELS[t]}</button>)}</div>
+
+      {tab==="summary"&&(()=>{
+        // ── derived summary stats ──────────────────────────────────────────────
+        const totalMpoValue=fM.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+        const activeMpos=fM.filter(m=>m.status==="active").length;
+        const totalPayable=lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0);
+        const totalPaid=lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0);
+        const overdueRec=lR.filter(r=>r.status==="overdue");
+        const overdueAmt=overdueRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+        const totalRos=(ros||[]).length;
+        const totalSpots=(ros||[]).reduce((a,ro)=>a+(ro.schedule||[]).reduce((b,s)=>b+Number(s.spots||0),0),0);
+        const netPos=tPd-totalPaid;
+
+        // Top clients by MPO value
+        const topClients=cSpend.slice(0,5);
+
+        // Top vendors by payable
+        const topVendors=Object.values(lP.reduce((acc,p)=>{
+          const k=p.vendor;acc[k]=acc[k]||{name:k,amount:0,paid:0};
+          acc[k].amount+=convertAmt(p.amount,p.currency||"NGN",dCcy);
+          acc[k].paid+=convertAmt(p.paid,p.currency||"NGN",dCcy);
+          return acc;
+        },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,5) as any[];
+
+        // Invoice status breakdown
+        const recByStatus={paid:lR.filter(r=>r.status==="paid").length,partial:lR.filter(r=>r.status==="partial").length,overdue:lR.filter(r=>r.status==="overdue").length,pending:lR.filter(r=>r.status==="pending").length};
+
+        const KPIs=[
+          {label:"Total MPO Value",  val:fmtK(totalMpoValue,sym), sub:`${fM.length} orders`,     color:"#534AB7"},
+          {label:"Active Campaigns", val:activeMpos,              sub:`of ${fM.length} total`,    color:"#3B6D11"},
+          {label:"Total Billed",     val:fmtK(tB,sym),           sub:`${cPct}% collected`,       color:"#185FA5"},
+          {label:"Outstanding",      val:fmtK(Math.max(0,tB-tPd),sym), sub:`${overdueRec.length} overdue`, color:overdueRec.length>0?"#A32D2D":"#854F0B"},
+          {label:"Total Payable",    val:fmtK(totalPayable,sym), sub:`${fmtK(totalPaid,sym)} settled`, color:"#854F0B"},
+          {label:"Net Cash Position",val:fmtK(netPos,sym),       sub:netPos>=0?"Surplus":"Deficit", color:netPos>=0?"#3B6D11":"#A32D2D"},
+          {label:"Total ROs",        val:totalRos,               sub:`${totalSpots} spots booked`, color:"#534AB7"},
+          {label:"Overdue Amount",   val:fmtK(overdueAmt,sym),  sub:`${overdueRec.length} invoices`, color:overdueAmt>0?"#A32D2D":"#3B6D11"},
+        ];
+
+        return(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            {/* KPI grid */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+              {KPIs.map(k=>(
+                <div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",color:"var(--text3)",marginBottom:4}}>{k.label}</div>
+                  <div style={{fontSize:20,fontWeight:800,color:"var(--text)",lineHeight:1.1}}>{k.val}</div>
+                  <div style={{fontSize:10,color:"var(--text3)",marginTop:4}}>{k.sub}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Charts row */}
+            <div className="grid2">
+              <div className="card">
+                <div className="card-header"><span className="card-title">MPO Status Distribution</span></div>
+                {sDist.length>0?<DonutChart data={sDist} size={140}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Receivables Collection</span></div>
+                {rDonut.length>0?<DonutChart data={rDonut} size={140}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
+                <div style={{marginTop:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--text2)",marginBottom:4}}><span>Collection rate</span><strong>{cPct}%</strong></div>
+                  <div className="progress-bar"><div className="progress-fill" style={{width:`${cPct}%`}}/></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Invoice status breakdown */}
+            <div className="card">
+              <div className="card-header"><span className="card-title">Invoice Status Breakdown</span></div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:0}}>
+                {([["Paid",recByStatus.paid,"#3B6D11","#EAF3DE"],["Partial",recByStatus.partial,"#854F0B","#FAEEDA"],["Overdue",recByStatus.overdue,"#A32D2D","#FCEBEB"],["Pending",recByStatus.pending,"#185FA5","#E6F1FB"]] as [string,number,string,string][]).map(([label,count,color,bg])=>(
+                  <div key={label} style={{padding:"14px 16px",background:bg,display:"flex",flexDirection:"column",gap:4,borderRight:"1px solid var(--border-c)"}}>
+                    <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color}}>{label}</div>
+                    <div style={{fontSize:26,fontWeight:800,color}}>{count}</div>
+                    <div style={{fontSize:10,color:"var(--text3)"}}>invoice{count!==1?"s":""}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Top clients + top vendors */}
+            <div className="grid2">
+              <div className="card">
+                <div className="card-header"><span className="card-title">Top Clients by MPO Value</span></div>
+                {topClients.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>:(
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead><tr>{["Client","MPO Value","Share"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}</tr></thead>
+                    <tbody>{topClients.map((c:any,i)=>{
+                      const share=totalMpoValue>0?Math.round(c.amount/totalMpoValue*100):0;
+                      return(
+                        <tr key={c.name}>
+                          <td style={{padding:"7px 8px",fontWeight:500,borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:6,height:6,borderRadius:"50%",background:["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"][i],flexShrink:0}}/>{c.name}</div></td>
+                          <td style={{padding:"7px 8px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{fmtK(c.amount,sym)}</td>
+                          <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{flex:1,height:5,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${share}%`,height:"100%",background:["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"][i],borderRadius:3}}/></div>
+                              <span style={{fontSize:10,color:"var(--text3)",minWidth:28}}>{share}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                )}
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Top Vendors by Payable</span></div>
+                {topVendors.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>:(
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead><tr>{["Vendor","Total","Settled"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}</tr></thead>
+                    <tbody>{topVendors.map((v:any,i)=>{
+                      const pct=v.amount>0?Math.round(v.paid/v.amount*100):0;
+                      return(
+                        <tr key={v.name}>
+                          <td style={{padding:"7px 8px",fontWeight:500,borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:6,height:6,borderRadius:"50%",background:["#854F0B","#534AB7","#185FA5","#3B6D11","#D85A30"][i],flexShrink:0}}/>{v.name}</div></td>
+                          <td style={{padding:"7px 8px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{fmtK(v.amount,sym)}</td>
+                          <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <div style={{flex:1,height:5,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${pct}%`,height:"100%",background:"#3B6D11",borderRadius:3}}/></div>
+                              <span style={{fontSize:10,color:"var(--text3)",minWidth:28}}>{pct}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            {/* Overdue invoices list */}
+            {overdueRec.length>0&&(
+              <div className="card">
+                <div className="card-header"><span className="card-title" style={{color:"#A32D2D"}}>Overdue Invoices</span><span className="badge badge-red">{overdueRec.length}</span></div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr>{["Invoice","Client","MPO","Due Date","Amount","Balance"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}</tr></thead>
+                  <tbody>{overdueRec.map(r=>{
+                    const bal=convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy);
+                    return(
+                      <tr key={r.id}>
+                        <td style={{padding:"7px 8px",fontFamily:"monospace",fontSize:11,borderBottom:"1px solid var(--border-c)"}}>{r.id}</td>
+                        <td style={{padding:"7px 8px",fontWeight:500,borderBottom:"1px solid var(--border-c)"}}>{r.client}</td>
+                        <td style={{padding:"7px 8px",fontSize:11,color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{r.mpo||"—"}</td>
+                        <td style={{padding:"7px 8px",color:"#A32D2D",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>{r.due}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{fmtK(convertAmt(r.amount,r.currency||"NGN",dCcy),sym)}</td>
+                        <td style={{padding:"7px 8px",fontWeight:700,color:"#A32D2D",borderBottom:"1px solid var(--border-c)"}}>{fmtK(bal,sym)}</td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {tab==="by-client"&&(<div className="card"><div className="card-header"><span className="card-title">MPO Value by Client</span></div>{cSpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>:<BarChart data={cSpend.map(c=>({label:c.name.split(" ")[0],value:c.amount}))} height={180} colors={["#534AB7"]}/> }</div>)}
       {tab==="by-channel"&&(<div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={[{label:"TV",value:9800000},{label:"Digital",value:5600000},{label:"Print",value:4400000},{label:"Radio",value:2400000}]} height={180} colors={["#534AB7","#3B6D11","#185FA5","#854F0B"]}/></div>)}
       {tab==="cash-flow"&&(<div className="grid2">
@@ -1521,6 +2679,77 @@ function ReportsPage({mpos,receivables,payables,settings}){
           ))}
         </div>
       </div>)}
+
+      {tab==="media-buy"&&(
+        <div>
+          {/* Filters */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12,alignItems:"center"}}>
+            <select className="form-input" style={{width:"auto",fontSize:12}} value={mbClient} onChange={e=>setMbClient(e.target.value)}>
+              <option value="">All Clients</option>
+              {mbClients.map(c=><option key={c}>{c}</option>)}
+            </select>
+            <select className="form-input" style={{width:"auto",fontSize:12}} value={mbMpo} onChange={e=>setMbMpo(e.target.value)}>
+              <option value="">All MPOs</option>
+              {mbMpos.map(m=><option key={m}>{m}</option>)}
+            </select>
+            {(mbClient||mbMpo)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setMbClient("");setMbMpo("");}}>Clear filters</button>}
+            <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)"}}>{mbRows.length} RO{mbRows.length!==1?"s":""}</span>
+          </div>
+
+          <div className="card" style={{padding:0,overflow:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
+              <thead>
+                <tr style={{background:"var(--bg3)"}}>
+                  {["Agency Name","Client Name","Brand / Campaign","Month","Media Order No.","RO Number","Material / Duration","MPO Amt\n(incl VAT)","RO Amt\n(incl VAT)","RO Amt\nless VAT","Net Amt\nless WHT","No. of\nSpots","Rate\nPer Spot"].map(h=>(
+                    <th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:700,fontSize:10,letterSpacing:".04em",textTransform:"uppercase",color:"var(--text2)",borderBottom:"2px solid var(--border-c)",whiteSpace:"pre-line",lineHeight:1.2}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {mbRows.length===0?(
+                  <tr><td colSpan={12} style={{padding:"32px 16px",textAlign:"center",color:"var(--text3)",fontSize:12}}>No ROs found. Create Release Orders in the Scheduling page.</td></tr>
+                ):mbRows.map(({ro,totalSpots,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel},i)=>(
+                  <tr key={ro.id} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}>
+                    <td style={{padding:"7px 10px",fontWeight:500}}>{agencyName}</td>
+                    <td style={{padding:"7px 10px"}}>{ro.client}</td>
+                    <td style={{padding:"7px 10px"}}>{ro.campaign}</td>
+                    <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.mpoId||"—"}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.id}</td>
+                    <td style={{padding:"7px 10px"}}>{ro.materialTitle||ro.timeSlot||"—"}</td>
+                    <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                    <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                    <td style={{padding:"7px 10px"}}>{sym}{gross.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                    <td style={{padding:"7px 10px",fontWeight:600,color:"#3B6D11"}}>{sym}{netAfterWht.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                    <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700}}>{totalSpots}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right"}}>{sym}{ratePerSpot.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                  </tr>
+                ))}
+              </tbody>
+              {mbRows.length>0&&(()=>{
+                const totMpoVat=mbRows.reduce((a,r)=>a+r.mpoAmtInclVat,0);
+                const totRoVat=mbRows.reduce((a,r)=>a+r.roAmtInclVat,0);
+                const totGross=mbRows.reduce((a,r)=>a+r.gross,0);
+                const totNet=mbRows.reduce((a,r)=>a+r.netAfterWht,0);
+                const totSpots=mbRows.reduce((a,r)=>a+r.totalSpots,0);
+                return(
+                  <tfoot>
+                    <tr style={{background:"var(--bg3)",fontWeight:700,borderTop:"2px solid var(--border-c)"}}>
+                      <td colSpan={7} style={{padding:"8px 10px",fontSize:11,color:"var(--text2)"}}>TOTALS ({mbRows.length} ROs)</td>
+                      <td style={{padding:"8px 10px",background:"#fffde7",color:"#856404"}}>{sym}{totMpoVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                      <td style={{padding:"8px 10px"}}>{sym}{totRoVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                      <td style={{padding:"8px 10px"}}>{sym}{totGross.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                      <td style={{padding:"8px 10px",color:"#3B6D11"}}>{sym}{totNet.toLocaleString("en",{maximumFractionDigits:2})}</td>
+                      <td style={{padding:"8px 10px",textAlign:"center"}}>{totSpots}</td>
+                      <td style={{padding:"8px 10px",textAlign:"right"}}>{totSpots>0?sym+(totNet/totSpots).toLocaleString("en",{maximumFractionDigits:2}):"—"}</td>
+                    </tr>
+                  </tfoot>
+                );
+              })()}
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1532,7 +2761,7 @@ function AnalyticsPage({mpos,receivables,payables,user,settings}){
 function AnalyticsContent({mpos,receivables,payables,settings}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
-  const KPI={revenue:25000000,collection:90,campaigns:8,newClients:4};
+  const KPI={revenue:Number(settings.revenueTarget)||25000000,collection:Number(settings.collectionTarget)||90,campaigns:Number(settings.campaignTarget)||8,newClients:Number(settings.newClientsTarget)||4};
   const actual={revenue:mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),collection:lR.length?Math.round(lR.reduce((a,r)=>a+r.paid,0)/lR.reduce((a,r)=>a+r.amount,0)*100):0,campaigns:mpos.filter(m=>m.status==="active").length,newClients:3};
   const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
   const avg3=monthly.slice(-3).reduce((a,m)=>a+m.value,0)/3;
@@ -1570,7 +2799,7 @@ function AnalyticsContent({mpos,receivables,payables,settings}){
 /* ═══ REMINDERS ═══ */
 function RemindersPage({receivables,payables,mpos,user,toast}){return <RoleGuard user={user} require="reminders"><RemContent receivables={receivables} payables={payables} mpos={mpos} toast={toast}/></RoleGuard>;}
 function RemContent({receivables,payables,mpos,toast}){
-  const [sent,setSent]=usePersisted("reminders_sent",{});
+  const [sent,setSent]=useState({});
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
   const lP=payables.map(p=>({...p,status:computeStatus(p)}));
   const reminders=[...lR.filter(r=>r.status==="overdue"||(daysUntil(r.due)<=7&&r.status!=="paid")).map(r=>({key:`rec-${r.id}`,icon:"💰",title:`Invoice ${r.id} — ${r.client}`,detail:`Balance ${fmt(r.amount-r.paid)} due ${r.due}`,urgency:r.status==="overdue"?"overdue":"upcoming",id:r.id})),...lP.filter(p=>p.status==="overdue"||(daysUntil(p.due)<=7&&p.status!=="paid")).map(p=>({key:`pay-${p.id}`,icon:"🧾",title:`Payable ${p.id} — ${p.vendor}`,detail:`Balance ${fmt(p.amount-p.paid)} due ${p.due}`,urgency:p.status==="overdue"?"overdue":"upcoming",id:p.id})),...mpos.filter(m=>m.exec==="delayed").map(m=>({key:`mpo-${m.id}`,icon:"📋",title:`MPO ${m.id} Delayed`,detail:m.campaign,urgency:"overdue",id:m.id}))];
@@ -2668,6 +3897,25 @@ const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs
 
 // ── Column transform helpers ─────────────────────────────────────────────────
 // DB snake_case → app camelCase (and back)
+// Client mapper — converts between camelCase app model and snake_case DB columns
+const toClient = r => r ? ({
+  id: r.id, name: r.name, type: r.type, industry: r.industry||"",
+  contact: r.contact||"", email: r.email||"", phone: r.phone||"",
+  spend: r.spend||0, status: r.status||"active",
+  address: r.address||"", regNumber: r.reg_number||"",
+  contactPerson: r.contact_person||"", contactRole: r.contact_role||"",
+  website: r.website||"", brands: r.brands||[],
+  workspace_id: r.workspace_id,
+}) : null;
+const fromClient = c => ({
+  name: c.name, type: c.type, industry: c.industry||"",
+  contact: c.contact||"", email: c.email||"", phone: c.phone||"",
+  spend: c.spend||0, status: c.status||"active",
+  address: c.address||"", reg_number: c.regNumber||"",
+  contact_person: c.contactPerson||"", contact_role: c.contactRole||"",
+  website: c.website||"", brands: c.brands||[],
+});
+
 const toMpo = r => r ? ({
   id: r.id, client: r.client, vendor: r.vendor, campaign: r.campaign,
   amount: r.amount, status: r.status, start: r.start_date, end: r.end_date,
@@ -2720,15 +3968,28 @@ const toAudit = r => r ? ({
 const toRo = r => r ? ({
   id: r.id, mpoId: r.mpo_id||"", client: r.client, vendor: r.vendor,
   campaign: r.campaign, channel: r.channel||"TV",
+  programme: r.programme||"", materialTitle: r.material_title||"", materialDuration: r.material_duration||"",
+  campaignMonth: r.campaign_month || (r.start_date ? String(r.start_date).slice(0,7) : ""),
   start: r.start_date, end: r.end_date,
   status: r.status||"draft", currency: r.currency||"NGN",
+  rate: r.rate ?? (r.schedule||[]).find(s=>Number(s?.rate)>0)?.rate ?? 0,
+  timeSlot: r.time_slot ?? (r.schedule||[]).find(s=>s?.timeSlot)?.timeSlot ?? "",
+  volumeDiscount: r.volume_discount ?? 0,
+  agencyCommission: r.agency_commission ?? 0,
   schedule: r.schedule||[], docs: r.docs||[], workspace_id: r.workspace_id,
 }) : null;
 const fromRo = ro => ({
+  id: ro.id,
   mpo_id: ro.mpoId||null, client: ro.client, vendor: ro.vendor,
   campaign: ro.campaign, channel: ro.channel||"TV",
+  programme: ro.programme||"", material_title: ro.materialTitle||"", material_duration: ro.materialDuration||"",
+  campaign_month: ro.campaignMonth || (ro.start ? String(ro.start).slice(0,7) : null),
   start_date: ro.start, end_date: ro.end,
   status: ro.status||"draft", currency: ro.currency||"NGN",
+  rate: Number(ro.rate)||0,
+  time_slot: ro.timeSlot || "",
+  volume_discount: Number(ro.volumeDiscount)||0,
+  agency_commission: Number(ro.agencyCommission)||0,
   schedule: ro.schedule||[], docs: ro.docs||[],
 });
 
@@ -2744,7 +4005,7 @@ function makeArraySetter(getLocal, insertFn, updateFn, removeFn, fromRow, worksp
       const nextIds = new Set(next.map(x => x.id));
       next.forEach(item => {
         if (!prevIds.has(item.id)) {
-          // new item — insert
+          // new item — insert (never pass local non-UUID IDs; let Supabase auto-generate)
           const row = fromRow(item);
           if (workspaceId) row.workspace_id = workspaceId;
           insertFn(row).catch(e => console.error("Supabase insert failed", e));
@@ -2797,7 +4058,7 @@ function App(){
 
   // Seed local state from DB whenever DB rows change
   useEffect(()=>{ if(mposTable.data)      _setMpos(mposTable.data.map(toMpo).filter(Boolean));           },[mposTable.data]);
-  useEffect(()=>{ if(clientsTable.data)   _setClients(clientsTable.data);                                },[clientsTable.data]);
+  useEffect(()=>{ if(clientsTable.data)   _setClients(clientsTable.data.map(toClient).filter(Boolean));  },[clientsTable.data]);
   useEffect(()=>{ if(invoicesTable.data)  _setReceivables(invoicesTable.data.map(toInvoice).filter(Boolean)); },[invoicesTable.data]);
   useEffect(()=>{ if(payablesTable.data)  _setPayables(payablesTable.data.map(toPayable).filter(Boolean));    },[payablesTable.data]);
   useEffect(()=>{ if(budgetsTable.data)   _setBudgets(budgetsTable.data.map(toBudget).filter(Boolean));       },[budgetsTable.data]);
@@ -2807,7 +4068,7 @@ function App(){
 
   // ── Compatibility setters (work like usePersisted setters) ──────────────────
   const setMpos        = makeArraySetter(_setMpos,        mposTable.insert,     mposTable.update,     mposTable.remove,     fromMpo,     workspaceId);
-  const setClients     = makeArraySetter(_setClients,     clientsTable.insert,  clientsTable.update,  clientsTable.remove,  x=>x,        workspaceId);
+  const setClients     = makeArraySetter(_setClients,     clientsTable.insert,  clientsTable.update,  clientsTable.remove,  fromClient,  workspaceId);
   const setReceivables = makeArraySetter(_setReceivables, invoicesTable.insert, invoicesTable.update, invoicesTable.remove, fromInvoice, workspaceId);
   const setPayables    = makeArraySetter(_setPayables,    payablesTable.insert, payablesTable.update, payablesTable.remove, fromPayable, workspaceId);
   const setBudgets     = makeArraySetter(_setBudgets,     budgetsTable.insert,  budgetsTable.update,  budgetsTable.remove,  fromBudget,  workspaceId);
@@ -2868,6 +4129,7 @@ function App(){
   const [notifOpen,setNotifOpen]=useState(false);
   const [searchOpen,setSearchOpen]=useState(false);
   const [agencyOpen,setAgencyOpen]=useState(false);
+  const [profileOpen,setProfileOpen]=useState(false);
   const [workspace,setWorkspace]=useState(WORKSPACES[0]);
   const {ts,show:toast}=useToast();
   const { installPrompt, isInstalled, isOffline, install } = usePWA();
@@ -2997,6 +4259,8 @@ function App(){
 
       {wizardOpen&&<OnboardingWizard onClose={()=>setWizardOpen(false)} onComplete={handleOnboardingComplete} clients={clients} mpos={mpos} settings={settings} currentUser={currentUser}/>}
 
+      {profileOpen&&<ProfileModal user={currentUser} onClose={()=>setProfileOpen(false)} toast={toast}/>}
+
       {searchOpen&&<GlobalSearch mpos={mpos} clients={clients} receivables={receivables} payables={payables} onNavigate={nav} onClose={()=>setSearchOpen(false)}/>}
       <div className={`sidebar-overlay ${sOpen?"open":""}`} onClick={()=>setSOpen(false)} style={{display:sOpen?"block":"none"}}/>
 
@@ -3022,10 +4286,16 @@ function App(){
           ))}
         </nav>
         <div className="sidebar-footer">
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <button onClick={()=>setProfileOpen(true)} style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,background:"none",border:"none",cursor:"pointer",padding:"4px 6px",borderRadius:8,width:"100%",textAlign:"left",transition:"background .15s"}}
+            onMouseEnter={e=>(e.currentTarget.style.background="var(--bg3)")} onMouseLeave={e=>(e.currentTarget.style.background="none")}
+            title="Edit profile">
             <div style={{width:28,height:28,borderRadius:"50%",background:currentUser.color,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:11,flexShrink:0}}>{currentUser.initials}</div>
-            <div><div style={{fontWeight:500,fontSize:12,color:"var(--text)"}}>{currentUser.name.split(" ")[0]}</div><div style={{fontSize:10,color:"var(--text3)",textTransform:"capitalize"}}>{currentUser.role}</div></div>
-          </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:500,fontSize:12,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{currentUser.name.split(" ")[0]}</div>
+              <div style={{fontSize:10,color:"var(--text3)",textTransform:"capitalize"}}>{currentUser.role}</div>
+            </div>
+            <span style={{fontSize:10,color:"var(--text3)",flexShrink:0}}>✎</span>
+          </button>
           <div className="dark-toggle" style={{marginBottom:8,width:"100%",justifyContent:"space-between"}} onClick={()=>setDarkMode(d=>!d)}>
             <span>{darkMode?"☀️ Light mode":"🌙 Dark mode"}</span>
             <div style={{width:32,height:18,borderRadius:99,background:darkMode?"var(--brand)":"#ddd",position:"relative",transition:"background .2s",flexShrink:0}}><div style={{position:"absolute",top:2,left:darkMode?14:2,width:14,height:14,background:"#fff",borderRadius:"50%",transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.2)"}}/></div>
@@ -3085,7 +4355,7 @@ function App(){
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"   &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
-          {page==="reports"   &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} settings={settings}/>}
+          {page==="reports"   &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} settings={settings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="dataviz"   &&<DataVizPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
