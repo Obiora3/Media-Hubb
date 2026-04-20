@@ -722,7 +722,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
         </div>
       )}
       <div className="stat-grid">
-        <div className="stat-card"><div className="stat-label">Total MPO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{mpos.length} orders</div><div className="trend trend-up">↑ 14%</div></div>
+        <div className="stat-card"><div className="stat-label">Total MPO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{mpos.length} orders</div></div>
         <div className="stat-card"><div className="stat-label">Active Campaigns</div><div className="stat-value">{mpos.filter(m=>m.status==="active").length}</div><div className="stat-sub">{mpos.filter(m=>m.status==="pending").length} pending</div></div>
         <div className="stat-card"><div className="stat-label">Receivables Due</div><div className="stat-value">{fmtK(outstanding,sym)}</div><div className="stat-sub">{lR.filter(r=>r.status==="overdue").length} overdue</div><div className="trend trend-down">↓ action needed</div></div>
         <div className="stat-card" style={{borderLeft:overBudgetCount>0?"3px solid #A32D2D":"3px solid #F5C97A"}}>
@@ -2714,10 +2714,10 @@ function AnalyticsContent({mpos,receivables,payables,settings}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const KPI={revenue:Number(settings.revenueTarget)||25000000,collection:Number(settings.collectionTarget)||90,campaigns:Number(settings.campaignTarget)||8,newClients:Number(settings.newClientsTarget)||4};
-  const actual={revenue:mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),collection:lR.length?Math.round(lR.reduce((a,r)=>a+r.paid,0)/lR.reduce((a,r)=>a+r.amount,0)*100):0,campaigns:mpos.filter(m=>m.status==="active").length,newClients:3};
+  const actual={revenue:mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),collection:lR.length?Math.round(lR.reduce((a,r)=>a+r.paid,0)/lR.reduce((a,r)=>a+r.amount,0)*100):0,campaigns:mpos.filter(m=>m.status==="active").length,newClients:0};
   const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
-  const avg3=monthly.slice(-3).reduce((a,m)=>a+m.value,0)/3;
-  const forecast=[{label:"Jul*",value:Math.round(avg3*1.08)},{label:"Aug*",value:Math.round(avg3*1.14)},{label:"Sep*",value:Math.round(avg3*1.20)}];
+  const avg3=monthly.length>=3?monthly.slice(-3).reduce((a,m)=>a+m.value,0)/3:0;
+  const forecast=avg3>0?[{label:"Forecast +1",value:Math.round(avg3*1.08)},{label:"Forecast +2",value:Math.round(avg3*1.14)},{label:"Forecast +3",value:Math.round(avg3*1.20)}]:[];
   const cShare=Object.values(mpos.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
   const KPICard=({label,actual:a,target,unit})=>{const pct=Math.min(Math.round(a/target*100),100);const met=a>=target;return(
     <div className="kpi-card"><div className="kpi-target-line" style={{background:met?"#3B6D11":"#D85A30"}}/><div style={{fontSize:11,color:"var(--text3)",marginBottom:4}}>{label}</div><div style={{fontSize:22,fontWeight:700,color:met?"#3B6D11":"var(--text)"}}>{unit==="₦"?fmtK(a,sym):a}{unit!=="₦"&&unit}</div><div style={{fontSize:11,color:"var(--text3)",marginBottom:8}}>Target: {unit==="₦"?fmtK(target,sym):target}{unit!=="₦"&&unit}</div><div className="progress-bar"><div className="progress-fill" style={{width:`${pct}%`,background:met?"#3B6D11":"var(--brand)"}}/></div><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text3)",marginTop:4}}><span>{pct}%</span><span style={{color:met?"#3B6D11":"#854F0B"}}>{met?"✓ Met":"In progress"}</span></div></div>);};
@@ -2729,13 +2729,13 @@ function AnalyticsContent({mpos,receivables,payables,settings}){
         <KPICard label="Active Campaigns" actual={actual.campaigns} target={KPI.campaigns} unit=""/>
         <KPICard label="New Clients" actual={actual.newClients} target={KPI.newClients} unit=""/>
       </div>
-      <div className="grid2">
+      {monthly.length>0&&<div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Revenue & Forecast</span></div><BarChart data={[...monthly,...forecast]} height={155} colors={["#534AB7"]}/></div>
-        <div className="card"><div className="card-header"><span className="card-title">Q3 Forecast</span></div>
-          {forecast.map((f,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"var(--border)",fontSize:13}}><span style={{color:"var(--text2)"}}>{f.label.replace("*","")} 2025</span><div style={{textAlign:"right"}}><div style={{fontWeight:600}}>{fmtK(f.value,sym)}</div><div style={{fontSize:11,color:"#3B6D11"}}>+{((i+1)*6+8).toFixed(0)}%</div></div></div>)}
-          <div style={{marginTop:16,padding:12,background:"var(--brand-light)",borderRadius:8}}><div style={{fontSize:11,color:"var(--brand)",fontWeight:600}}>Q3 Total Forecast</div><div style={{fontSize:20,fontWeight:700,color:"var(--brand)",marginTop:2}}>{fmtK(forecast.reduce((a,f)=>a+f.value,0),sym)}</div></div>
-        </div>
-      </div>
+        {forecast.length>0&&<div className="card"><div className="card-header"><span className="card-title">Revenue Forecast</span></div>
+          {forecast.map((f,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"var(--border)",fontSize:13}}><span style={{color:"var(--text2)"}}>{f.label}</span><div style={{textAlign:"right"}}><div style={{fontWeight:600}}>{fmtK(f.value,sym)}</div><div style={{fontSize:11,color:"#3B6D11"}}>projected</div></div></div>)}
+          <div style={{marginTop:16,padding:12,background:"var(--brand-light)",borderRadius:8}}><div style={{fontSize:11,color:"var(--brand)",fontWeight:600}}>3-Period Forecast Total</div><div style={{fontSize:20,fontWeight:700,color:"var(--brand)",marginTop:2}}>{fmtK(forecast.reduce((a,f)=>a+f.value,0),sym)}</div></div>
+        </div>}
+      </div>}
       <div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Client Concentration</span></div><DonutChart data={cShare.slice(0,5).map((c,i)=>({label:c.name.split(" ")[0],value:c.amount,color:["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"][i]}))} size={148}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Channel Performance</span></div>
