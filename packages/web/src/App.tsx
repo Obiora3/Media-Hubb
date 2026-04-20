@@ -4327,22 +4327,26 @@ function App(){
             </button>
             <button className="btn btn-sm btn-ghost" onClick={()=>setSearchOpen(true)} title="Search ⌘K">⌕</button>
             <button className="btn btn-sm btn-ghost" onClick={()=>setDarkMode(d=>!d)} title="Dark mode">{darkMode?"☀️":"🌙"}</button>
-            <button className="btn btn-sm" onClick={()=>{setNotifOpen(o=>!o);setAOpen(false);}} style={{position:"relative"}}>
-              🔔
-              {unreadCount>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#534AB7",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{unreadCount}</span>}
-            </button>
-            <button className="btn btn-sm" onClick={()=>{setAOpen(o=>!o);setNotifOpen(false);}} style={{position:"relative"}}>
-              ⚠
-              {alerts.length>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#D85A30",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{alerts.length}</span>}
-            </button>
-            {notifOpen&&<NotificationPanel notifications={notifications} onRead={readNotif} onReadAll={readAllNotifs} onClose={()=>setNotifOpen(false)}/>}
-            {aOpen&&(
-              <div className="alerts-panel">
-                <div className="alerts-header">Alerts <button className="btn btn-sm btn-ghost" style={{float:"right",marginTop:-2}} onClick={()=>setAOpen(false)}>✕</button></div>
-                {alerts.length===0?<div style={{padding:"20px 16px",fontSize:12,color:"var(--text3)",textAlign:"center"}}>All clear 🎉</div>
-                :alerts.map((a,i)=><div key={i} style={{padding:"12px 16px",borderBottom:"var(--border)",fontSize:12,display:"flex",gap:10}}><div style={{width:7,height:7,borderRadius:"50%",background:a.c,flexShrink:0,marginTop:3}}/>{a.t}</div>)}
-              </div>
-            )}
+            <div style={{position:"relative"}}>
+              <button className="btn btn-sm" onClick={()=>{setNotifOpen(o=>!o);setAOpen(false);}}>
+                🔔
+                {unreadCount>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#534AB7",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{unreadCount}</span>}
+              </button>
+              {notifOpen&&<NotificationPanel notifications={notifications} onRead={readNotif} onReadAll={readAllNotifs} onClose={()=>setNotifOpen(false)}/>}
+            </div>
+            <div style={{position:"relative"}}>
+              <button className="btn btn-sm" onClick={()=>{setAOpen(o=>!o);setNotifOpen(false);}}>
+                ⚠
+                {alerts.length>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#D85A30",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{alerts.length}</span>}
+              </button>
+              {aOpen&&(
+                <div className="alerts-panel">
+                  <div className="alerts-header">Alerts <button className="btn btn-sm btn-ghost" style={{float:"right",marginTop:-2}} onClick={()=>setAOpen(false)}>✕</button></div>
+                  {alerts.length===0?<div style={{padding:"20px 16px",fontSize:12,color:"var(--text3)",textAlign:"center"}}>All clear 🎉</div>
+                  :alerts.map((a,i)=><div key={i} style={{padding:"12px 16px",borderBottom:"var(--border)",fontSize:12,display:"flex",gap:10}}><div style={{width:7,height:7,borderRadius:"50%",background:a.c,flexShrink:0,marginTop:3}}/>{a.t}</div>)}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

@@ -134,7 +134,7 @@ tr:hover td{background:var(--hover)}
 .toast-success{background:#2B5219}.toast-error{background:#7A1D1D}.toast-info{background:#1A3A5F}.toast-ai{background:linear-gradient(135deg,#3C3489,#534AB7)}
 
 /* ═══ ALERTS / SEARCH ═══ */
-.alerts-panel{position:absolute;top:calc(var(--header-h)+4px);right:0;width:320px;background:var(--surface);border-radius:var(--radius-lg);border:var(--border);box-shadow:var(--shadow-lg);z-index:50;overflow:hidden}
+.alerts-panel{position:absolute;top:calc(100% + 8px);right:0;width:320px;background:var(--surface);border-radius:var(--radius-lg);border:var(--border);box-shadow:var(--shadow-lg);z-index:200;overflow:hidden;max-height:min(400px,calc(100vh - 80px))}
 .alerts-header{padding:12px 16px;border-bottom:var(--border);font-size:13px;font-weight:500;color:var(--text)}
 .gsearch-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:400;display:flex;align-items:flex-start;justify-content:center;padding-top:80px}
 .gsearch-box{background:var(--surface);border-radius:var(--radius-xl);width:100%;max-width:600px;box-shadow:var(--shadow-lg);border:var(--border);overflow:hidden}
@@ -184,7 +184,7 @@ tr:hover td{background:var(--hover)}
 .doc-drop-zone:hover,.doc-drop-zone.drag{border-color:var(--brand);background:var(--brand-light);color:var(--brand)}
 
 /* ═══ S5-4: NOTIFICATIONS ═══ */
-.notif-panel{position:absolute;top:calc(var(--header-h)+4px);right:0;width:360px;background:var(--surface);border-radius:var(--radius-lg);border:var(--border);box-shadow:var(--shadow-lg);z-index:50;overflow:hidden;max-height:520px;display:flex;flex-direction:column}
+.notif-panel{position:absolute;top:calc(100% + 8px);right:0;width:360px;background:var(--surface);border-radius:var(--radius-lg);border:var(--border);box-shadow:var(--shadow-lg);z-index:200;overflow:hidden;max-height:min(520px,calc(100vh - 80px));display:flex;flex-direction:column}
 .notif-header{padding:12px 16px;border-bottom:var(--border);display:flex;align-items:center;justify-content:space-between}
 .notif-list{overflow-y:auto;flex:1}
 .notif-item{display:flex;gap:12px;padding:13px 16px;border-bottom:var(--border);cursor:pointer;transition:background .1s;position:relative}
