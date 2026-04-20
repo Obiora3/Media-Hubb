@@ -769,6 +769,29 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
   const [docsFor,setDocsFor]=useState(null);
   const [commentsFor,setCommentsFor]=useState(null);
+  // ── MPO Draft persistence ─────────────────────────────────────────────────
+  const MPO_DRAFT_KEY="mh_draft_mpo";
+  const [showMpoDraftBanner,setShowMpoDraftBanner]=useState(false);
+  const [mpoDraftSavedAt,setMpoDraftSavedAt]=useState<Date|null>(null);
+  useEffect(()=>{
+    if(!showF||eid)return;
+    if(!form.client&&!form.vendor&&!form.campaign&&!form.amount)return;
+    try{
+      localStorage.setItem(MPO_DRAFT_KEY,JSON.stringify({form,savedAt:new Date().toISOString()}));
+      setMpoDraftSavedAt(new Date());
+    }catch{}
+  },[form,showF,eid]);
+  const loadMpoDraft=()=>{
+    try{
+      const d=JSON.parse(localStorage.getItem(MPO_DRAFT_KEY)||"{}");
+      if(d.form)setForm({...EMPO,...d.form});
+    }catch{}
+    setShowMpoDraftBanner(false);
+  };
+  const discardMpoDraft=()=>{
+    try{localStorage.removeItem(MPO_DRAFT_KEY);}catch{}
+    setShowMpoDraftBanner(false);
+  };
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
     if(tab==="pending"&&m.status!=="pending")return false;
@@ -777,9 +800,20 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     return true;
   });
   const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Enter a valid amount";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
-  const openNew=()=>{if(!canEdit)return;setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);};
+  const openNew=()=>{
+    if(!canEdit)return;
+    setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});
+    try{setShowMpoDraftBanner(!!localStorage.getItem(MPO_DRAFT_KEY));}catch{setShowMpoDraftBanner(false);}
+    setShowF(true);
+  };
   const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[]});setEid(m.id);setErrs({});setShowF(true);};
-  const save=()=>{if(!val())return;if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}setShowF(false);};
+  const save=()=>{
+    if(!val())return;
+    try{localStorage.removeItem(MPO_DRAFT_KEY);}catch{}
+    if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
+    else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
+    setShowF(false);
+  };
   const del=id=>{if(!canEdit||!confirm("Delete?"))return;setMpos(p=>p.filter(m=>m.id!==id));addAudit("deleted","MPO",id,`Deleted ${id}`,"delete");toast("Deleted","error");};
   const toggleSel=id=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const toggleAll=()=>setSelected(s=>s.size===filtered.length?new Set():new Set(filtered.map(m=>m.id)));
@@ -826,6 +860,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     <div>
       {/* ── MPO modals ── */}
       {showF&&(<Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
+        {/* Draft resume banner */}
+        {showMpoDraftBanner&&!eid&&(
+          <div style={{background:"#fffbeb",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+            <span style={{fontSize:13,flex:1,color:"#92400e"}}>📝 You have a saved MPO draft. Resume where you left off?</span>
+            <button className="btn btn-sm btn-primary" onClick={loadMpoDraft}>Resume Draft</button>
+            <button className="btn btn-sm btn-ghost" onClick={discardMpoDraft}>Start Fresh</button>
+          </div>
+        )}
         <div className="form-grid">
           <FF id="cl" label="Client" required error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
           <FF id="vn" label="Vendor" required error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
@@ -844,7 +886,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <FF id="ed" label="End" required error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
         </div>
         {form.amount&&!isNaN(form.amount)&&Number(form.amount)>0&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Preview: {fmtCcy(Number(form.amount),form.currency,"NGN")}{form.currency!=="NGN"&&` (${fmtCcy(Number(form.amount),form.currency,form.currency)} ${form.currency})`}</p>}
-        <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginTop:8}}>
+          <div>{!eid&&mpoDraftSavedAt&&<span style={{fontSize:10,color:"var(--text3)"}}>Draft saved {mpoDraftSavedAt.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
+          <div style={{display:"flex",gap:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
+        </div>
       </Modal>)}
       {commentsFor&&(<Modal title="Discussion" onClose={()=>setCommentsFor(null)} wide>
         <CommentsPanel entityId={commentsFor} entityLabel={`MPO ${commentsFor} — ${mpos.find(m=>m.id===commentsFor)?.campaign||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
@@ -1693,6 +1738,31 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
   const [form,setForm]=useState(initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:initial.materialDuration||""}:{...EMPTY_RO});
   const [errs,setErrs]=useState({});
   const [step,setStep]=useState(1);
+  // ── RO Draft persistence ───────────────────────────────────────────────
+  const RO_DRAFT_KEY="mh_draft_ro";
+  const [showDraftBanner,setShowDraftBanner]=useState(()=>{
+    if(initial)return false;
+    try{return!!localStorage.getItem(RO_DRAFT_KEY);}catch{return false;}
+  });
+  const [draftSavedAt,setDraftSavedAt]=useState<Date|null>(null);
+  useEffect(()=>{
+    if(initial)return;
+    try{
+      localStorage.setItem(RO_DRAFT_KEY,JSON.stringify({form,step,savedAt:new Date().toISOString()}));
+      setDraftSavedAt(new Date());
+    }catch{}
+  },[form,step]);
+  const loadDraft=()=>{
+    try{
+      const d=JSON.parse(localStorage.getItem(RO_DRAFT_KEY)||"{}");
+      if(d.form){setForm({...EMPTY_RO,...d.form});if(d.step)setStep(Number(d.step)||1);}
+    }catch{}
+    setShowDraftBanner(false);
+  };
+  const discardRoDraft=()=>{
+    try{localStorage.removeItem(RO_DRAFT_KEY);}catch{}
+    setForm({...EMPTY_RO});setStep(1);setShowDraftBanner(false);
+  };
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const sym=CURRENCIES[form.currency||"NGN"]?.symbol||"₦";
   const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
@@ -1780,6 +1850,7 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
 
   const handleSave=()=>{
     if(!validateStep(3))return;
+    try{localStorage.removeItem(RO_DRAFT_KEY);}catch{}
     onSave({...form,schedule:form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}))});
   };
 
@@ -1793,6 +1864,15 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:0}}>
+
+      {/* ── Draft resume banner ── */}
+      {showDraftBanner&&(
+        <div style={{background:"#fffbeb",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <span style={{fontSize:13,flex:1,color:"#92400e"}}>📝 You have a saved RO draft. Resume where you left off?</span>
+          <button className="btn btn-sm btn-primary" onClick={loadDraft}>Resume Draft</button>
+          <button className="btn btn-sm btn-ghost" onClick={discardRoDraft}>Start Fresh</button>
+        </div>
+      )}
 
       {/* ── Step indicator ── */}
       <div style={{display:"flex",alignItems:"flex-start",marginBottom:20}}>
@@ -2007,7 +2087,10 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
 
       {/* ── Navigation ── */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:14,borderTop:"1px solid var(--border-c)",marginTop:8}}>
-        <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:2}}>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          {!initial&&draftSavedAt&&<span style={{fontSize:10,color:"var(--text3)"}}>Draft saved {draftSavedAt.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>}
+        </div>
         <div style={{display:"flex",gap:8}}>
           {step>1&&<button className="btn btn-ghost" onClick={()=>{setErrs({});setStep(s=>s-1);}}>← Back</button>}
           {step<3&&<button className="btn btn-primary" onClick={handleNext}>Continue →</button>}
