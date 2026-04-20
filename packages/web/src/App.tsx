@@ -748,6 +748,12 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
 }
 
 /* ═══ SCHEDULING PAGE (MPO + RO) ═══ */
+const RO_DRAFT_KEY="mh_draft_ro";
+const MPO_DRAFT_KEY="mh_draft_mpo";
+const getDraft=(key:string)=>{try{const s=localStorage.getItem(key);return s?JSON.parse(s):null;}catch{return null;}};
+const saveDraft=(key:string,data:any)=>{try{localStorage.setItem(key,JSON.stringify({...data,savedAt:new Date().toISOString()}));}catch{}};
+const clearDraft=(key:string)=>{try{localStorage.removeItem(key);}catch{}};
+
 const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
@@ -770,27 +776,24 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const [docsFor,setDocsFor]=useState(null);
   const [commentsFor,setCommentsFor]=useState(null);
   // ── MPO Draft persistence ─────────────────────────────────────────────────
-  const MPO_DRAFT_KEY="mh_draft_mpo";
-  const [showMpoDraftBanner,setShowMpoDraftBanner]=useState(false);
   const [mpoDraftSavedAt,setMpoDraftSavedAt]=useState<Date|null>(null);
+  // roDraftToLoad: passed to ROForm so it auto-loads without showing a banner
+  const [roDraftToLoad,setRoDraftToLoad]=useState<any>(null);
   useEffect(()=>{
     if(!showF||eid)return;
     if(!form.client&&!form.vendor&&!form.campaign&&!form.amount)return;
-    try{
-      localStorage.setItem(MPO_DRAFT_KEY,JSON.stringify({form,savedAt:new Date().toISOString()}));
-      setMpoDraftSavedAt(new Date());
-    }catch{}
+    saveDraft(MPO_DRAFT_KEY,{form});
+    setMpoDraftSavedAt(new Date());
   },[form,showF,eid]);
-  const loadMpoDraft=()=>{
-    try{
-      const d=JSON.parse(localStorage.getItem(MPO_DRAFT_KEY)||"{}");
-      if(d.form)setForm({...EMPO,...d.form});
-    }catch{}
-    setShowMpoDraftBanner(false);
+  const openMpoWithDraft=()=>{
+    const d=getDraft(MPO_DRAFT_KEY);
+    if(d?.form)setForm({...EMPO,...d.form});
+    setEid(null);setErrs({});setShowF(true);
   };
-  const discardMpoDraft=()=>{
-    try{localStorage.removeItem(MPO_DRAFT_KEY);}catch{}
-    setShowMpoDraftBanner(false);
+  const openRoWithDraft=()=>{
+    const d=getDraft(RO_DRAFT_KEY);
+    setRoDraftToLoad(d||null);
+    setEditRoId(null);setShowRoForm(true);setDocType("ro");
   };
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
@@ -802,14 +805,12 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Enter a valid amount";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
   const openNew=()=>{
     if(!canEdit)return;
-    setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});
-    try{setShowMpoDraftBanner(!!localStorage.getItem(MPO_DRAFT_KEY));}catch{setShowMpoDraftBanner(false);}
-    setShowF(true);
+    setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
   const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[]});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
-    try{localStorage.removeItem(MPO_DRAFT_KEY);}catch{}
+    clearDraft(MPO_DRAFT_KEY);setMpoDraftSavedAt(null);
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
     else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
@@ -847,7 +848,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       addAudit("created","RO",newId,`Created ${newId} for ${form.client}`,"create");
       toast("RO created");
     }
-    setShowRoForm(false);setEditRoId(null);
+    setShowRoForm(false);setEditRoId(null);setRoDraftToLoad(null);
   };
   const deleteRo=id=>{
     if(!confirm("Delete this RO?"))return;
@@ -860,14 +861,6 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     <div>
       {/* ── MPO modals ── */}
       {showF&&(<Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
-        {/* Draft resume banner */}
-        {showMpoDraftBanner&&!eid&&(
-          <div style={{background:"#fffbeb",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-            <span style={{fontSize:13,flex:1,color:"#92400e"}}>📝 You have a saved MPO draft. Resume where you left off?</span>
-            <button className="btn btn-sm btn-primary" onClick={loadMpoDraft}>Resume Draft</button>
-            <button className="btn btn-sm btn-ghost" onClick={discardMpoDraft}>Start Fresh</button>
-          </div>
-        )}
         <div className="form-grid">
           <FF id="cl" label="Client" required error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
           <FF id="vn" label="Vendor" required error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
@@ -903,9 +896,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
         <Modal title={editRoId?"Edit RO":"New Release Order"} onClose={()=>{setShowRoForm(false);setEditRoId(null);}}>
           <ROForm
             initial={editRoId?(ros||[]).find(r=>r.id===editRoId):null}
+            draftInitial={!editRoId?roDraftToLoad:null}
             mpos={mpos||[]} clients={clients||[]} user={user} settings={settings}
             onSave={saveRo}
-            onClose={()=>{setShowRoForm(false);setEditRoId(null);}}
+            onClose={()=>{setShowRoForm(false);setEditRoId(null);setRoDraftToLoad(null);}}
           />
         </Modal>
       )}
@@ -933,6 +927,18 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <button onClick={()=>setDocType("ro")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="ro"?"var(--bg2)":"transparent",color:docType==="ro"?"#3B6D11":"var(--text3)",boxShadow:docType==="ro"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◉ RO</button>
           <button onClick={()=>setDocType("mpo")} style={{padding:"6px 18px",borderRadius:6,border:"none",cursor:"pointer",fontWeight:600,fontSize:13,background:docType==="mpo"?"var(--bg2)":"transparent",color:docType==="mpo"?"var(--brand)":"var(--text3)",boxShadow:docType==="mpo"?"0 1px 4px rgba(0,0,0,.08)":"none"}}>◈ MPO</button>
         </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          {/* ── Persistent draft resume chips ── */}
+          {canEdit&&!showRoForm&&getDraft(RO_DRAFT_KEY)&&(
+            <button onClick={openRoWithDraft} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:"1px solid #f59e0b",background:"#fffbeb",color:"#92400e",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              📝 Resume RO Draft
+            </button>
+          )}
+          {canEdit&&!showF&&getDraft(MPO_DRAFT_KEY)&&(
+            <button onClick={openMpoWithDraft} style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",borderRadius:20,border:"1px solid #f59e0b",background:"#fffbeb",color:"#92400e",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              📝 Resume MPO Draft
+            </button>
+          )}
         {canEdit&&(
           <div ref={menuRef} style={{position:"relative"}}>
             <button className="btn btn-primary" style={{display:"flex",alignItems:"center",gap:6}} onClick={()=>setCreateMenu(v=>!v)}>
@@ -953,6 +959,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             )}
           </div>
         )}
+        </div>{/* end right-side flex */}
       </div>
 
       {/* ══ MPO section ══ */}
@@ -1731,38 +1738,25 @@ function getRoCalendarCells(ro){
 
 // ── RO form (create / edit) ───────────────────────────────────────────────────
 const EMPTY_RO={mpoId:"",client:"",vendor:"",campaign:"",programme:"",materialTitle:"",materialDuration:"",campaignMonth:"",channel:"TV",start:"",end:"",status:"draft",currency:"NGN",rate:0,timeSlot:"",volumeDiscount:0,agencyCommission:0,schedule:[],docs:[]};
-function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
+function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}){
   const initialRate=initial?.rate ?? initial?.schedule?.find(s=>Number(s.rate)>0)?.rate ?? 0;
   const initialMonth=initial?.campaignMonth || initial?.start?.slice(0,7) || "";
   const initialTimeSlot=initial?.timeSlot ?? initial?.schedule?.find(s=>s.timeSlot)?.timeSlot ?? "";
-  const [form,setForm]=useState(initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:initial.materialDuration||""}:{...EMPTY_RO});
+  // Seed from: editing existing → initial, resuming draft chip → draftInitial, else blank
+  const seed=initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:initial.materialDuration||""}
+    :draftInitial?.form?{...EMPTY_RO,...draftInitial.form}:{...EMPTY_RO};
+  const [form,setForm]=useState(seed);
   const [errs,setErrs]=useState({});
-  const [step,setStep]=useState(1);
+  const [step,setStep]=useState(draftInitial?.step||1);
   // ── RO Draft persistence ───────────────────────────────────────────────
-  const RO_DRAFT_KEY="mh_draft_ro";
-  const [showDraftBanner,setShowDraftBanner]=useState(()=>{
-    if(initial)return false;
-    try{return!!localStorage.getItem(RO_DRAFT_KEY);}catch{return false;}
-  });
   const [draftSavedAt,setDraftSavedAt]=useState<Date|null>(null);
   useEffect(()=>{
-    if(initial)return;
-    try{
-      localStorage.setItem(RO_DRAFT_KEY,JSON.stringify({form,step,savedAt:new Date().toISOString()}));
-      setDraftSavedAt(new Date());
-    }catch{}
+    if(initial)return; // don't draft-save edit mode
+    // only auto-save once user has entered something meaningful
+    if(!form.client&&!form.vendor&&!form.campaign&&step===1)return;
+    saveDraft(RO_DRAFT_KEY,{form,step});
+    setDraftSavedAt(new Date());
   },[form,step]);
-  const loadDraft=()=>{
-    try{
-      const d=JSON.parse(localStorage.getItem(RO_DRAFT_KEY)||"{}");
-      if(d.form){setForm({...EMPTY_RO,...d.form});if(d.step)setStep(Number(d.step)||1);}
-    }catch{}
-    setShowDraftBanner(false);
-  };
-  const discardRoDraft=()=>{
-    try{localStorage.removeItem(RO_DRAFT_KEY);}catch{}
-    setForm({...EMPTY_RO});setStep(1);setShowDraftBanner(false);
-  };
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const sym=CURRENCIES[form.currency||"NGN"]?.symbol||"₦";
   const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
@@ -1850,7 +1844,7 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
 
   const handleSave=()=>{
     if(!validateStep(3))return;
-    try{localStorage.removeItem(RO_DRAFT_KEY);}catch{}
+    clearDraft(RO_DRAFT_KEY);
     onSave({...form,schedule:form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}))});
   };
 
@@ -1864,15 +1858,6 @@ function ROForm({initial,mpos,clients,user,settings,onSave,onClose}){
 
   return(
     <div style={{display:"flex",flexDirection:"column",gap:0}}>
-
-      {/* ── Draft resume banner ── */}
-      {showDraftBanner&&(
-        <div style={{background:"#fffbeb",border:"1px solid #f59e0b",borderRadius:8,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <span style={{fontSize:13,flex:1,color:"#92400e"}}>📝 You have a saved RO draft. Resume where you left off?</span>
-          <button className="btn btn-sm btn-primary" onClick={loadDraft}>Resume Draft</button>
-          <button className="btn btn-sm btn-ghost" onClick={discardRoDraft}>Start Fresh</button>
-        </div>
-      )}
 
       {/* ── Step indicator ── */}
       <div style={{display:"flex",alignItems:"flex-start",marginBottom:20}}>
