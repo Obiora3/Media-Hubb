@@ -16,55 +16,6 @@ const tsNow = () => new Date().toLocaleString("en-NG",{day:"2-digit",month:"shor
 
 // usePersisted removed — data layer replaced by Supabase hooks in function App()
 
-/* ═══ USERS ═══ */
-const USERS=[
-  {id:"u1",name:"Amaka Okonkwo", email:"amaka@mediahub.ng",  role:"admin",   color:"#534AB7",initials:"AO",
-   permissions:["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production"]},
-  {id:"u2",name:"Bolu Adeyemi",  email:"bolu@mediahub.ng",   role:"manager", color:"#185FA5",initials:"BA",
-   permissions:["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","invoice-wf","dataviz","feed"]},
-  {id:"u3",name:"Chidi Eze",     email:"chidi@mediahub.ng",  role:"viewer",  color:"#3B6D11",initials:"CE",
-   permissions:["dashboard","reports","calendar","dataviz","feed","budgets"]},
-  {id:"c1",name:"Zenith Bank",   email:"adaeze@zenithbank.com",role:"client",color:"#854F0B",initials:"ZB",
-   permissions:["portal"]},
-];
-
-/* ═══ SEED DATA ═══ */
-const SEED_MPOS=[
-  {id:"MPO-001",client:"Zenith Bank",   vendor:"Channels TV",         campaign:"Q1 Brand Push",       amount:4200000,status:"active",   start:"2025-04-01",end:"2025-06-30",exec:"on-track",channel:"TV",   currency:"NGN",docs:[]},
-  {id:"MPO-002",client:"MTN Nigeria",   vendor:"Vanguard Media",      campaign:"5G Launch",           amount:7800000,status:"pending",  start:"2025-05-01",end:"2025-07-31",exec:"pending", channel:"Print",currency:"NGN",docs:[]},
-  {id:"MPO-003",client:"Dangote Group", vendor:"TVC News",            campaign:"Heritage Series",     amount:2900000,status:"active",   start:"2025-03-15",end:"2025-05-15",exec:"delayed",channel:"TV",   currency:"NGN",docs:[]},
-  {id:"MPO-004",client:"GTBank",        vendor:"Guardian Newspapers", campaign:"Corporate Rebranding",amount:1500000,status:"completed",start:"2025-01-01",end:"2025-03-31",exec:"on-track",channel:"Print",currency:"NGN",docs:[]},
-  {id:"MPO-005",client:"Airtel Nigeria",vendor:"Arise TV",            campaign:"Data4Good",           amount:5600000,status:"active",   start:"2025-04-15",end:"2025-08-31",exec:"on-track",channel:"TV",   currency:"NGN",docs:[]},
-  {id:"MPO-006",client:"Shell Nigeria", vendor:"BBC Africa",          campaign:"Pan-Africa Reach",    amount:890000, status:"active",   start:"2025-03-01",end:"2025-06-30",exec:"on-track",channel:"TV",   currency:"USD",docs:[]},
-];
-const SEED_CLIENTS=[
-  {id:"C001",name:"Zenith Bank",   type:"Client",industry:"Banking",contact:"Adaeze Obi",   email:"adaeze@zenithbank.com",spend:4200000,status:"active"},
-  {id:"C002",name:"MTN Nigeria",   type:"Client",industry:"Telecom",contact:"Emeka Eze",    email:"emeka@mtn.ng",         spend:7800000,status:"active"},
-  {id:"C003",name:"Dangote Group", type:"Client",industry:"FMCG",  contact:"Fatima Dangote",email:"fatima@dangote.com",   spend:2900000,status:"active"},
-  {id:"V001",name:"Channels TV",   type:"Vendor",industry:"TV",    contact:"Yemi Adedeji",  email:"yemi@channelstv.com",  spend:0,      status:"active"},
-  {id:"V002",name:"Vanguard Media",type:"Vendor",industry:"Print", contact:"Kelechi Nwosu", email:"k.nwosu@vanguard.com", spend:0,      status:"active"},
-  {id:"V003",name:"TVC News",      type:"Vendor",industry:"TV",    contact:"Bola Adeyemi",  email:"bola@tvcnews.com",     spend:0,      status:"active"},
-];
-const SEED_REC=[
-  {id:"INV-001",client:"Zenith Bank",   mpo:"MPO-001",amount:2100000,due:"2025-04-30",paid:2100000,wfStatus:"sent",currency:"NGN",docs:[]},
-  {id:"INV-002",client:"MTN Nigeria",   mpo:"MPO-002",amount:3900000,due:"2025-04-10",paid:0,      wfStatus:"approved",currency:"NGN",docs:[]},
-  {id:"INV-003",client:"Dangote Group", mpo:"MPO-003",amount:2900000,due:"2025-05-01",paid:1000000,wfStatus:"sent",currency:"NGN",docs:[]},
-  {id:"INV-004",client:"GTBank",        mpo:"MPO-004",amount:1500000,due:"2025-03-31",paid:1500000,wfStatus:"sent",currency:"NGN",docs:[]},
-  {id:"INV-005",client:"Airtel Nigeria",mpo:"MPO-005",amount:2800000,due:"2026-06-15",paid:0,      wfStatus:"draft",currency:"NGN",docs:[]},
-  {id:"INV-006",client:"Shell Nigeria", mpo:"MPO-006",amount:6200,   due:"2026-05-01",paid:0,      wfStatus:"review",currency:"USD",docs:[]},
-].map(r=>({...r,status:computeStatus(r)}));
-const SEED_PAY=[
-  {id:"PAY-001",vendor:"Channels TV",        mpo:"MPO-001",amount:1890000,due:"2025-05-15",paid:1890000,description:"Airtime Q1",currency:"NGN"},
-  {id:"PAY-002",vendor:"Vanguard Media",      mpo:"MPO-002",amount:3510000,due:"2025-05-30",paid:0,      description:"Print ads",currency:"NGN"},
-  {id:"PAY-003",vendor:"TVC News",            mpo:"MPO-003",amount:1305000,due:"2025-04-20",paid:700000, description:"Sponsorship",currency:"NGN"},
-  {id:"PAY-004",vendor:"Guardian Newspapers", mpo:"MPO-004",amount:675000, due:"2025-03-15",paid:675000, description:"Display ads",currency:"NGN"},
-  {id:"PAY-005",vendor:"Arise TV",            mpo:"MPO-005",amount:2520000,due:"2026-07-01",paid:0,      description:"Evening show",currency:"NGN"},
-].map(r=>({...r,status:computeStatus(r)}));
-const SEED_AUDIT=[
-  {id:"a1",userId:"u1",userName:"Amaka Okonkwo",userColor:"#534AB7",initials:"AO",action:"created",entity:"MPO",entityId:"MPO-005",detail:"Created MPO-005 for Airtel Nigeria · ₦5.6M",ts:"15 Apr, 09:14",tag:"create"},
-  {id:"a2",userId:"u2",userName:"Bolu Adeyemi", userColor:"#185FA5",initials:"BA",action:"updated",entity:"Invoice",entityId:"INV-002",detail:"Advanced INV-002: Draft → Review",ts:"15 Apr, 10:32",tag:"workflow"},
-  {id:"a3",userId:"u1",userName:"Amaka Okonkwo",userColor:"#534AB7",initials:"AO",action:"logged payment",entity:"Invoice",entityId:"INV-003",detail:"Logged ₦1,000,000 on INV-003",ts:"14 Apr, 16:45",tag:"payment"},
-];
 const TAG_COLORS={create:"#EAF3DE",workflow:"#E6F1FB",payment:"#FAEEDA",reminder:"#EEEDFE",delete:"#FCEBEB",update:"#F1EFE8"};
 const TAG_TEXT={create:"#3B6D11",workflow:"#185FA5",payment:"#854F0B",reminder:"#3C3489",delete:"#A32D2D",update:"#5F5E5A"};
 const WF_STEPS=["draft","review","approved","sent"];
@@ -697,7 +648,7 @@ function DataVizPage({mpos,receivables,payables,user}){
 function DataVizContent({mpos,receivables,payables}){
   const [tab,setTab]=useState("overview");
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
-  const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+  const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
   const recByStatus=[
     {label:"Collected",value:lR.reduce((a,r)=>a+r.paid,0),color:"#3B6D11"},
     {label:"Outstanding",value:lR.reduce((a,r)=>a+(r.amount-r.paid),0),color:"#A32D2D"},
@@ -734,7 +685,7 @@ function DataVizContent({mpos,receivables,payables}){
         <div>
           <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={160} color="#534AB7"/></div>
           <div className="grid2">
-            <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={[{label:"TV",value:9800000},{label:"Digital",value:5600000},{label:"Print",value:4400000},{label:"Radio",value:2400000}]} height={155} colors={["#534AB7","#3B6D11","#185FA5","#854F0B"]}/></div>
+            <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={Object.values((mpos||[]).reduce((acc,m)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=Number(m.amount)||0;return acc;},{})).sort((a,b)=>b.value-a.value)} height={155} colors={["#534AB7","#3B6D11","#185FA5","#854F0B","#D85A30"]}/></div>
             <div className="card"><div className="card-header"><span className="card-title">Receivables vs Payables</span></div><BarChart data={[{label:"Billed",values:[lR.reduce((a,r)=>a+r.amount,0),0]},{label:"Collected",values:[lR.reduce((a,r)=>a+r.paid,0),0]},{label:"Payable",values:[0,payables.reduce((a,p)=>a+p.amount,0)]},{label:"Settled",values:[0,payables.reduce((a,p)=>a+p.paid,0)]}]} height={155} colors={["#534AB7","#D85A30"]}/></div>
           </div>
         </div>
@@ -757,7 +708,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
     return spent>b.budget;
   }).length;
   const donutData=[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
-  const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+  const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
   return(
     <div>
       {dCcy!=="NGN"&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--text3)"}}>
@@ -2671,7 +2622,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
         );
       })()}
       {tab==="by-client"&&(<div className="card"><div className="card-header"><span className="card-title">MPO Value by Client</span></div>{cSpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>:<BarChart data={cSpend.map(c=>({label:c.name.split(" ")[0],value:c.amount}))} height={180} colors={["#534AB7"]}/> }</div>)}
-      {tab==="by-channel"&&(<div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={[{label:"TV",value:9800000},{label:"Digital",value:5600000},{label:"Print",value:4400000},{label:"Radio",value:2400000}]} height={180} colors={["#534AB7","#3B6D11","#185FA5","#854F0B"]}/></div>)}
+      {tab==="by-channel"&&(<div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={Object.values((mpos||[]).reduce((acc,m)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=Number(m.amount)||0;return acc;},{})).sort((a,b)=>b.value-a.value)} height={180} colors={["#534AB7","#3B6D11","#185FA5","#854F0B","#D85A30"]}/></div>)}
       {tab==="cash-flow"&&(<div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Rec vs Pay</span></div><BarChart data={[{label:"Billed",values:[tB,0]},{label:"Collected",values:[tPd,0]},{label:"Payable",values:[0,lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0)]},{label:"Settled",values:[0,lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0)]}]} height={175} colors={["#534AB7","#D85A30"]}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Net Position ({sym})</span></div>
@@ -2764,7 +2715,7 @@ function AnalyticsContent({mpos,receivables,payables,settings}){
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const KPI={revenue:Number(settings.revenueTarget)||25000000,collection:Number(settings.collectionTarget)||90,campaigns:Number(settings.campaignTarget)||8,newClients:Number(settings.newClientsTarget)||4};
   const actual={revenue:mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),collection:lR.length?Math.round(lR.reduce((a,r)=>a+r.paid,0)/lR.reduce((a,r)=>a+r.amount,0)*100):0,campaigns:mpos.filter(m=>m.status==="active").length,newClients:3};
-  const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+  const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
   const avg3=monthly.slice(-3).reduce((a,m)=>a+m.value,0)/3;
   const forecast=[{label:"Jul*",value:Math.round(avg3*1.08)},{label:"Aug*",value:Math.round(avg3*1.14)},{label:"Sep*",value:Math.round(avg3*1.20)}];
   const cShare=Object.values(mpos.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
@@ -2788,9 +2739,9 @@ function AnalyticsContent({mpos,receivables,payables,settings}){
       <div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Client Concentration</span></div><DonutChart data={cShare.slice(0,5).map((c,i)=>({label:c.name.split(" ")[0],value:c.amount,color:["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"][i]}))} size={148}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Channel Performance</span></div>
-          {[{ch:"Television",rev:9800000,margin:22},{ch:"Digital",rev:5600000,margin:31},{ch:"Print",rev:4400000,margin:18},{ch:"Radio",rev:2400000,margin:25}].map(r=>(
-            <div key={r.ch} style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{fontWeight:500}}>{r.ch}</span><span style={{color:"var(--text3)"}}>{fmtK(r.rev,sym)} · {r.margin}%</span></div><div className="progress-bar" style={{height:8}}><div className="progress-fill" style={{width:`${Math.round(r.rev/9800000*100)}%`}}/></div></div>
-          ))}
+          {(()=>{const ch=Object.values(mpos.reduce((acc,m)=>{const c=m.channel||"Other";if(!acc[c])acc[c]={ch:c,rev:0};acc[c].rev+=convertAmt(Number(m.amount)||0,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.rev-a.rev);const maxRev=ch[0]?.rev||1;return ch.length===0?<div style={{padding:"20px 0",textAlign:"center",fontSize:12,color:"var(--text3)"}}>No data yet</div>:ch.map(r=>(
+            <div key={r.ch} style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{fontWeight:500}}>{r.ch}</span><span style={{color:"var(--text3)"}}>{fmtK(r.rev,sym)}</span></div><div className="progress-bar" style={{height:8}}><div className="progress-fill" style={{width:`${Math.round(r.rev/maxRev*100)}%`}}/></div></div>
+          ));})()}
         </div>
       </div>
     </div>
@@ -3343,13 +3294,6 @@ function usePWA() {
 /* ══════════════════════════════════════════════════
    S7-1: BUDGET MANAGEMENT
 ══════════════════════════════════════════════════ */
-const SEED_BUDGETS = [
-  {id:"B001",mpoId:"MPO-001",label:"Q1 Brand Push — Zenith Bank",  budget:5000000, alertPct:80},
-  {id:"B002",mpoId:"MPO-002",label:"5G Launch — MTN Nigeria",       budget:8500000, alertPct:80},
-  {id:"B003",mpoId:"MPO-003",label:"Heritage Series — Dangote",     budget:3200000, alertPct:90},
-  {id:"B004",mpoId:"MPO-005",label:"Data4Good — Airtel Nigeria",    budget:6000000, alertPct:75},
-];
-
 function variantForPct(pct) {
   if(pct > 100) return {cls:"variance-over",  label:"Over budget",  barColor:"#A32D2D"};
   if(pct >= 85) return {cls:"variance-near",  label:"Near limit",   barColor:"#F5A050"};
