@@ -1893,7 +1893,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
     onSave({...form,schedule:form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}))});
   };
 
-  const vendorList=[...new Set([...mpos.map(m=>m.vendor),...(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name)])].sort();
+  const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
   const clientList=[...(clients||[]).filter(c=>c.type==="Client").map(c=>c.name)].sort();
 
   const totalSpots=form.schedule.reduce((a,s)=>a+Number(s.spots||0),0);
