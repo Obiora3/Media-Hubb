@@ -2969,17 +2969,20 @@ function UsersContent({currentUser,toast}){
     e.preventDefault();
     if(!inviteEmail.trim()) return;
     setInviting(true);
-    // Generate a magic-link style invite via Supabase auth
-    const {error}=await supabase.auth.admin?.inviteUserByEmail
-      ? supabase.auth.admin.inviteUserByEmail(inviteEmail)
-      : {error:{message:"Use the Supabase dashboard to invite users directly."}};
-    if(error){
-      // Fallback: show a copyable invite note
-      toast(`Share the app URL and ask ${inviteEmail} to sign up — they'll be auto-assigned to this workspace.`,"info");
-    } else {
-      toast(`Invite sent to ${inviteEmail}`,"success");
+    try{
+      const {data,error}=await supabase.functions.invoke("invite-user",{
+        body:{email:inviteEmail.trim(),role:inviteRole,workspaceId:currentUser?.workspace_id},
+      });
+      if(error||data?.error){
+        toast(data?.error||error?.message||"Failed to send invite","error");
+      } else {
+        toast(`Invite email sent to ${inviteEmail}`,"success");
+        setInviteEmail("");
+      }
+    }catch(err){
+      toast("Failed to send invite — check Edge Function deployment","error");
     }
-    setInviteEmail(""); setInviting(false);
+    setInviting(false);
   };
 
   const team=profiles;
