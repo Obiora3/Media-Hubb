@@ -412,6 +412,8 @@ function AIPanel(){
 const AVATAR_COLORS=["#534AB7","#185FA5","#3B6D11","#A32D2D","#854F0B","#D85A30","#0E7C7B","#1a1a1a","#7B2D8B","#C0392B"];
 function ProfileModal({user,onClose,toast}){
   const isAdmin=user?.role==="admin";
+  const isManager=user?.role==="manager";
+  const canEditRole=isAdmin||isManager;
   const [name,setName]=useState(user?.name||"");
   const [email,setEmail]=useState(user?.email||"");
   const [color,setColor]=useState(user?.color||"#534AB7");
@@ -462,7 +464,7 @@ function ProfileModal({user,onClose,toast}){
           </div>
         </div>
 
-        {isAdmin?(
+        {canEditRole?(
           <FF id="pf-role" label="Role">
             <select id="pf-role" className="form-input" value={user?.role||"viewer"} onChange={async e=>{
               const newRole=e.target.value;
@@ -470,12 +472,12 @@ function ProfileModal({user,onClose,toast}){
               if(error) toast("Role update failed: "+error.message,"error");
               else toast("Role updated — refresh to apply","success");
             }}>
-              {["admin","manager","viewer","client"].map(r=><option key={r}>{r}</option>)}
+              {(isAdmin?["admin","manager","viewer","client"]:["manager","viewer","client"]).map(r=><option key={r} value={r} style={{textTransform:"capitalize"}}>{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
             </select>
           </FF>
         ):(
           <div style={{fontSize:11,color:"var(--text3)",padding:"8px 10px",background:"var(--bg3)",borderRadius:8}}>
-            Role and permission changes must be made by an Admin from the Users page.
+            Role changes must be made by an Admin or Manager from the Users page.
           </div>
         )}
 
