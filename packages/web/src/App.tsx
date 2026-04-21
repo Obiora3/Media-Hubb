@@ -239,7 +239,7 @@ function AreaChart({data,height=160,color="#534AB7"}){
   const [tip,setTip]=useState(null);
   const maxV=Math.max(...data.map(d=>d.value),1);
   const W=500,H=height,pL=8,pB=24,pT=12,pR=8,pw=W-pL-pR,ph=H-pB-pT;
-  const pts=data.map((d,i)=>({x:pL+i/(data.length-1)*pw,y:pT+ph*(1-d.value/maxV),...d}));
+  const pts=data.map((d,i)=>({x:pL+(data.length>1?i/(data.length-1):0.5)*pw,y:pT+ph*(1-d.value/maxV),...d}));
   const linePts=pts.map(p=>`${p.x},${mounted?p.y:pT+ph}`).join(" ");
   const areaPts=`${pL},${pT+ph} ${linePts} ${pL+pw},${pT+ph}`;
   return(
@@ -754,9 +754,7 @@ const getDrafts=(key:string):any[]=>{try{const s=localStorage.getItem(key);retur
 const upsertDraft=(key:string,draft:any)=>{try{const arr=getDrafts(key);const i=arr.findIndex((d:any)=>d.id===draft.id);if(i>=0)arr[i]=draft;else arr.push(draft);localStorage.setItem(key,JSON.stringify(arr));}catch{}};
 const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.stringify(getDrafts(key).filter((d:any)=>d.id!==id)));}catch{}};
 const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
-const timeAgo=(iso:string)=>{const m=Math.floor((Date.now()-new Date(iso).getTime())/60000);if(m<1)return"just now";if(m<60)return`${m}m ago`;const h=Math.floor(m/60);if(h<24)return`${h}h ago`;return`${Math.floor(h/24)}d ago`;};
-// keep old keys cleared on first load (migration)
-try{localStorage.removeItem("mh_draft_ro");localStorage.removeItem("mh_draft_mpo");}catch{}
+const timeAgo=(iso:string)=>{const ms=Date.now()-new Date(iso).getTime();const mn=Math.floor(ms/60000);if(mn<1)return"just now";if(mn<60)return`${mn}m ago`;const hr=Math.floor(mn/60);if(hr<24)return`${hr}h ago`;return`${Math.floor(hr/24)}d ago`;};
 
 const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
@@ -801,10 +799,6 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     upsertDraft(MPO_DRAFTS_KEY,{id:currentMpoDraftId.current,form,savedAt:new Date().toISOString(),label:draftLabel(form)});
     setMpoDraftSavedAt(new Date());
   },[form,showF,eid]);
-  const resumeRoDraft=(draft:any)=>{setRoDraftToLoad(draft);setEditRoId(null);setShowRoForm(true);setDocType("ro");setDraftsMenuOpen(false);};
-  const resumeMpoDraft=(draft:any)=>{currentMpoDraftId.current=draft.id;setForm({...EMPO,...draft.form});setEid(null);setErrs({});setShowF(true);setDraftsMenuOpen(false);};
-  const deleteRoDraft=(id:string)=>{removeDraft(RO_DRAFTS_KEY,id);setRoDrafts(getDrafts(RO_DRAFTS_KEY));};
-  const deleteMpoDraft=(id:string)=>{removeDraft(MPO_DRAFTS_KEY,id);setMpoDrafts(getDrafts(MPO_DRAFTS_KEY));};
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
     if(tab==="pending"&&m.status!=="pending")return false;
@@ -868,6 +862,11 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     addAudit("deleted","RO",id,`Deleted ${id}`,"delete");
     toast("RO deleted","error");setSelRo(null);
   };
+  // ── Draft resume / delete (declared here so all state is already initialized) ──
+  const resumeRoDraft=(draft:any)=>{setRoDraftToLoad(draft);setEditRoId(null);setShowRoForm(true);setDocType("ro");setDraftsMenuOpen(false);};
+  const resumeMpoDraft=(draft:any)=>{currentMpoDraftId.current=draft.id;setForm({...EMPO,...draft.form});setEid(null);setErrs({});setShowF(true);setDraftsMenuOpen(false);};
+  const deleteRoDraft=(id:string)=>{removeDraft(RO_DRAFTS_KEY,id);setRoDrafts(getDrafts(RO_DRAFTS_KEY));};
+  const deleteMpoDraft=(id:string)=>{removeDraft(MPO_DRAFTS_KEY,id);setMpoDrafts(getDrafts(MPO_DRAFTS_KEY));};
 
   return(
     <div>
