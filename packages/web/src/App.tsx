@@ -788,8 +788,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const currentMpoDraftId=useRef<string|null>(null);
   const [mpoDraftSavedAt,setMpoDraftSavedAt]=useState<Date|null>(null);
   const [roDraftToLoad,setRoDraftToLoad]=useState<any>(null);
-  // Refresh draft lists when forms close
-  useEffect(()=>{if(!showRoForm)setRoDrafts(getDrafts(RO_DRAFTS_KEY));},[showRoForm]);
+  // Refresh MPO draft list when MPO modal closes
   useEffect(()=>{if(!showF)setMpoDrafts(getDrafts(MPO_DRAFTS_KEY));},[showF]);
   // MPO auto-save
   useEffect(()=>{
@@ -835,6 +834,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const [showRoForm,setShowRoForm]=useState(false);
   const [editRoId,setEditRoId]=useState(null);
   const [selRo,setSelRo]=useState(null);
+  // Refresh RO draft list when RO modal closes (declared after showRoForm to avoid TDZ)
+  useEffect(()=>{if(!showRoForm)setRoDrafts(getDrafts(RO_DRAFTS_KEY));},[showRoForm]);
   const filteredRos=(ros||[]).filter(r=>{
     if(roStatusTab!=="all"&&r.status!==roStatusTab)return false;
     if(roSearch&&!`${r.client}${r.campaign}${r.vendor}`.toLowerCase().includes(roSearch.toLowerCase()))return false;
