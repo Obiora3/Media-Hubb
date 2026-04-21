@@ -1061,7 +1061,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             {filteredRos.length===0
               ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
               :<div className="table-wrap"><table>
-                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Period</th><th>Days</th><th>Total</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Period</th><th>Spots</th><th>Total</th><th>Status</th><th></th></tr></thead>
                 <tbody>{filteredRos.map(r=>{
                   const total=(r.schedule||[]).reduce((a,s)=>a+(s.spots*s.rate),0);
                   const sym=CURRENCIES[r.currency||"NGN"]?.symbol||"₦";
@@ -1073,7 +1073,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td>{r.campaign}</td>
                       <td><span className="rate-tag">{r.channel}</span></td>
                       <td style={{fontSize:11,color:"var(--text3)"}}>{r.start}→{r.end}</td>
-                      <td style={{textAlign:"center",color:"var(--text3)"}}>{(r.schedule||[]).length}</td>
+                      <td style={{textAlign:"center",color:"var(--text3)"}}>{(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)}</td>
                       <td style={{fontWeight:600}}>{sym}{total.toLocaleString("en")}</td>
                       <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
                       <td><div className="action-row" onClick={e=>e.stopPropagation()}>
