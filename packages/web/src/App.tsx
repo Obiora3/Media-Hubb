@@ -1894,7 +1894,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   };
 
   const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
-  const clientList=[...(clients||[]).filter(c=>c.type==="Client").map(c=>c.name)].sort();
+  const brandList=[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
 
   const totalSpots=form.schedule.reduce((a,s)=>a+Number(s.spots||0),0);
   const activeDays=form.schedule.filter(s=>Number(s.spots)>0).length;
@@ -1932,9 +1932,9 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
       {/* ── Step 1: Order Details ── */}
       {step===1&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px 16px",marginBottom:8}}>
-          <FF id="ro-client" label="Client" required err={errs.client}>
-            <input id="ro-client" className={`form-input ${errs.client?"error":""}`} list="ro-client-list" value={form.client} onChange={e=>set("client",e.target.value)} placeholder="Select or type client"/>
-            <datalist id="ro-client-list">{clientList.map(c=><option key={c} value={c}/>)}</datalist>
+          <FF id="ro-client" label="Brand" required err={errs.client}>
+            <input id="ro-client" className={`form-input ${errs.client?"error":""}`} list="ro-client-list" value={form.client} onChange={e=>set("client",e.target.value)} placeholder="Select or type brand"/>
+            <datalist id="ro-client-list">{brandList.map(c=><option key={c} value={c}/>)}</datalist>
           </FF>
           <FF id="ro-vendor" label="Vendor / Station" required err={errs.vendor}>
             <input id="ro-vendor" className={`form-input ${errs.vendor?"error":""}`} list="ro-vendor-list" value={form.vendor} onChange={e=>set("vendor",e.target.value)} placeholder="Select or type vendor"/>
