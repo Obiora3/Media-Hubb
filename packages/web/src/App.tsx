@@ -494,6 +494,23 @@ function SettingsPage({settings,setSettings,user,toast}){
 function SettingsContent({settings,setSettings,toast,user}){
   const set=(k,v)=>setSettings(s=>({...s,[k]:v}));
   const [saving,setSaving]=useState(false);
+  const [inviteCode,setInviteCode]=useState<string|null>(null);
+  const [regenLoading,setRegenLoading]=useState(false);
+
+  useEffect(()=>{
+    if(!user?.workspace_id) return;
+    supabase.from("workspaces").select("invite_code").eq("id",user.workspace_id).single()
+      .then(({data})=>{ if(data?.invite_code) setInviteCode(data.invite_code); });
+  },[user?.workspace_id]);
+
+  const regenCode=async()=>{
+    if(!confirm("Regenerate invite code? The old code will stop working immediately.")) return;
+    setRegenLoading(true);
+    const {data,error}=await supabase.rpc("regenerate_workspace_invite_code",{ws_id:user?.workspace_id});
+    if(error) toast("Failed: "+error.message,"error");
+    else { setInviteCode(data); toast("New invite code generated","success"); }
+    setRegenLoading(false);
+  };
 
   const saveToSupabase=async()=>{
     if(!user?.workspace_id){toast("No workspace linked","error");return;}
@@ -617,6 +634,27 @@ function SettingsContent({settings,setSettings,toast,user}){
           <FF id="kpi-col" label="Collection Rate Target (%)"><input id="kpi-col" type="number" className="form-input" min="0" max="100" value={settings.collectionTarget||90} onChange={e=>set("collectionTarget",Number(e.target.value))}/></FF>
           <FF id="kpi-cam" label="Active Campaigns Target"><input id="kpi-cam" type="number" className="form-input" min="0" value={settings.campaignTarget||8} onChange={e=>set("campaignTarget",Number(e.target.value))}/></FF>
           <FF id="kpi-cli" label="New Clients Target"><input id="kpi-cli" type="number" className="form-input" min="0" value={settings.newClientsTarget||4} onChange={e=>set("newClientsTarget",Number(e.target.value))}/></FF>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="settings-section-title">Access &amp; Invites</div>
+        <div className="settings-row">
+          <div>
+            <div className="settings-label">Workspace Invite Code</div>
+            <div className="settings-desc">Share this code with new team members so they can register and join your workspace</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {inviteCode?(
+              <>
+                <span style={{fontFamily:"monospace",fontSize:18,fontWeight:700,letterSpacing:"0.15em",background:"var(--bg3)",padding:"6px 14px",borderRadius:8,border:"1px solid var(--border-c)",userSelect:"all"}}>{inviteCode}</span>
+                <button className="btn btn-sm btn-ghost" onClick={()=>{navigator.clipboard.writeText(inviteCode);toast("Invite code copied","success");}}>Copy</button>
+                {user?.role==="admin"&&<button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={regenCode} disabled={regenLoading}>{regenLoading?"…":"Regenerate"}</button>}
+              </>
+            ):(
+              <span style={{fontSize:12,color:"var(--text3)"}}>Loading…</span>
+            )}
+          </div>
         </div>
       </div>
 

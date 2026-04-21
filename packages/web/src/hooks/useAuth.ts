@@ -64,23 +64,28 @@ export function useAuth() {
     email: string,
     password: string,
     name: string,
+    inviteCode: string,
     role: Profile["role"] = "viewer"
   ): Promise<SignUpResult> {
-    // 1. Create auth user (trigger auto-creates bare profile with workspace_id)
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    // 1. Validate invite code and resolve workspace
+    const { data: wsRows, error: wsErr } = await supabase
+      .rpc("get_workspace_by_invite_code", { code: inviteCode.trim() });
+
+    if (wsErr || !wsRows || wsRows.length === 0) {
+      return { error: { name: "AuthApiError", message: "Invalid invite code. Please check with your workspace admin." } as any };
+    }
+
+    const workspace_id = wsRows[0].id;
+
+    // 2. Create auth user — pass workspace_id in metadata so the DB trigger assigns it
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { workspace_id, role, name } },
+    });
     if (error || !data.user) return { error };
 
-    // 2. Fetch the first workspace to assign
-    const { data: wsData } = await supabase
-      .from("workspaces")
-      .select("id")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .single();
-
-    const workspace_id = wsData?.id ?? null;
-
-    // 3. Role-based permission defaults
+    // 3. Role-based permissions
     const permissionsByRole: Record<string, Profile["permissions"]> = {
       admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production"],
       manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],

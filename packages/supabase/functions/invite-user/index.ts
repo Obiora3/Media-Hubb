@@ -5,8 +5,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Always return 200 so the JS client can read the body and show the real error
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -16,19 +16,18 @@ Deno.serve(async (req) => {
 
     if (!email) {
       return new Response(JSON.stringify({ error: "Email is required" }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Admin client — uses service role key stored as Supabase secret
     const adminClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { autoRefreshToken: false, persistSession: false } }
     );
 
-    const siteUrl = Deno.env.get("SITE_URL") ?? "https://media-hubb-web.vercel.app";
+    const siteUrl = "https://media-hubb-web.vercel.app";
 
     const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, {
       redirectTo: siteUrl,
@@ -40,7 +39,7 @@ Deno.serve(async (req) => {
 
     if (error) {
       return new Response(JSON.stringify({ error: error.message }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -51,7 +50,7 @@ Deno.serve(async (req) => {
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

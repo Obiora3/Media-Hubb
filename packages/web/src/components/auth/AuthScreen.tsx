@@ -16,6 +16,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +50,12 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         setLoading(false);
         return;
       }
-      const { error } = await signUp(email, password, name.trim());
+      if (!inviteCode.trim()) {
+        setError("Please enter your workspace invite code.");
+        setLoading(false);
+        return;
+      }
+      const { error } = await signUp(email, password, name.trim(), inviteCode.trim());
       if (error) setError(error.message);
       else {
         setInfo(
@@ -94,19 +100,38 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
 
           {mode === "signup" && (
-            <div className="form-row">
-              <label className="form-label" htmlFor="auth-name">Full name</label>
-              <input
-                id="auth-name"
-                className="form-input"
-                type="text"
-                placeholder="Amaka Okonkwo"
-                autoComplete="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </div>
+            <>
+              <div className="form-row">
+                <label className="form-label" htmlFor="auth-name">Full name</label>
+                <input
+                  id="auth-name"
+                  className="form-input"
+                  type="text"
+                  placeholder="Amaka Okonkwo"
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-row">
+                <label className="form-label" htmlFor="auth-invite-code">Workspace invite code</label>
+                <input
+                  id="auth-invite-code"
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. QVTM7X2A"
+                  autoComplete="off"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  required
+                  style={{ textTransform: "uppercase", letterSpacing: "0.1em" }}
+                />
+                <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 4 }}>
+                  Get this code from your workspace admin
+                </div>
+              </div>
+            </>
           )}
 
           <div className="form-row">
