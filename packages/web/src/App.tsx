@@ -796,7 +796,7 @@ const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.str
 const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
 const timeAgo=(iso:string)=>{const ms=Date.now()-new Date(iso).getTime();const mn=Math.floor(ms/60000);if(mn<1)return"just now";if(mn<60)return`${mn}m ago`;const hr=Math.floor(mn/60);if(hr<24)return`${hr}h ago`;return`${Math.floor(hr/24)}d ago`;};
 
-const EMPO={agency:"",client:"",vendor:"",campaign:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:""};
+const EMPO={agency:"",client:"",vendor:"",campaign:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:""};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
@@ -851,14 +851,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
-  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||"")});setEid(m.id);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||"")});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
     setMpoDraftSavedAt(null);
-    const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,vr=Number(settings?.taxRate||7.5);
-    const gross=sp*rt,discAmt=gross*(disc/100),net=gross-discAmt,vat=net*(vr/100),total=net+vat;
-    const extra={spots:sp,rate:rt,discount:disc,gross,net,vat,total,amount:net,vatRate:vr};
+    const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
+    const gross=sp*rt,discAmt=gross*(disc/100),agencyComAmt=gross*(ac/100),net=gross-discAmt-agencyComAmt,vat=net*(vr/100),total=net+vat;
+    const extra={spots:sp,rate:rt,discount:disc,agencyCommission:ac,gross,net,vat,total,amount:net,vatRate:vr};
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,...extra}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
     else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,...extra,exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
@@ -920,8 +920,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
         const selAgency=agencyList.find(a=>a.name===form.agency);
         const brandList=selAgency?(selAgency.brands||[]).map((b:any)=>b.name):[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
         const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
-        const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,vr=Number(settings?.taxRate||7.5);
-        const gross=sp*rt,discAmt=gross*(disc/100),net=gross-discAmt,vat=net*(vr/100),total=net+vat;
+        const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
+        const gross=sp*rt,discAmt=gross*(disc/100),agencyComAmt=gross*(ac/100),net=gross-discAmt-agencyComAmt,vat=net*(vr/100),total=net+vat;
         return(
         <Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
           <div className="form-grid">
@@ -943,8 +943,12 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             <FF id="mpo-rate" label={`Rate per spot (${form.currency||dCcy})`} required error={errs.rate}><input id="mpo-rate" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></FF>
           </div>
           <div className="form-grid">
-            <FF id="mpo-disc" label="Discount (%)"><input id="mpo-disc" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.discount} onChange={e=>setForm(f=>({...f,discount:e.target.value}))}/></FF>
+            <FF id="mpo-disc" label="Volume Discount (%)"><input id="mpo-disc" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.discount} onChange={e=>setForm(f=>({...f,discount:e.target.value}))}/></FF>
+            <FF id="mpo-ac" label="Agency Commission (%)"><input id="mpo-ac" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.agencyCommission} onChange={e=>setForm(f=>({...f,agencyCommission:e.target.value}))}/></FF>
+          </div>
+          <div className="form-grid">
             <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
+            <span/>
           </div>
           <div className="form-grid">
             <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
@@ -953,7 +957,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           {gross>0&&(
             <div style={{background:"var(--bg3)",border:"1px solid var(--border-c)",borderRadius:10,padding:"12px 16px",marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:"var(--text2)"}}>Gross</span><span>{fmt(gross)}</span></div>
-              {discAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#A32D2D"}}><span>Discount ({disc}%)</span><span>−{fmt(discAmt)}</span></div>}
+              {discAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#A32D2D"}}><span>Volume Discount ({disc}%)</span><span>−{fmt(discAmt)}</span></div>}
+              {agencyComAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#854F0B"}}><span>Agency Commission ({ac}%)</span><span>−{fmt(agencyComAmt)}</span></div>}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,borderTop:"1px solid var(--border-c)",paddingTop:6}}><span style={{color:"var(--text2)"}}>Net</span><span style={{fontWeight:600}}>{fmt(net)}</span></div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"var(--text2)"}}><span>VAT ({vr}%)</span><span>+{fmt(vat)}</span></div>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,borderTop:"1px solid var(--border-c)",paddingTop:6}}><span>Total</span><span style={{color:"var(--brand)"}}>{fmtCcy(total,form.currency||dCcy,dCcy)}</span></div>
@@ -1088,13 +1093,15 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
               <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
             </div>
             <div className="table-wrap"><table>
-              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
-              <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={10}>No MPOs found</td></tr>
+              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
+              <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={12}>No MPOs found</td></tr>
               :filtered.map(m=>(
                 <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
                   <td><input type="checkbox" checked={selected.has(m.id)} onChange={()=>toggleSel(m.id)}/></td>
                   <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{m.id}</td>
+                  <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
                   <td>{m.client}</td><td>{m.campaign}</td>
+                  <td style={{fontWeight:500,textAlign:"center"}}>{m.spots||"—"}</td>
                   <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
                   <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
                   <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
