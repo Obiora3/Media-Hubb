@@ -12,6 +12,7 @@ const fmtK = (n, sym="₦") => n>=1e6?sym+(n/1e6).toFixed(1)+"M":n>=1e3?sym+(n/1
 const daysUntil = d => Math.ceil((new Date(d)-new Date(todayStr))/864e5);
 const computeStatus = r => r.paid>=r.amount?"paid":r.paid>0?"partial":r.due<todayStr?"overdue":"pending";
 const nextId = (list,pfx) => { const ns=list.map(x=>parseInt(x.id.replace(pfx+"-",""),10)).filter(n=>!isNaN(n)); return pfx+"-"+String((ns.length?Math.max(...ns):0)+1).padStart(3,"0"); };
+const shortId = (id="") => id.replace(/^MPO-/,"#");
 const tsNow = () => new Date().toLocaleString("en-NG",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
 
 // usePersisted removed — data layer replaced by Supabase hooks in function App()
@@ -780,7 +781,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
         <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th></tr></thead>
           <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
             <tr key={m.id}>
-              <td style={{fontFamily:"monospace",fontSize:11}}>{m.id}</td>
+              <td style={{fontFamily:"monospace",fontSize:11}}>{shortId(m.id)}</td>
               <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
               <td style={{fontSize:12}}>{m.client}</td>
               <td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td>
@@ -1109,7 +1110,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
               :filtered.map(m=>(
                 <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
                   <td><input type="checkbox" checked={selected.has(m.id)} onChange={()=>toggleSel(m.id)}/></td>
-                  <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{m.id}</td>
+                  <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{shortId(m.id)}</td>
                   <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
                   <td>{m.client}</td><td>{m.campaign}</td>
                   <td style={{fontWeight:500,textAlign:"center"}}>{m.spots||"—"}</td>
@@ -1149,9 +1150,9 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             {filteredRos.length===0
               ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
               :<div className="table-wrap"><table>
-                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Period</th><th>Spots</th><th>Total</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Period</th><th>Spots</th><th>Amt Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>{filteredRos.map(r=>{
-                  const total=(r.schedule||[]).reduce((a,s)=>a+(s.spots*s.rate),0);
+                  const roTotals=calcRoTotals(r,settings?.whtRate||0);
                   const sym=CURRENCIES[r.currency||"NGN"]?.symbol||"₦";
                   return(
                     <tr key={r.id} style={{cursor:"pointer"}} onClick={()=>setSelRo(r)}>
@@ -1162,7 +1163,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td><span className="rate-tag">{r.channel}</span></td>
                       <td style={{fontSize:11,color:"var(--text3)"}}>{r.start}→{r.end}</td>
                       <td style={{textAlign:"center",color:"var(--text3)"}}>{(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)}</td>
-                      <td style={{fontWeight:600}}>{sym}{total.toLocaleString("en")}</td>
+                      <td style={{fontWeight:600}}>{sym}{roTotals.amountPayable.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
                       <td><div className="action-row" onClick={e=>e.stopPropagation()}>
                         <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printROCalendarLegacy(r,settings||{})}>PDF</button>
@@ -2519,7 +2520,7 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 
 /* ═══ REPORTS ═══ */
 function ReportsPage({mpos,receivables,payables,ros,settings}){
-  const [tab,setTab]=useState("summary");const [from,setFrom]=useState("");const [to,setTo]=useState("");
+  const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState("");const [to,setTo]=useState("");
   const [mbClient,setMbClient]=useState("");const [mbMpo,setMbMpo]=useState("");
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const taxRate=Number(settings.taxRate)||7.5;
@@ -2650,8 +2651,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
     const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="report.csv";a.click();
   };
 
-  const TABS=["summary","by-client","by-channel","cash-flow","media-buy"];
-  const TAB_LABELS={"summary":"Summary","by-client":"By Client","by-channel":"By Channel","cash-flow":"Cash Flow","media-buy":"Media Buy"};
+  const TABS=["media-buy","summary","by-client","by-channel","cash-flow"];
+  const TAB_LABELS={"media-buy":"Media Buy","summary":"Summary","by-client":"By Client","by-channel":"By Channel","cash-flow":"Cash Flow"};
 
   return(
     <div>
