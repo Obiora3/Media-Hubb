@@ -2190,16 +2190,10 @@ function CalendarPage({mpos,ros,settings}){
   for(let d=1;d<=dim;d++){const ds=`${vy}-${String(vm+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;cells.push({day:d,other:false,date:ds,isToday:ds===todayStr});}
   while(cells.length%7!==0) cells.push({day:cells.length-dim-fd+1,other:true,date:null});
 
-  const evtsFor=date=>[
-    ...((mpos||[]).filter(m=>m.start<=date&&m.end>=date).map(m=>({...m,_type:"mpo"}))),
-    ...((ros||[]).filter(r=>r.start<=date&&r.end>=date).map(r=>({...r,_type:"ro"}))),
-  ];
+  const evtsFor=date=>(ros||[]).filter(r=>r.start&&r.end&&r.start<=date&&r.end>=date);
 
   const ts2=`${vy}-${String(vm+1).padStart(2,"0")}-01`,te2=new Date(vy,vm+1,0).toISOString().slice(0,10);
-  const tmItems=[
-    ...(mpos||[]).filter(m=>m.end>=ts2&&m.start<=te2).map(m=>({...m,_type:"mpo"})),
-    ...(ros||[]).filter(r=>r.end>=ts2&&r.start<=te2).map(r=>({...r,_type:"ro"})),
-  ];
+  const tmItems=(ros||[]).filter(r=>r.start&&r.end&&r.end>=ts2&&r.start<=te2);
   const dayPct=d=>Math.max(0,Math.min(100,(new Date(d)-new Date(ts2))/864e5/dim*100));
   const bLeft=m=>dayPct(m.start>ts2?m.start:ts2)+"%";
   const bWidth=m=>{const s=m.start<ts2?ts2:m.start,e=m.end>te2?te2:m.end,days=(new Date(e)-new Date(s))/864e5+1;return Math.max(1,days/dim*100)+"%";};
@@ -2209,16 +2203,14 @@ function CalendarPage({mpos,ros,settings}){
   return(
     <div>
       {sel&&(
-        <Modal title="Details" onClose={()=>setSel(null)}>
-          {[["ID",sel.id],["Client",sel.client],["Campaign",sel.campaign],["Vendor",sel.vendor],["Amount",sel._type==="mpo"?fmt(sel.amount)+" "+(sel.currency||"NGN"):"—"],["Period",`${sel.start} → ${sel.end}`],["Status",sel.status],["Channel",sel.channel||"—"]].map(([k,v])=>(
+        <Modal title="Release Order" onClose={()=>setSel(null)}>
+          {[["RO ID",sel.id],["Brand",sel.client],["Campaign",sel.campaign],["Vendor",sel.vendor],["Channel",sel.channel||"—"],["Period",`${sel.start} → ${sel.end}`],["Programme",sel.programme||"—"],["Status",sel.status]].map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
           ))}
-          {sel._type==="ro"&&(
-            <div style={{display:"flex",gap:8,marginTop:14}}>
-              <button className="btn btn-primary btn-sm" onClick={()=>printROCalendarLegacy(sel,settings||{})}>↓ PDF</button>
-              <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(sel,settings||{})}>↓ Excel</button>
-            </div>
-          )}
+          <div style={{display:"flex",gap:8,marginTop:14}}>
+            <button className="btn btn-primary btn-sm" onClick={()=>printROCalendarLegacy(sel,settings||{})}>↓ PDF</button>
+            <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(sel,settings||{})}>↓ Excel</button>
+          </div>
         </Modal>
       )}
 
@@ -2248,11 +2240,10 @@ function CalendarPage({mpos,ros,settings}){
                   <div key={i} className={`cal-cell ${c.other?"other-month":""} ${c.isToday?"today":""}`}>
                     <div className="cal-day-num"><span className={c.isToday?"today-num":""}>{c.day}</span></div>
                     {evts.slice(0,2).map(ev=>{
-                      const bg=ev._type==="ro"?(RO_STATUS_COLOR[ev.status]||"#3B6D11"):(CH_COLORS[ev.channel]||"#534AB7");
-                      const label=ev._type==="ro"?`[RO] ${ev.campaign.substring(0,10)}`:ev.campaign.substring(0,12);
+                      const bg=RO_STATUS_COLOR[ev.status]||CH_COLORS[ev.channel]||"#3B6D11";
                       return(
-                        <div key={ev.id} className="cal-event" style={{background:bg,color:"#fff",opacity:ev._type==="ro"?0.92:1}}
-                          onClick={()=>setSel(ev)}>{label}</div>
+                        <div key={ev.id} className="cal-event" style={{background:bg,color:"#fff"}}
+                          onClick={()=>setSel(ev)}>{ev.campaign?.substring(0,14)||ev.id}</div>
                       );
                     })}
                     {evts.length>2&&<div style={{fontSize:9,color:"var(--text3)"}}>+{evts.length-2}</div>}
@@ -2260,10 +2251,9 @@ function CalendarPage({mpos,ros,settings}){
                 );
               })}
             </div>
-            {/* Legend */}
+            {/* Legend — RO status colours */}
             <div style={{display:"flex",gap:12,marginTop:10,padding:"0 4px",flexWrap:"wrap"}}>
-              {Object.entries(CH_COLORS).map(([ch,c])=><div key={ch} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:8,height:8,borderRadius:2,background:c}}/>{ch}</div>)}
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:8,height:8,borderRadius:2,background:"#3B6D11"}}/>[RO]</div>
+              {Object.entries(RO_STATUS_COLOR).map(([st,c])=><div key={st} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:8,height:8,borderRadius:2,background:c}}/>{st}</div>)}
             </div>
           </>
         )}
@@ -2273,24 +2263,22 @@ function CalendarPage({mpos,ros,settings}){
           <div>
             <div style={{display:"flex",marginBottom:8,paddingLeft:132}}>{[1,8,15,22,29].filter(d=>d<=dim).map(d=><div key={d} style={{flex:1,fontSize:9,color:"var(--text3)",borderLeft:"0.5px solid var(--border-c)",paddingLeft:3}}>{d}</div>)}</div>
             {tmItems.length===0
-              ?<div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No campaigns or ROs this month</div>
-              :tmItems.map(m=>{
-                const bg=m._type==="ro"?(RO_STATUS_COLOR[m.status]||"#3B6D11"):(CH_COLORS[m.channel]||"#534AB7");
-                const label=m._type==="ro"?`[RO] ${m.campaign.substring(0,16)}`:m.campaign.substring(0,18);
+              ?<div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No Release Orders this month</div>
+              :tmItems.map(r=>{
+                const bg=RO_STATUS_COLOR[r.status]||CH_COLORS[r.channel]||"#3B6D11";
                 return(
-                  <div key={m.id} style={{display:"flex",alignItems:"center",marginBottom:6}}>
-                    <div className="timeline-label" title={m.client}>{m.client}</div>
+                  <div key={r.id} style={{display:"flex",alignItems:"center",marginBottom:6}}>
+                    <div className="timeline-label" title={r.client}>{r.client||r.vendor}</div>
                     <div className="timeline-track">
-                      <div className="timeline-bar" style={{left:bLeft(m),width:bWidth(m),background:bg}}
-                        onClick={()=>setSel(m)}>{label}</div>
+                      <div className="timeline-bar" style={{left:bLeft(r),width:bWidth(r),background:bg}}
+                        onClick={()=>setSel(r)}>{r.campaign?.substring(0,18)||r.id}</div>
                     </div>
                   </div>
                 );
               })
             }
             <div style={{display:"flex",gap:12,marginTop:12,flexWrap:"wrap"}}>
-              {Object.entries(CH_COLORS).map(([ch,c])=><div key={ch} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:10,height:10,borderRadius:2,background:c}}/>{ch}</div>)}
-              <div style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:10,height:10,borderRadius:2,background:"#3B6D11"}}/>[RO]</div>
+              {Object.entries(RO_STATUS_COLOR).map(([st,c])=><div key={st} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text2)"}}><div style={{width:10,height:10,borderRadius:2,background:c}}/>{st}</div>)}
             </div>
           </div>
         )}
