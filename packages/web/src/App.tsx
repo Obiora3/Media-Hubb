@@ -901,6 +901,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
 
   // ── MPO state ──────────────────────────────────────────────────────────────
   const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
+  const [mpoAgencyFilter,setMpoAgencyFilter]=useState("");
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(EMPO);const [errs,setErrs]=useState({});
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
@@ -922,11 +923,13 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     upsertDraft(MPO_DRAFTS_KEY,{id:currentMpoDraftId.current,form,savedAt:new Date().toISOString(),label:draftLabel(form)});
     setMpoDraftSavedAt(new Date());
   },[form,showF,eid]);
+  const mpoAgencies=[...new Set((mpos||[]).map(m=>m.agency).filter(Boolean))].sort();
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
     if(tab==="pending"&&m.status!=="pending")return false;
     if(tab==="completed"&&m.status!=="completed")return false;
-    if(search&&!`${m.client}${m.campaign}${m.vendor}`.toLowerCase().includes(search.toLowerCase()))return false;
+    if(mpoAgencyFilter&&m.agency!==mpoAgencyFilter)return false;
+    if(search&&!`${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
   const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
@@ -959,13 +962,19 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   // ── RO state ───────────────────────────────────────────────────────────────
   const [roSearch,setRoSearch]=useState("");
   const [roStatusTab,setRoStatusTab]=useState("all");
+  const [roClientFilter,setRoClientFilter]=useState("");
+  const [roChannelFilter,setRoChannelFilter]=useState("");
   const [showRoForm,setShowRoForm]=useState(false);
   const [editRoId,setEditRoId]=useState(null);
   const [selRo,setSelRo]=useState(null);
   // Refresh RO draft list when RO modal closes (declared after showRoForm to avoid TDZ)
   useEffect(()=>{if(!showRoForm)setRoDrafts(getDrafts(RO_DRAFTS_KEY));},[showRoForm]);
+  const roClients=[...new Set((ros||[]).map(r=>r.client).filter(Boolean))].sort();
+  const roChannels=[...new Set((ros||[]).map(r=>r.channel).filter(Boolean))].sort();
   const filteredRos=(ros||[]).filter(r=>{
     if(roStatusTab!=="all"&&r.status!==roStatusTab)return false;
+    if(roClientFilter&&r.client!==roClientFilter)return false;
+    if(roChannelFilter&&r.channel!==roChannelFilter)return false;
     if(roSearch&&!`${r.client}${r.campaign}${r.vendor}`.toLowerCase().includes(roSearch.toLowerCase()))return false;
     return true;
   });
@@ -1180,7 +1189,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <div className="card">
             <div className="card-header">
               <div className="tabs" style={{marginBottom:0}}>{["all","active","pending","completed"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}</div>
-              <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={mpoAgencyFilter} onChange={e=>setMpoAgencyFilter(e.target.value)}>
+                  <option value="">All Agencies</option>
+                  {mpoAgencies.map(a=><option key={a} value={a}>{a}</option>)}
+                </select>
+                {mpoAgencyFilter&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setMpoAgencyFilter("")}>✕ Clear</button>}
+                <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+              </div>
             </div>
             <div className="table-wrap"><table>
               <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>Month</th><th>Status</th><th>Exec</th><th></th></tr></thead>
@@ -1222,9 +1238,20 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             ].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
           </div>
           <div className="card">
-            <div className="card-header">
+            <div className="card-header" style={{flexWrap:"wrap",gap:8}}>
               <div className="tabs" style={{marginBottom:0}}>{["all","draft","sent","confirmed","executed"].map(t=><button key={t} className={`tab ${roStatusTab===t?"active":""}`} onClick={()=>setRoStatusTab(t)}>{t}</button>)}</div>
-              <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={roSearch} onChange={e=>setRoSearch(e.target.value)}/></div>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={roClientFilter} onChange={e=>setRoClientFilter(e.target.value)}>
+                  <option value="">All Clients</option>
+                  {roClients.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={roChannelFilter} onChange={e=>setRoChannelFilter(e.target.value)}>
+                  <option value="">All Channels</option>
+                  {roChannels.map(c=><option key={c} value={c}>{c}</option>)}
+                </select>
+                {(roClientFilter||roChannelFilter)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setRoClientFilter("");setRoChannelFilter("");}}>✕ Clear</button>}
+                <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={roSearch} onChange={e=>setRoSearch(e.target.value)}/></div>
+              </div>
             </div>
             {filteredRos.length===0
               ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
@@ -2114,7 +2141,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
           <FF id="ro-mpo" label="MPO Ref (optional)">
             <select id="ro-mpo" className="form-input" value={form.mpoId} onChange={e=>set("mpoId",e.target.value)}>
               <option value="">None</option>
-              {mpos.map(m=><option key={m.id} value={m.id}>{m.id} – {m.campaign}</option>)}
+              {mpos.map(m=><option key={m.id} value={m.id}>{shortId(m.id)} — {m.campaign} — {campaignMonth(m.start)}</option>)}
             </select>
           </FF>
           <FF id="ro-channel" label="Channel">
@@ -2601,6 +2628,7 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 function ReportsPage({mpos,receivables,payables,ros,settings}){
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState("");const [to,setTo]=useState("");
   const [mbClient,setMbClient]=useState("");const [mbMpo,setMbMpo]=useState("");
+  const [mbMonth,setMbMonth]=useState("");const [mbAgency,setMbAgency]=useState("");
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const taxRate=Number(settings.taxRate)||7.5;
   const whtRate=Number(settings.whtRate)||5;
@@ -2620,11 +2648,13 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
     return (ros||[]).filter(ro=>{
       if(mbClient&&ro.client!==mbClient) return false;
       if(mbMpo&&ro.mpoId!==mbMpo) return false;
+      if(mbMonth&&(ro.campaignMonth||ro.start?.slice(0,7))!==mbMonth) return false;
       if(from&&ro.start<from) return false;
       if(to&&ro.end>to) return false;
       return true;
     }).map(ro=>{
       const mpo=mpos.find(m=>m.id===ro.mpoId)||null;
+      if(mbAgency&&(mpo?.agency||"")!==mbAgency) return null;
       const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0);
       const rate=Number(ro.rate)||0;
       const gross=totalSpots*rate;
@@ -2639,8 +2669,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
       const ratePerSpot=totalSpots>0?netAfterWht/totalSpots:0;
       const monthLabel=ro.campaignMonth?new Date(ro.campaignMonth+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
       return {ro,mpo,totalSpots,rate,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel};
-    });
-  },[ros,mpos,mbClient,mbMpo,from,to,whtRate,taxRate]);
+    }).filter(Boolean);
+  },[ros,mpos,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate]);
 
   const mbClients=[...new Set((ros||[]).map(r=>r.client))].sort();
   const mbMpos=[...new Set((ros||[]).filter(r=>r.mpoId).map(r=>r.mpoId))].sort();
@@ -2675,9 +2705,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
         cell(mpo?.agency||agencyName,{s:{border}}),
         cell(ro.client,{s:{border}}),
         cell(ro.campaign,{s:{border}}),
-        cell(ro.mpoId||"",{s:{border,font:{name:"Courier New",sz:9}}}),
+        cell(shortId(ro.mpoId)||"—",{s:{border,font:{name:"Courier New",sz:9}}}),
         cell(ro.id,{s:{border,font:{name:"Courier New",sz:9}}}),
-        cell(ro.materialTitle||ro.timeSlot||"",{s:{border}}),
+        cell(ro.materialDuration||mpo?.materialDuration||"",{s:{border}}),
         num(mpoAmtInclVat,{s:{border,fill:{fgColor:{rgb:"FFFF00"}},font:{bold:true},alignment:{horizontal:"right"},z:numFmt}}),
         num(roAmtInclVat),
         num(gross),
@@ -2736,13 +2766,25 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{fontSize:12,color:"var(--text3)"}}>Period:</span>
-          <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={from} onChange={e=>setFrom(e.target.value)}/>
-          <span style={{fontSize:12,color:"var(--text3)"}}>to</span>
-          <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={to} onChange={e=>setTo(e.target.value)}/>
-          {(from||to)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setFrom("");setTo("");}}>Clear</button>}
-        </div>
+        {tab==="media-buy"?(
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:"var(--text3)"}}>Month:</span>
+            <input type="month" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={mbMonth} onChange={e=>setMbMonth(e.target.value)}/>
+            <select className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={mbAgency} onChange={e=>setMbAgency(e.target.value)}>
+              <option value="">All Agencies</option>
+              {[...new Set((mpos||[]).map(m=>m.agency).filter(Boolean))].sort().map(a=><option key={a} value={a}>{a}</option>)}
+            </select>
+            {(mbMonth||mbAgency)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setMbMonth("");setMbAgency("");}}>Clear</button>}
+          </div>
+        ):(
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:"var(--text3)"}}>Period:</span>
+            <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={from} onChange={e=>setFrom(e.target.value)}/>
+            <span style={{fontSize:12,color:"var(--text3)"}}>to</span>
+            <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={to} onChange={e=>setTo(e.target.value)}/>
+            {(from||to)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setFrom("");setTo("");}}>Clear</button>}
+          </div>
+        )}
         <button className="btn btn-primary" onClick={exportExcel}>{tab==="media-buy"?"Export Excel":"Export CSV"}</button>
       </div>
       <div className="tabs">{TABS.map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{TAB_LABELS[t]}</button>)}</div>
@@ -2947,9 +2989,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
                     <td style={{padding:"7px 10px"}}>{ro.client}</td>
                     <td style={{padding:"7px 10px"}}>{ro.campaign}</td>
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
-                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.mpoId||"—"}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{shortId(ro.mpoId)||"—"}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.id}</td>
-                    <td style={{padding:"7px 10px"}}>{ro.materialTitle||ro.timeSlot||"—"}</td>
+                    <td style={{padding:"7px 10px",fontSize:11}}>{ro.materialDuration||mpo?.materialDuration||"—"}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px"}}>{sym}{gross.toLocaleString("en",{maximumFractionDigits:2})}</td>
