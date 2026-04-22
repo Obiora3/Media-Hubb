@@ -778,7 +778,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
       </div>
       <div className="card">
         <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
-        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th></tr></thead>
+        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th></tr></thead>
           <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
             <tr key={m.id}>
               <td style={{fontFamily:"monospace",fontSize:11}}>{shortId(m.id)}</td>
@@ -786,6 +786,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
               <td style={{fontSize:12}}>{m.client}</td>
               <td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td>
               <td style={{fontSize:12,textAlign:"center"}}>{m.spots||"—"}</td>
+              <td style={{fontSize:11,textAlign:"center",color:"var(--text3)"}}>{m.materialDuration||30}s</td>
               <td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
               <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
               <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
@@ -808,7 +809,69 @@ const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.str
 const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
 const timeAgo=(iso:string)=>{const ms=Date.now()-new Date(iso).getTime();const mn=Math.floor(ms/60000);if(mn<1)return"just now";if(mn<60)return`${mn}m ago`;const hr=Math.floor(mn/60);if(hr<24)return`${hr}h ago`;return`${Math.floor(hr/24)}d ago`;};
 
-const EMPO={agency:"",client:"",vendor:"",campaign:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:""};
+function printMPO(m:any,settings:any){
+  const sym=CURRENCIES[m.currency||"NGN"]?.symbol||"₦";
+  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const logoHtml=settings.logoDataUrl?`<img src="${settings.logoDataUrl}" alt="Logo" style="height:48px;max-width:140px;object-fit:contain;margin-bottom:4px;display:block"/>`:"";
+  const dateStr=new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"});
+  const statusColor=m.status==="active"?"#3B6D11":m.status==="completed"?"#185FA5":"#854F0B";
+  const gross=m.gross||0,disc=m.discount||0,ac=m.agencyCommission||0,net=m.net||0,vat=m.vat||0,total=m.total||0;
+  const discAmt=gross*(disc/100),acAmt=gross*(ac/100),vatRate=m.vatRate||7.5;
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>MPO ${m.id}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#222;background:#fff;padding:32px}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}
+  .brand{font-size:20px;font-weight:800;color:#1a2d5a;letter-spacing:-.5px}
+  h1{font-size:22px;font-weight:800;color:#534AB7;text-align:right}
+  .sub{font-size:10px;color:#aaa;margin-top:2px}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;text-transform:uppercase;background:${statusColor}22;color:${statusColor};letter-spacing:.5px}
+  hr{border:none;border-top:2px solid #534AB7;margin:14px 0}
+  .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px 32px;margin-bottom:18px}
+  .meta-row{display:flex;flex-direction:column;gap:2px}
+  .meta-label{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#999;font-weight:600}
+  .meta-val{font-size:13px;font-weight:600;color:#222}
+  table{width:100%;border-collapse:collapse;margin-bottom:16px}
+  th{background:#534AB7;color:#fff;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  td{padding:8px 10px;border-bottom:1px solid #eee;font-size:12px}
+  .total-section{margin-top:8px;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden}
+  .total-row{display:flex;justify-content:space-between;padding:7px 14px;font-size:12px;border-bottom:1px solid #f0f0f0}
+  .total-row:last-child{border-bottom:none}
+  .total-payable{background:#534AB722;font-weight:800;font-size:14px;color:#534AB7}
+  .neg{color:#A32D2D}
+  .footer{margin-top:24px;font-size:9px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:10px}
+  @media print{body{padding:16px}}
+</style></head><body>
+<div class="hdr">
+  <div>${logoHtml}<div class="brand">${settings.companyName||"MediaHub"}</div><div class="sub">${settings.tagline||"Media Agency · Lagos, Nigeria"}</div></div>
+  <div style="text-align:right"><h1>MEDIA PLACEMENT ORDER</h1><p class="sub"><b>${m.id}</b> &nbsp;·&nbsp; ${dateStr}</p><div class="badge" style="margin-top:6px">${m.status||"pending"}</div></div>
+</div>
+<hr/>
+<div class="meta">
+  <div class="meta-row"><span class="meta-label">Agency</span><span class="meta-val">${m.agency||"—"}</span></div>
+  <div class="meta-row"><span class="meta-label">Brand / Client</span><span class="meta-val">${m.client||"—"}</span></div>
+  <div class="meta-row"><span class="meta-label">Vendor / Station</span><span class="meta-val">${m.vendor||"—"}</span></div>
+  <div class="meta-row"><span class="meta-label">Campaign</span><span class="meta-val">${m.campaign||"—"}</span></div>
+  <div class="meta-row"><span class="meta-label">Period</span><span class="meta-val">${m.start||"—"} → ${m.end||"—"}</span></div>
+  <div class="meta-row"><span class="meta-label">Material Duration</span><span class="meta-val">${m.materialDuration||30} seconds</span></div>
+  <div class="meta-row"><span class="meta-label">No. of Spots</span><span class="meta-val">${m.spots||0}</span></div>
+  <div class="meta-row"><span class="meta-label">Rate per Spot</span><span class="meta-val">${fa(m.rate||0)}</span></div>
+</div>
+<hr/>
+<div class="total-section">
+  <div class="total-row"><span>Gross (${m.spots||0} spots × ${fa(m.rate||0)})</span><span>${fa(gross)}</span></div>
+  ${disc>0?`<div class="total-row"><span class="neg">Volume Discount (${disc}%)</span><span class="neg">− ${fa(discAmt)}</span></div>`:""}
+  ${ac>0?`<div class="total-row"><span class="neg">Agency Commission (${ac}%)</span><span class="neg">− ${fa(acAmt)}</span></div>`:""}
+  <div class="total-row" style="font-weight:700;border-top:1px solid #ddd"><span>Net</span><span>${fa(net)}</span></div>
+  <div class="total-row"><span>VAT (${vatRate}%)</span><span>+ ${fa(vat)}</span></div>
+  <div class="total-row total-payable"><span>TOTAL PAYABLE</span><span>${fa(total)}</span></div>
+</div>
+<div class="footer">Generated by ${settings.companyName||"MediaHub"} · ${dateStr} · ${settings.companyEmail||""}</div>
+</body></html>`;
+  const w=window.open("","_blank","width=780,height=900");w.document.write(html);w.document.close();w.onload=()=>w.print();
+}
+
+const EMPO={agency:"",client:"",vendor:"",campaign:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30"};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
@@ -863,14 +926,15 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
-  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||"")});setEid(m.id);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||""),materialDuration:String(m.materialDuration||"30")});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
     setMpoDraftSavedAt(null);
     const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
     const gross=sp*rt,discAmt=gross*(disc/100),agencyComAmt=gross*(ac/100),net=gross-discAmt-agencyComAmt,vat=net*(vr/100),total=net+vat;
-    const extra={spots:sp,rate:rt,discount:disc,agencyCommission:ac,gross,net,vat,total,amount:net,vatRate:vr};
+    const md=Number(form.materialDuration)||30;
+    const extra={spots:sp,rate:rt,discount:disc,agencyCommission:ac,gross,net,vat,total,amount:net,vatRate:vr,materialDuration:md};
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,...extra}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
     else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,...extra,exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
@@ -959,8 +1023,13 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             <FF id="mpo-ac" label="Agency Commission (%)"><input id="mpo-ac" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.agencyCommission} onChange={e=>setForm(f=>({...f,agencyCommission:e.target.value}))}/></FF>
           </div>
           <div className="form-grid">
+            <FF id="mpo-dur" label="Material Duration (secs)">
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <input id="mpo-dur" className="form-input" type="number" min="1" placeholder="30" value={form.materialDuration} onChange={e=>setForm(f=>({...f,materialDuration:e.target.value}))} style={{flex:1}}/>
+                <span style={{fontSize:12,color:"var(--text3)",whiteSpace:"nowrap"}}>secs</span>
+              </div>
+            </FF>
             <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
-            <span/>
           </div>
           <div className="form-grid">
             <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
@@ -1105,7 +1174,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
               <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
             </div>
             <div className="table-wrap"><table>
-              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
+              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
               <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={12}>No MPOs found</td></tr>
               :filtered.map(m=>(
                 <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
@@ -1114,11 +1183,13 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                   <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
                   <td>{m.client}</td><td>{m.campaign}</td>
                   <td style={{fontWeight:500,textAlign:"center"}}>{m.spots||"—"}</td>
+                  <td style={{textAlign:"center",color:"var(--text3)",fontSize:11}}>{m.materialDuration||30}s</td>
                   <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
                   <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
                   <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
                   <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
                   <td><div className="action-row">
+                    <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printMPO(m,settings||{})}>PDF</button>
                     <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[m.id]||[]).length})`} onClick={()=>setCommentsFor(m.id)}>💬{(comments[m.id]||[]).length>0&&<span className="collab-badge">{(comments[m.id]||[]).length}</span>}</button>
                     <button className="btn btn-sm btn-ghost" title={`Docs (${(m.docs||[]).length})`} onClick={()=>setDocsFor(m.id)}>📎{(m.docs||[]).length>0&&<span style={{fontSize:9,marginLeft:1}}>{(m.docs||[]).length}</span>}</button>
                     {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(m)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(m.id)}>✕</button></>}
@@ -4071,6 +4142,7 @@ const toMpo = r => r ? ({
   agency: r.agency || "", spots: r.spots || 0, rate: r.rate || 0,
   discount: r.volume_discount || 0, agencyCommission: r.agency_commission || 0,
   gross: r.gross || 0, net: r.net || 0, vat: r.vat || 0, total: r.total || 0, vatRate: r.vat_rate || 7.5,
+  materialDuration: r.material_duration || 30,
   amount: r.amount, status: r.status, start: r.start_date, end: r.end_date,
   exec: r.exec_status, channel: r.channel, currency: r.currency,
   docs: r.docs || [], workspace_id: r.workspace_id,
@@ -4081,6 +4153,7 @@ const fromMpo = m => ({
   spots: m.spots || 0, rate: m.rate || 0,
   volume_discount: m.discount || 0, agency_commission: m.agencyCommission || 0,
   gross: m.gross || 0, net: m.net || 0, vat: m.vat || 0, total: m.total || 0, vat_rate: m.vatRate || 7.5,
+  material_duration: m.materialDuration || 30,
   amount: m.amount, status: m.status, start_date: m.start, end_date: m.end,
   exec_status: m.exec, channel: m.channel, currency: m.currency || "NGN",
   docs: m.docs || [],
