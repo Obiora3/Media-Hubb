@@ -4056,12 +4056,19 @@ const fromClient = c => ({
 
 const toMpo = r => r ? ({
   id: r.id, client: r.client, vendor: r.vendor, campaign: r.campaign,
+  agency: r.agency || "", spots: r.spots || 0, rate: r.rate || 0,
+  discount: r.volume_discount || 0, agencyCommission: r.agency_commission || 0,
+  gross: r.gross || 0, net: r.net || 0, vat: r.vat || 0, total: r.total || 0, vatRate: r.vat_rate || 7.5,
   amount: r.amount, status: r.status, start: r.start_date, end: r.end_date,
   exec: r.exec_status, channel: r.channel, currency: r.currency,
   docs: r.docs || [], workspace_id: r.workspace_id,
 }) : null;
 const fromMpo = m => ({
   client: m.client, vendor: m.vendor, campaign: m.campaign,
+  agency: m.agency || "",
+  spots: m.spots || 0, rate: m.rate || 0,
+  volume_discount: m.discount || 0, agency_commission: m.agencyCommission || 0,
+  gross: m.gross || 0, net: m.net || 0, vat: m.vat || 0, total: m.total || 0, vat_rate: m.vatRate || 7.5,
   amount: m.amount, status: m.status, start_date: m.start, end_date: m.end,
   exec_status: m.exec, channel: m.channel, currency: m.currency || "NGN",
   docs: m.docs || [],
