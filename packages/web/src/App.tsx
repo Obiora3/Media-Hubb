@@ -777,9 +777,20 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
       </div>
       <div className="card">
         <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
-        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Status</th></tr></thead>
+        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th></tr></thead>
           <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
-            <tr key={m.id}><td style={{fontFamily:"monospace",fontSize:11}}>{m.id}</td><td style={{fontSize:12}}>{m.client}</td><td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td><td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td><td><span className="rate-tag">{m.currency||"NGN"}</span></td><td><SBadge s={m.status}/></td></tr>
+            <tr key={m.id}>
+              <td style={{fontFamily:"monospace",fontSize:11}}>{m.id}</td>
+              <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
+              <td style={{fontSize:12}}>{m.client}</td>
+              <td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td>
+              <td style={{fontSize:12,textAlign:"center"}}>{m.spots||"—"}</td>
+              <td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
+              <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
+              <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
+              <td><SBadge s={m.status}/></td>
+              <td><SBadge s={m.exec}/></td>
+            </tr>
           ))}</tbody>
         </table></div>
       </div>
