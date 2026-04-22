@@ -12,7 +12,17 @@ const fmtK = (n, sym="₦") => n>=1e6?sym+(n/1e6).toFixed(1)+"M":n>=1e3?sym+(n/1
 const daysUntil = d => Math.ceil((new Date(d)-new Date(todayStr))/864e5);
 const computeStatus = r => r.paid>=r.amount?"paid":r.paid>0?"partial":r.due<todayStr?"overdue":"pending";
 const nextId = (list,pfx) => { const ns=list.map(x=>parseInt(x.id.replace(pfx+"-",""),10)).filter(n=>!isNaN(n)); return pfx+"-"+String((ns.length?Math.max(...ns):0)+1).padStart(3,"0"); };
-const shortId = (id="") => id.replace(/^MPO-/,"#");
+const shortId = (id="") => {
+  if(!id) return "—";
+  if(id.startsWith("MPO-")) return id.replace(/^MPO-/,"#");
+  // UUID from Supabase — show first 8 chars
+  return "#"+id.slice(0,8).toUpperCase();
+};
+const campaignMonth = (dateStr="") => {
+  if(!dateStr) return "—";
+  try{ return new Date(dateStr.length===7?dateStr+"-01T12:00:00":dateStr+"T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"numeric"});}
+  catch{return "—";}
+};
 const tsNow = () => new Date().toLocaleString("en-NG",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});
 
 // usePersisted removed — data layer replaced by Supabase hooks in function App()
@@ -778,7 +788,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
       </div>
       <div className="card">
         <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
-        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th></tr></thead>
+        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>Month</th><th>Status</th><th>Exec</th></tr></thead>
           <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
             <tr key={m.id}>
               <td style={{fontFamily:"monospace",fontSize:11}}>{shortId(m.id)}</td>
@@ -788,8 +798,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
               <td style={{fontSize:12,textAlign:"center"}}>{m.spots||"—"}</td>
               <td style={{fontSize:11,textAlign:"center",color:"var(--text3)"}}>{m.materialDuration||30}s</td>
               <td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
-              <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
-              <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
+              <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(m.start)}</td>
               <td><SBadge s={m.status}/></td>
               <td><SBadge s={m.exec}/></td>
             </tr>
@@ -1174,7 +1183,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
               <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
             </div>
             <div className="table-wrap"><table>
-              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>CCY</th><th>Period</th><th>Status</th><th>Exec</th><th></th></tr></thead>
+              <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>Month</th><th>Status</th><th>Exec</th><th></th></tr></thead>
               <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={12}>No MPOs found</td></tr>
               :filtered.map(m=>(
                 <tr key={m.id} style={{background:selected.has(m.id)?"var(--brand-light)":""}}>
@@ -1185,8 +1194,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                   <td style={{fontWeight:500,textAlign:"center"}}>{m.spots||"—"}</td>
                   <td style={{textAlign:"center",color:"var(--text3)",fontSize:11}}>{m.materialDuration||30}s</td>
                   <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
-                  <td><span className="rate-tag">{m.currency||"NGN"}</span></td>
-                  <td style={{fontSize:11,color:"var(--text3)"}}>{m.start}→{m.end}</td>
+                  <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(m.start)}</td>
                   <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
                   <td><div className="action-row">
                     <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printMPO(m,settings||{})}>PDF</button>
@@ -1221,7 +1229,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             {filteredRos.length===0
               ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
               :<div className="table-wrap"><table>
-                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Period</th><th>Spots</th><th>Amt Payable</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Month</th><th>Spots</th><th>Amt Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>{filteredRos.map(r=>{
                   const roTotals=calcRoTotals(r,settings?.whtRate||0);
                   const sym=CURRENCIES[r.currency||"NGN"]?.symbol||"₦";
@@ -1232,7 +1240,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td style={{color:"var(--text2)"}}>{r.vendor}</td>
                       <td>{r.campaign}</td>
                       <td><span className="rate-tag">{r.channel}</span></td>
-                      <td style={{fontSize:11,color:"var(--text3)"}}>{r.start}→{r.end}</td>
+                      <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(r.campaignMonth||r.start)}</td>
                       <td style={{textAlign:"center",color:"var(--text3)"}}>{(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)}</td>
                       <td style={{fontWeight:600}}>{sym}{roTotals.amountPayable.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
@@ -2662,9 +2670,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
       const hdrRow=HEADERS.map((h,i)=>({v:h,t:"s",s:hdrStyle(i===7)}));
 
       // ── data rows ─────────────────────────────────────────────────────────────
-      const dataRows=mbRows.map(({ro,totalSpots,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel})=>[
+      const dataRows=mbRows.map(({ro,mpo,totalSpots,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel})=>[
         cell(monthLabel,{s:{border,alignment:{horizontal:"center"}}}),
-        cell(agencyName,{s:{border}}),
+        cell(mpo?.agency||agencyName,{s:{border}}),
         cell(ro.client,{s:{border}}),
         cell(ro.campaign,{s:{border}}),
         cell(ro.mpoId||"",{s:{border,font:{name:"Courier New",sz:9}}}),
@@ -2933,9 +2941,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
               <tbody>
                 {mbRows.length===0?(
                   <tr><td colSpan={12} style={{padding:"32px 16px",textAlign:"center",color:"var(--text3)",fontSize:12}}>No ROs found. Create Release Orders in the Scheduling page.</td></tr>
-                ):mbRows.map(({ro,totalSpots,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel},i)=>(
+                ):mbRows.map(({ro,mpo,totalSpots,gross,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel},i)=>(
                   <tr key={ro.id} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}>
-                    <td style={{padding:"7px 10px",fontWeight:500}}>{agencyName}</td>
+                    <td style={{padding:"7px 10px",fontWeight:500}}>{mpo?.agency||agencyName}</td>
                     <td style={{padding:"7px 10px"}}>{ro.client}</td>
                     <td style={{padding:"7px 10px"}}>{ro.campaign}</td>
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
