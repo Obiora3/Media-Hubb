@@ -796,7 +796,7 @@ const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.str
 const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
 const timeAgo=(iso:string)=>{const ms=Date.now()-new Date(iso).getTime();const mn=Math.floor(ms/60000);if(mn<1)return"just now";if(mn<60)return`${mn}m ago`;const hr=Math.floor(mn/60);if(hr<24)return`${hr}h ago`;return`${Math.floor(hr/24)}d ago`;};
 
-const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:""};
+const EMPO={agency:"",client:"",vendor:"",campaign:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:""};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
@@ -845,18 +845,20 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     if(search&&!`${m.client}${m.campaign}${m.vendor}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
-  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.amount||isNaN(form.amount)||Number(form.amount)<=0)e.amount="Enter a valid amount";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
+  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
   const openNew=()=>{
     if(!canEdit)return;
     currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
-  const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||"")});setEid(m.id);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||"")});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
     setMpoDraftSavedAt(null);
-    const extra={amount:Number(form.amount),spots:Number(form.spots)||0,rate:Number(form.rate)||0,discount:Number(form.discount)||0};
+    const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,vr=Number(settings?.taxRate||7.5);
+    const gross=sp*rt,discAmt=gross*(disc/100),net=gross-discAmt,vat=net*(vr/100),total=net+vat;
+    const extra={spots:sp,rate:rt,discount:disc,gross,net,vat,total,amount:net,vatRate:vr};
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,...extra}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
     else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,...extra,exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
@@ -913,45 +915,57 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   return(
     <div>
       {/* ── MPO modals ── */}
-      {showF&&(<Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
-        <div className="form-grid">
-          <FF id="cl" label="Client" required error={errs.client}><input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l"/><datalist id="cl-l">{clients.filter(c=>c.type==="Client").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
-          <FF id="vn" label="Vendor" required error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{clients.filter(c=>c.type==="Vendor").map(c=><option key={c.id} value={c.name}/>)}</datalist></FF>
-        </div>
-        <FF id="cp" label="Campaign" required error={errs.campaign}><input id="cp" className={`form-input ${errs.campaign?"error":""}`} value={form.campaign} onChange={e=>setForm(f=>({...f,campaign:e.target.value}))}/></FF>
-        <div className="form-grid">
-          <FF id="am" label="Amount" required error={errs.amount}><input id="am" className={`form-input ${errs.amount?"error":""}`} type="number" min="0" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></FF>
-          <FF id="ccy" label="Currency"><select id="ccy" className="form-input" value={form.currency} onChange={e=>setForm(f=>({...f,currency:e.target.value}))}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></FF>
-        </div>
-        <div className="form-grid">
-          <FF id="mpo-spots" label="No. of Spots"><input id="mpo-spots" className="form-input" type="number" min="0" placeholder="0" value={form.spots} onChange={e=>setForm(f=>({...f,spots:e.target.value}))}/></FF>
-          <FF id="mpo-rate" label="Rate (per spot)"><input id="mpo-rate" className="form-input" type="number" min="0" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></FF>
-        </div>
-        <div className="form-grid">
-          <FF id="mpo-disc" label="Discount (%)"><input id="mpo-disc" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.discount} onChange={e=>setForm(f=>({...f,discount:e.target.value}))}/></FF>
-          <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
-        </div>
-        <div className="form-grid">
-          <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
-          <FF id="ed" label="End" required error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
-        </div>
-        {(()=>{
-          const gross=form.spots&&form.rate?Number(form.spots)*Number(form.rate):Number(form.amount)||0;
-          const disc=gross*(Number(form.discount)||0)/100;
-          const net=gross-disc;
-          return gross>0?(
-            <div style={{fontSize:12,color:"var(--text3)",marginBottom:12,background:"var(--bg3)",padding:"8px 12px",borderRadius:8,display:"flex",gap:16,flexWrap:"wrap"}}>
-              {form.spots&&form.rate&&<span>Gross: {fmt(gross)}</span>}
-              {Number(form.discount)>0&&<span>Discount: −{fmt(disc)} ({form.discount}%)</span>}
-              <span style={{fontWeight:600,color:"var(--text)"}}>Net: {fmtCcy(net,form.currency,"NGN")}</span>
+      {showF&&(()=>{
+        const agencyList=(clients||[]).filter(c=>c.type==="Agency");
+        const selAgency=agencyList.find(a=>a.name===form.agency);
+        const brandList=selAgency?(selAgency.brands||[]).map((b:any)=>b.name):[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
+        const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
+        const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,vr=Number(settings?.taxRate||7.5);
+        const gross=sp*rt,discAmt=gross*(disc/100),net=gross-discAmt,vat=net*(vr/100),total=net+vat;
+        return(
+        <Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
+          <div className="form-grid">
+            <FF id="mpo-agency" label="Agency"><select id="mpo-agency" className="form-input" value={form.agency} onChange={e=>setForm(f=>({...f,agency:e.target.value,client:""}))}>
+              <option value="">— Select Agency —</option>
+              {agencyList.map(a=><option key={a.id} value={a.name}>{a.name}</option>)}
+            </select></FF>
+            <FF id="cl" label="Brand" required error={errs.client}>
+              <input id="cl" className={`form-input ${errs.client?"error":""}`} value={form.client} onChange={e=>setForm(f=>({...f,client:e.target.value}))} list="cl-l" placeholder="Select or type brand"/>
+              <datalist id="cl-l">{brandList.map((b:any)=><option key={b} value={b}/>)}</datalist>
+            </FF>
+          </div>
+          <div className="form-grid">
+            <FF id="vn" label="Vendor" required error={errs.vendor}><input id="vn" className={`form-input ${errs.vendor?"error":""}`} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))} list="vn-l"/><datalist id="vn-l">{vendorList.map(v=><option key={v} value={v}/>)}</datalist></FF>
+            <FF id="cp" label="Campaign" required error={errs.campaign}><input id="cp" className={`form-input ${errs.campaign?"error":""}`} value={form.campaign} onChange={e=>setForm(f=>({...f,campaign:e.target.value}))}/></FF>
+          </div>
+          <div className="form-grid">
+            <FF id="mpo-spots" label="No. of Spots" required error={errs.spots}><input id="mpo-spots" className={`form-input ${errs.spots?"error":""}`} type="number" min="0" placeholder="0" value={form.spots} onChange={e=>setForm(f=>({...f,spots:e.target.value}))}/></FF>
+            <FF id="mpo-rate" label={`Rate per spot (${form.currency||dCcy})`} required error={errs.rate}><input id="mpo-rate" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></FF>
+          </div>
+          <div className="form-grid">
+            <FF id="mpo-disc" label="Discount (%)"><input id="mpo-disc" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.discount} onChange={e=>setForm(f=>({...f,discount:e.target.value}))}/></FF>
+            <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
+          </div>
+          <div className="form-grid">
+            <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
+            <FF id="ed" label="End" required error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
+          </div>
+          {gross>0&&(
+            <div style={{background:"var(--bg3)",border:"1px solid var(--border-c)",borderRadius:10,padding:"12px 16px",marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:"var(--text2)"}}>Gross</span><span>{fmt(gross)}</span></div>
+              {discAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#A32D2D"}}><span>Discount ({disc}%)</span><span>−{fmt(discAmt)}</span></div>}
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,borderTop:"1px solid var(--border-c)",paddingTop:6}}><span style={{color:"var(--text2)"}}>Net</span><span style={{fontWeight:600}}>{fmt(net)}</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"var(--text2)"}}><span>VAT ({vr}%)</span><span>+{fmt(vat)}</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:14,fontWeight:700,borderTop:"1px solid var(--border-c)",paddingTop:6}}><span>Total</span><span style={{color:"var(--brand)"}}>{fmtCcy(total,form.currency||dCcy,dCcy)}</span></div>
             </div>
-          ):null;
-        })()}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginTop:8}}>
-          <div>{!eid&&mpoDraftSavedAt&&<span style={{fontSize:10,color:"var(--text3)"}}>Draft saved {mpoDraftSavedAt.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
-          <div style={{display:"flex",gap:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
-        </div>
-      </Modal>)}
+          )}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginTop:8}}>
+            <div>{!eid&&mpoDraftSavedAt&&<span style={{fontSize:10,color:"var(--text3)"}}>Draft saved {mpoDraftSavedAt.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
+            <div style={{display:"flex",gap:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
+          </div>
+        </Modal>
+        );
+      })()}
       {commentsFor&&(<Modal title="Discussion" onClose={()=>setCommentsFor(null)} wide>
         <CommentsPanel entityId={commentsFor} entityLabel={`MPO ${commentsFor} — ${mpos.find(m=>m.id===commentsFor)?.campaign||""}`} comments={comments} currentUser={user} onAddComment={onAddComment}/>
       </Modal>)}
