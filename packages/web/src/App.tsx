@@ -796,7 +796,7 @@ const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.str
 const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
 const timeAgo=(iso:string)=>{const ms=Date.now()-new Date(iso).getTime();const mn=Math.floor(ms/60000);if(mn<1)return"just now";if(mn<60)return`${mn}m ago`;const hr=Math.floor(mn/60);if(hr<24)return`${hr}h ago`;return`${Math.floor(hr/24)}d ago`;};
 
-const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[]};
+const EMPO={client:"",vendor:"",campaign:"",amount:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:""};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
@@ -851,13 +851,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
-  const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[]});setEid(m.id);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({client:m.client,vendor:m.vendor,campaign:m.campaign,amount:String(m.amount),start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||"")});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
     setMpoDraftSavedAt(null);
-    if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,amount:Number(form.amount)}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
-    else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,amount:Number(form.amount),exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
+    const extra={amount:Number(form.amount),spots:Number(form.spots)||0,rate:Number(form.rate)||0,discount:Number(form.discount)||0};
+    if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,...extra}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
+    else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,...extra,exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
   };
   const del=id=>{if(!canEdit||!confirm("Delete?"))return;setMpos(p=>p.filter(m=>m.id!==id));addAudit("deleted","MPO",id,`Deleted ${id}`,"delete");toast("Deleted","error");};
@@ -923,14 +924,29 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <FF id="ccy" label="Currency"><select id="ccy" className="form-input" value={form.currency} onChange={e=>setForm(f=>({...f,currency:e.target.value}))}>{Object.entries(CURRENCIES).map(([k,v])=><option key={k} value={k}>{v.flag} {k}</option>)}</select></FF>
         </div>
         <div className="form-grid">
+          <FF id="mpo-spots" label="No. of Spots"><input id="mpo-spots" className="form-input" type="number" min="0" placeholder="0" value={form.spots} onChange={e=>setForm(f=>({...f,spots:e.target.value}))}/></FF>
+          <FF id="mpo-rate" label="Rate (per spot)"><input id="mpo-rate" className="form-input" type="number" min="0" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></FF>
+        </div>
+        <div className="form-grid">
+          <FF id="mpo-disc" label="Discount (%)"><input id="mpo-disc" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.discount} onChange={e=>setForm(f=>({...f,discount:e.target.value}))}/></FF>
           <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
-          <span/>
         </div>
         <div className="form-grid">
           <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
           <FF id="ed" label="End" required error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
         </div>
-        {form.amount&&!isNaN(form.amount)&&Number(form.amount)>0&&<p style={{fontSize:12,color:"var(--text3)",marginBottom:12}}>Preview: {fmtCcy(Number(form.amount),form.currency,"NGN")}{form.currency!=="NGN"&&` (${fmtCcy(Number(form.amount),form.currency,form.currency)} ${form.currency})`}</p>}
+        {(()=>{
+          const gross=form.spots&&form.rate?Number(form.spots)*Number(form.rate):Number(form.amount)||0;
+          const disc=gross*(Number(form.discount)||0)/100;
+          const net=gross-disc;
+          return gross>0?(
+            <div style={{fontSize:12,color:"var(--text3)",marginBottom:12,background:"var(--bg3)",padding:"8px 12px",borderRadius:8,display:"flex",gap:16,flexWrap:"wrap"}}>
+              {form.spots&&form.rate&&<span>Gross: {fmt(gross)}</span>}
+              {Number(form.discount)>0&&<span>Discount: −{fmt(disc)} ({form.discount}%)</span>}
+              <span style={{fontWeight:600,color:"var(--text)"}}>Net: {fmtCcy(net,form.currency,"NGN")}</span>
+            </div>
+          ):null;
+        })()}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginTop:8}}>
           <div>{!eid&&mpoDraftSavedAt&&<span style={{fontSize:10,color:"var(--text3)"}}>Draft saved {mpoDraftSavedAt.toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</span>}</div>
           <div style={{display:"flex",gap:8}}><button className="btn" onClick={()=>setShowF(false)}>Cancel</button><button className="btn btn-primary" onClick={save}>{eid?"Save":"Create"}</button></div>
