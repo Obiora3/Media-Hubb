@@ -2658,10 +2658,12 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
       const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0);
       // Use calcRoTotals for all amounts — consistent with the RO detail view and PDF
       const rTotals=calcRoTotals(ro,whtRate);
-      const {gross,amountPayable}=rTotals;
+      const {gross,netTotal,amountPayable}=rTotals;
       const vatMult=1+(taxRate/100);
-      const roAmtLessVat=gross;
-      const roAmtInclVat=gross*vatMult;
+      // Base VAT on netTotal (after vol discount + agency comm) — not raw gross
+      // ROs without discounts: netTotal === gross, so result is unchanged for them
+      const roAmtLessVat=netTotal;
+      const roAmtInclVat=netTotal*vatMult;
       const mpoAmtInclVat=mpo?mpo.amount*vatMult:0;
       const ratePerSpot=totalSpots>0?amountPayable/totalSpots:0;
       const monthLabel=ro.campaignMonth?new Date(ro.campaignMonth+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
