@@ -2982,12 +2982,12 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
             <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)"}}>{mbRows.length} RO{mbRows.length!==1?"s":""}</span>
           </div>
 
-          <div className="card" style={{padding:0,overflow:"auto"}}>
+          <div className="card" style={{padding:0,overflow:"auto",maxHeight:"70vh"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
               <thead>
                 <tr style={{background:"var(--bg3)"}}>
                   {["Agency Name","Client Name","Brand / Campaign","Month","Media Order No.","RO Number","Material / Duration","MPO Amt\n(incl VAT)","RO Amt\n(incl VAT)","RO Amt\nless VAT","Net Amt\nless WHT","No. of\nSpots","Rate\nPer Spot"].map(h=>(
-                    <th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:700,fontSize:10,letterSpacing:".04em",textTransform:"uppercase",color:"var(--text2)",borderBottom:"2px solid var(--border-c)",whiteSpace:"pre-line",lineHeight:1.2}}>{h}</th>
+                    <th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:700,fontSize:10,letterSpacing:".04em",textTransform:"uppercase",color:"var(--text2)",borderBottom:"2px solid var(--border-c)",whiteSpace:"pre-line",lineHeight:1.2,position:"sticky",top:0,background:"var(--bg3)",zIndex:2}}>{h}</th>
                   ))}
                 </tr>
               </thead>
