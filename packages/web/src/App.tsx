@@ -2693,25 +2693,20 @@ function RevenueTargetPage({mpos,settings,setSettings}){
       </div>
 
       {/* Callout cards */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
-        <div className="card" style={{padding:"14px 16px",background:"#FFF8E1",borderLeft:"4px solid #F5C97A"}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"#854F0B",marginBottom:4}}>{revYear} Revenue Target</div>
-          <div style={{fontSize:22,fontWeight:800,color:"#854F0B"}}>{fm(totalTarget)}</div>
-        </div>
-        <div className="card" style={{padding:"14px 16px",background:"#E6F1FB",borderLeft:"4px solid #185FA5"}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"#185FA5",marginBottom:4}}>Revenue Achieved</div>
-          <div style={{fontSize:22,fontWeight:800,color:"#185FA5"}}>{fm(totalBooked)}</div>
-          <div style={{fontSize:11,color:"#185FA5",marginTop:4,opacity:.8}}>JAN–DEC {revYear}</div>
-        </div>
-        <div className="card" style={{padding:"14px 16px",background:Number(annualPct)>=100?"#EAF3DE":"#F5F0FF",borderLeft:`4px solid ${Number(annualPct)>=100?"#3B6D11":"#534AB7"}`}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:Number(annualPct)>=100?"#3B6D11":"#534AB7",marginBottom:4}}>% Achieved</div>
-          <div style={{fontSize:22,fontWeight:800,color:Number(annualPct)>=100?"#3B6D11":"#534AB7"}}>{annualPct}%</div>
-          <div style={{marginTop:8,height:6,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${Math.min(Number(annualPct),100)}%`,height:"100%",background:Number(annualPct)>=100?"#3B6D11":"#534AB7",borderRadius:3}}/></div>
-        </div>
-        <div className="card" style={{padding:"14px 16px",background:annualGap>=0?"#EAF3DE":"#FCEBEB",borderLeft:`4px solid ${annualGap>=0?"#3B6D11":"#A32D2D"}`}}>
-          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:annualGap>=0?"#3B6D11":"#A32D2D",marginBottom:4}}>Revenue Gap</div>
-          <div style={{fontSize:22,fontWeight:800,color:annualGap>=0?"#3B6D11":"#A32D2D"}}>{annualGap>=0?"+":""}{fm(annualGap)}</div>
-        </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,minWidth:0}}>
+        {([
+          {label:`${revYear} Revenue Target`,value:fm(totalTarget),sub:null,bg:"#FFF8E1",border:"#F5C97A",color:"#854F0B",bar:null},
+          {label:"Revenue Achieved",value:fm(totalBooked),sub:`JAN–DEC ${revYear}`,bg:"#E6F1FB",border:"#185FA5",color:"#185FA5",bar:null},
+          {label:"% Achieved",value:`${annualPct}%`,sub:null,bg:Number(annualPct)>=100?"#EAF3DE":"#F5F0FF",border:Number(annualPct)>=100?"#3B6D11":"#534AB7",color:Number(annualPct)>=100?"#3B6D11":"#534AB7",bar:Math.min(Number(annualPct),100)},
+          {label:"Revenue Gap",value:`${annualGap>=0?"+":""}${fm(annualGap)}`,sub:null,bg:annualGap>=0?"#EAF3DE":"#FCEBEB",border:annualGap>=0?"#3B6D11":"#A32D2D",color:annualGap>=0?"#3B6D11":"#A32D2D",bar:null},
+        ] as any[]).map((c,i)=>(
+          <div key={i} className="card" style={{padding:"14px 16px",background:c.bg,borderLeft:`4px solid ${c.border}`,minWidth:0,overflow:"hidden"}}>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:c.color,marginBottom:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.label}</div>
+            <div style={{fontSize:18,fontWeight:800,color:c.color,wordBreak:"break-word",lineHeight:1.2}}>{c.value}</div>
+            {c.sub&&<div style={{fontSize:11,color:c.color,marginTop:4,opacity:.8}}>{c.sub}</div>}
+            {c.bar!=null&&<div style={{marginTop:8,height:6,background:"rgba(0,0,0,.08)",borderRadius:3}}><div style={{width:`${c.bar}%`,height:"100%",background:c.color,borderRadius:3}}/></div>}
+          </div>
+        ))}
       </div>
 
       {/* Advertiser breakdown table */}
