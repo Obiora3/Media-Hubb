@@ -2658,8 +2658,12 @@ function RevenueTargetPage({mpos,settings,setSettings}){
     // ── Summary section ─────────────────────────────────────────────────────
     const summaryHdr=[{v:"REVENUE SUMMARY",t:"s",s:{font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"left"}}},...Array(5).fill({v:"",t:"s",s:{fill:{fgColor:{rgb:"1F3864"}},border}})];
     const sRow=(label:string,val:string,extra?:string)=>[
-      txt(label,{font:{sz:10}}),txt(""),numCell(0,{v:val,t:"s",z:"",s:{border,alignment:{horizontal:"right"},font:{bold:true}}}),
-      txt(extra||""),txt(""),txt(""),
+      {v:label,t:"s",s:{border,font:{sz:10}}},
+      {v:"",t:"s",s:{border}},
+      {v:val,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true}}},
+      {v:extra||"",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"666666"}}}},
+      {v:"",t:"s",s:{border}},
+      {v:"",t:"s",s:{border}},
     ];
     const summaryRows=[
       sRow(`Total Annual Revenue Target (${sym})`,fm(totalTarget)),
