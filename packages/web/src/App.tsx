@@ -697,59 +697,6 @@ const DEFAULT_SETTINGS={
   revenueTarget:25000000,collectionTarget:90,campaignTarget:8,newClientsTarget:4,
 };
 
-/* ═══ DATA VIZ PAGE ═══ */
-function DataVizPage({mpos,receivables,payables,user}){
-  return <RoleGuard user={user} require="dataviz"><DataVizContent mpos={mpos} receivables={receivables} payables={payables}/></RoleGuard>;
-}
-function DataVizContent({mpos,receivables,payables}){
-  const [tab,setTab]=useState("overview");
-  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
-  const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
-  const recByStatus=[
-    {label:"Collected",value:lR.reduce((a,r)=>a+r.paid,0),color:"#3B6D11"},
-    {label:"Outstanding",value:lR.reduce((a,r)=>a+(r.amount-r.paid),0),color:"#A32D2D"},
-  ].filter(d=>d.value>0);
-  const clientSpend=Object.values(mpos.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=m.amount;return acc;},{})).sort((a,b)=>b.amount-a.amount);
-  return(
-    <div>
-      <div className="tabs">
-        {["overview","heatmap","scatter","cashflow"].map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t}</button>)}
-      </div>
-      {tab==="overview"&&(
-        <div>
-          <div className="grid2">
-            <div className="card"><div className="card-header"><span className="card-title">Campaign Distribution</span></div><DonutChart data={[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0)} size={148}/></div>
-            <div className="card"><div className="card-header"><span className="card-title">Receivables Status</span></div><DonutChart data={recByStatus} size={148}/></div>
-          </div>
-          <div className="card"><div className="card-header"><span className="card-title">Client Revenue Ranking</span></div><BarChart data={clientSpend.map(c=>({label:c.name.split(" ")[0],value:c.amount}))} height={160} colors={["#534AB7"]}/></div>
-        </div>
-      )}
-      {tab==="heatmap"&&(
-        <div className="card">
-          <div className="card-header"><span className="card-title">MPO Campaign Start Activity Heatmap</span><span style={{fontSize:11,color:"var(--text3)"}}>Campaigns started per weekday × month</span></div>
-          <ActivityHeatmap mpos={mpos}/>
-        </div>
-      )}
-      {tab==="scatter"&&(
-        <div className="card">
-          <div className="card-header"><span className="card-title">Campaign Value vs Duration</span><span style={{fontSize:11,color:"var(--text3)"}}>Each dot = one MPO</span></div>
-          <RevenueScatter mpos={mpos}/>
-          <div style={{marginTop:12,fontSize:11,color:"var(--text3)"}}>Axis: X = campaign duration (days) · Y = campaign value (₦)</div>
-        </div>
-      )}
-      {tab==="cashflow"&&(
-        <div>
-          <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={160} color="#534AB7"/></div>
-          <div className="grid2">
-            <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={Object.values((mpos||[]).reduce((acc,m)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=Number(m.amount)||0;return acc;},{})).sort((a,b)=>b.value-a.value)} height={155} colors={["#534AB7","#3B6D11","#185FA5","#854F0B","#D85A30"]}/></div>
-            <div className="card"><div className="card-header"><span className="card-title">Receivables vs Payables</span></div><BarChart data={[{label:"Billed",values:[lR.reduce((a,r)=>a+r.amount,0),0]},{label:"Collected",values:[lR.reduce((a,r)=>a+r.paid,0),0]},{label:"Payable",values:[0,payables.reduce((a,p)=>a+p.amount,0)]},{label:"Settled",values:[0,payables.reduce((a,p)=>a+p.paid,0)]}]} height={155} colors={["#534AB7","#D85A30"]}/></div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ═══ DASHBOARD ═══ */
 function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
@@ -3140,7 +3087,7 @@ function AuditContent({auditLog}){
 
 /* ═══ USERS ═══ */
 const ROLE_PERMISSIONS={
-  admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed"],
+  admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","feed"],
   manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
   viewer:  ["dashboard","mpo","clients","calendar","feed"],
   client:  ["dashboard"],
@@ -3990,7 +3937,6 @@ const NAV=[
   {id:"budgets",  label:"Budgets",     icon:"◐", section:"finance"},
   {id:"reports",  label:"Reports",     icon:"▧", section:"finance"},
   {id:"analytics",label:"Analytics",   icon:"◑", section:"finance"},
-  {id:"dataviz",  label:"Data Viz",    icon:"◍", section:"finance"},
   {id:"reminders",label:"Reminders",   icon:"◷", section:"tools"},
   {id:"audit",    label:"Audit Log",   icon:"◫", section:"tools"},
   {id:"users",    label:"Users",       icon:"◉", section:"tools"},
@@ -3998,7 +3944,7 @@ const NAV=[
   {id:"feed",     label:"Activity Feed",icon:"◌",section:"tools"},
 ];
 const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
-const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management",reports:"Reports",analytics:"Analytics",dataviz:"Data Visualisation",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",feed:"Activity Feed"};
+const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management",reports:"Reports",analytics:"Analytics",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",feed:"Activity Feed"};
 const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"feed",label:"Feed",icon:"◌"}];
 
 // ── Column transform helpers ─────────────────────────────────────────────────
@@ -4477,7 +4423,6 @@ function App(){
           {page==="budgets"   &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
           {page==="reports"   &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} settings={settings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
-          {page==="dataviz"   &&<DataVizPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
           {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
