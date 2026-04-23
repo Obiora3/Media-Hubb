@@ -4424,7 +4424,10 @@ function App(){
   const readNotif=id=>setNotifications(p=>p.map(n=>n.id===id?{...n,read:true}:n));
   const readAllNotifs=()=>setNotifications(p=>p.map(n=>({...n,read:true})));
 
-  const visibleNav=NAV.filter(n=>currentUser.permissions.includes(n.id));
+  // Merge stored permissions with role defaults so newly added permissions
+  // apply automatically without needing a profile update in Supabase.
+  const effectivePerms=[...new Set([...(currentUser.permissions||[]),...(ROLE_PERMISSIONS[currentUser.role]||[])])];
+  const visibleNav=NAV.filter(n=>effectivePerms.includes(n.id));
   const sections=[...new Set(visibleNav.map(n=>n.section))];
   const nav=id=>{setPage(id);setSOpen(false);};
   const logout=()=>{signOut();setPage("dashboard");};
