@@ -2762,6 +2762,15 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
         // Top clients by MPO value
         const topClients=cSpend.slice(0,5);
 
+        // Spend by agency
+        const agencySpend=Object.values(fM.reduce((acc,m)=>{
+          const k=m.agency||"(No Agency)";
+          acc[k]=acc[k]||{name:k,amount:0,spots:0};
+          acc[k].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);
+          acc[k].spots+=Number(m.spots||0);
+          return acc;
+        },{})).sort((a:any,b:any)=>b.amount-a.amount) as any[];
+
         // Top vendors by payable
         const topVendors=Object.values(lP.reduce((acc,p)=>{
           const k=p.vendor;acc[k]=acc[k]||{name:k,amount:0,paid:0};
@@ -2875,6 +2884,34 @@ function ReportsPage({mpos,receivables,payables,ros,settings}){
                   </table>
                 )}
               </div>
+            </div>
+
+            {/* Spend by Agency */}
+            <div className="card">
+              <div className="card-header"><span className="card-title">Spend by Agency</span></div>
+              {agencySpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>:(
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr>{["Agency","MPO Value","Spots","Share"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}</tr></thead>
+                  <tbody>{agencySpend.map((a:any,i:number)=>{
+                    const share=totalMpoValue>0?Math.round(a.amount/totalMpoValue*100):0;
+                    const colors=["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"];
+                    const col=colors[i%colors.length];
+                    return(
+                      <tr key={a.name}>
+                        <td style={{padding:"7px 8px",fontWeight:500,borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:6,height:6,borderRadius:"50%",background:col,flexShrink:0}}/>{a.name}</div></td>
+                        <td style={{padding:"7px 8px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{fmtK(a.amount,sym)}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",color:"var(--text2)"}}>{a.spots||"—"}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <div style={{flex:1,height:5,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${share}%`,height:"100%",background:col,borderRadius:3}}/></div>
+                            <span style={{fontSize:10,color:"var(--text3)",minWidth:28}}>{share}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}</tbody>
+                </table>
+              )}
             </div>
 
             {/* Overdue invoices list */}
