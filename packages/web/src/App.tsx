@@ -2692,11 +2692,21 @@ function RevenueTargetPage({mpos,settings,setSettings}){
         {metricRow("  — EOQ Q1 Gap",gapSpan(q1Gap))}
       </div>
 
-      {/* Gap callout cards */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+      {/* Callout cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
         <div className="card" style={{padding:"14px 16px",background:"#FFF8E1",borderLeft:"4px solid #F5C97A"}}>
           <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"#854F0B",marginBottom:4}}>{revYear} Revenue Target</div>
           <div style={{fontSize:22,fontWeight:800,color:"#854F0B"}}>{fm(totalTarget)}</div>
+        </div>
+        <div className="card" style={{padding:"14px 16px",background:"#E6F1FB",borderLeft:"4px solid #185FA5"}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"#185FA5",marginBottom:4}}>Revenue Achieved</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#185FA5"}}>{fm(totalBooked)}</div>
+          <div style={{fontSize:11,color:"#185FA5",marginTop:4,opacity:.8}}>JAN–DEC {revYear}</div>
+        </div>
+        <div className="card" style={{padding:"14px 16px",background:Number(annualPct)>=100?"#EAF3DE":"#F5F0FF",borderLeft:`4px solid ${Number(annualPct)>=100?"#3B6D11":"#534AB7"}`}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:Number(annualPct)>=100?"#3B6D11":"#534AB7",marginBottom:4}}>% Achieved</div>
+          <div style={{fontSize:22,fontWeight:800,color:Number(annualPct)>=100?"#3B6D11":"#534AB7"}}>{annualPct}%</div>
+          <div style={{marginTop:8,height:6,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${Math.min(Number(annualPct),100)}%`,height:"100%",background:Number(annualPct)>=100?"#3B6D11":"#534AB7",borderRadius:3}}/></div>
         </div>
         <div className="card" style={{padding:"14px 16px",background:annualGap>=0?"#EAF3DE":"#FCEBEB",borderLeft:`4px solid ${annualGap>=0?"#3B6D11":"#A32D2D"}`}}>
           <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:annualGap>=0?"#3B6D11":"#A32D2D",marginBottom:4}}>Revenue Gap</div>
