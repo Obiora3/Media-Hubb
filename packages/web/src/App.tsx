@@ -1826,12 +1826,21 @@ async function exportROExcel(ro, settings={}){
   const totals=calcRoTotals(ro,whtRate);
   const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
   const numFmt="#,##0.00";
+  const intFmt="#,##0";
   const border={top:{style:"thin",color:{rgb:"AAAAAA"}},bottom:{style:"thin",color:{rgb:"AAAAAA"}},left:{style:"thin",color:{rgb:"AAAAAA"}},right:{style:"thin",color:{rgb:"AAAAAA"}}};
   const hdrS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"DCE6F1"}},border,alignment:{horizontal:"center",wrapText:true}};
   const metaLabel={font:{bold:true,sz:10},fill:{fgColor:{rgb:"F2F2F2"}},border};
   const metaVal={font:{sz:10},border};
   const numCell=(v,extra={})=>({v,t:"n",z:numFmt,s:{border,alignment:{horizontal:"center"},...extra}});
+  const spotCell=(v,extra={})=>({v,t:"n",z:intFmt,s:{border,alignment:{horizontal:"center"},...extra}});
   const txtCell=(v,s={})=>({v:v||"",t:"s",s:{border,alignment:{horizontal:"center"},...s}});
+
+  // ── Campaign month label ──────────────────────────────────────────────────
+  const monthKey=ro.campaignMonth||ro.start?.slice(0,7)||"";
+  const campaignMonthLabel=monthKey
+    ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"})
+    :"—";
+  const campaignMonthUpper=campaignMonthLabel.toUpperCase();
 
   // ── Section 1: RO header info (2-col label-value pairs) ───────────────────
   const companyName=(settings as any).companyName||"MediaHub";
@@ -1844,27 +1853,22 @@ async function exportROExcel(ro, settings={}){
     [{v:"Client:",t:"s",s:metaLabel},{v:ro.client||"",t:"s",s:metaVal}],
     [{v:"Vendor / Station:",t:"s",s:metaLabel},{v:ro.vendor||"",t:"s",s:metaVal}],
     [{v:"Campaign:",t:"s",s:metaLabel},{v:ro.campaign||"",t:"s",s:metaVal}],
-    [{v:"Programme:",t:"s",s:metaLabel},{v:ro.programme||"",t:"s",s:metaVal}],
     [{v:"Material Title:",t:"s",s:metaLabel},{v:ro.materialTitle||"",t:"s",s:metaVal}],
     [{v:"Channel:",t:"s",s:metaLabel},{v:ro.channel||"",t:"s",s:metaVal}],
-    [{v:"Time Slot:",t:"s",s:metaLabel},{v:ro.timeSlot||"",t:"s",s:metaVal}],
-    [{v:"Period:",t:"s",s:metaLabel},{v:`${ro.start||""} to ${ro.end||""}`,t:"s",s:metaVal}],
-    [{v:"MPO Ref:",t:"s",s:metaLabel},{v:ro.mpoId||"—",t:"s",s:metaVal}],
-    [{v:"Status:",t:"s",s:metaLabel},{v:ro.status||"",t:"s",s:metaVal}],
+    [{v:"Period:",t:"s",s:metaLabel},{v:campaignMonthLabel,t:"s",s:metaVal}],
     [{v:"Currency:",t:"s",s:metaLabel},{v:ro.currency||"NGN",t:"s",s:metaVal}],
     [{v:"",t:"s",s:{}},{v:"",t:"s",s:{}}], // spacer
   ];
 
   // ── Section 2: Horizontal calendar ─────────────────────────────────────
-  // Group schedule days (only those with spots > 0)
   const activeDays=(ro.schedule||[]).filter(s=>Number(s.spots)>0);
-  // Build one header row + one spots row (days across columns)
   const dayNumbers=activeDays.map(s=>new Date(s.date+"T12:00:00").getDate());
   const dayNames=activeDays.map(s=>DOW[new Date(s.date+"T12:00:00").getDay()]);
+  const matDur=ro.materialDuration||"—";
 
-  const calTitle=[{v:"BROADCAST SCHEDULE",t:"s",s:{font:{bold:true,sz:11},fill:{fgColor:{rgb:"1F3864"}},alignment:{horizontal:"center"},font:{bold:true,color:{rgb:"FFFFFF"},sz:11}}},...Array(activeDays.length+1).fill({v:"",t:"s",s:{}})];
-  const calHdr1=[{v:"TIME BELT",t:"s",s:hdrS},{v:"PROGRAMME",t:"s",s:hdrS},...dayNumbers.map(d=>({v:d,t:"n",s:{...hdrS,alignment:{horizontal:"center"}}})),(activeDays.length>0?{v:"NO OF SPOTS",t:"s",s:hdrS}:{v:"",t:"s",s:{}}),(activeDays.length>0?{v:"MATERIAL TITLE",t:"s",s:hdrS}:{v:"",t:"s",s:{}})];
-  const calHdr2=[{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS},...dayNames.map(d=>({v:d,t:"s",s:{...hdrS}})),{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS}];
+  const calTitle=[{v:campaignMonthUpper,t:"s",s:{font:{bold:true,color:{rgb:"FFFFFF"},sz:11},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"center"}}},...Array(activeDays.length+3).fill({v:"",t:"s",s:{}})];
+  const calHdr1=[{v:"TIME BELT",t:"s",s:hdrS},{v:"PROGRAMME",t:"s",s:hdrS},...dayNumbers.map(d=>({v:d,t:"n",s:{...hdrS,alignment:{horizontal:"center"}}})),{v:"NO OF SPOTS",t:"s",s:hdrS},{v:"MATERIAL DURATION",t:"s",s:hdrS},{v:"MATERIAL TITLE",t:"s",s:hdrS}];
+  const calHdr2=[{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS},...dayNames.map(d=>({v:d,t:"s",s:{...hdrS}})),{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS}];
 
   // Group by time slot
   const slotMap=new Map();
@@ -1876,12 +1880,13 @@ async function exportROExcel(ro, settings={}){
     return [
       txtCell(slot,{alignment:{horizontal:"left"}}),
       txtCell(ro.programme||"",{alignment:{horizontal:"left"}}),
-      ...dayNumbers.map(d=>dayMap.has(d)?numCell(dayMap.get(d),{s:{border,alignment:{horizontal:"center"},font:{bold:true}}}):txtCell("",{fill:{fgColor:{rgb:"F9F9F9"}}})),
-      numCell(rowTotal,{s:{border,font:{bold:true},fill:{fgColor:{rgb:"EAF3DE"}},alignment:{horizontal:"center"}}}),
+      ...dayNumbers.map(d=>dayMap.has(d)?spotCell(dayMap.get(d),{s:{border,alignment:{horizontal:"center"},font:{bold:true}}}):txtCell("",{fill:{fgColor:{rgb:"F9F9F9"}}})),
+      spotCell(rowTotal,{s:{border,font:{bold:true},fill:{fgColor:{rgb:"EAF3DE"}},alignment:{horizontal:"center"}}}),
+      txtCell(matDur,{alignment:{horizontal:"center"}}),
       txtCell(ro.materialTitle||"",{alignment:{horizontal:"left"}}),
     ];
   });
-  if(calDataRows.length===0) calDataRows.push([txtCell("No spots selected",{alignment:{horizontal:"left"}}),...Array(activeDays.length+3).fill(txtCell(""))]);
+  if(calDataRows.length===0) calDataRows.push([txtCell("No spots selected",{alignment:{horizontal:"left"}}),...Array(activeDays.length+4).fill(txtCell(""))]);
 
   // ── Section 3: Costing summary ───────────────────────────────────────────
   const spacer=[{v:"",t:"s",s:{}}];
@@ -1901,15 +1906,15 @@ async function exportROExcel(ro, settings={}){
   const ws=XLS.utils.aoa_to_sheet(sheetData);
 
   // Merges: company header, RO title, broadcast title, costing title
-  const mergeWidth=activeDays.length+3; // timebelt + programme + days + no.spots + material
+  const mergeWidth=activeDays.length+4; // timebelt + programme + days + no.spots + mat.dur + mat.title
   ws["!merges"]=[
     {s:{r:0,c:0},e:{r:0,c:mergeWidth}}, // company name row
-    {s:{r:2,c:0},e:{r:2,c:1}}, // RELEASE ORDER title (row index 2, after company + spacer)
-    {s:{r:metaRows.length,c:0},e:{r:metaRows.length,c:mergeWidth}}, // BROADCAST SCHEDULE
+    {s:{r:2,c:0},e:{r:2,c:1}}, // RELEASE ORDER title
+    {s:{r:metaRows.length,c:0},e:{r:metaRows.length,c:mergeWidth}}, // campaign month title
     {s:{r:metaRows.length+calDataRows.length+3,c:0},e:{r:metaRows.length+calDataRows.length+3,c:1}}, // COSTING SUMMARY
   ];
 
-  ws["!cols"]=[{wch:18},{wch:20},...Array(activeDays.length).fill({wch:5}),{wch:12},{wch:22}];
+  ws["!cols"]=[{wch:18},{wch:20},...Array(activeDays.length).fill({wch:5}),{wch:12},{wch:18},{wch:22}];
   const wb=XLS.utils.book_new();
   XLS.utils.book_append_sheet(wb,ws,"Release Order");
   XLS.writeFile(wb,`${ro.id}_release_order.xlsx`);
