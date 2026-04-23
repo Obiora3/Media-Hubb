@@ -2585,12 +2585,185 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
   );
 }
 
+/* ═══ REVENUE TARGET PAGE ═══ */
+function RevenueTargetPage({mpos,settings,setSettings}){
+  const [rtNewAdv,setRtNewAdv]=useState("");
+  const [rtNewTarget,setRtNewTarget]=useState("");
+  const [rtEditing,setRtEditing]=useState<string|null>(null);
+  const [rtEditAmt,setRtEditAmt]=useState("");
+
+  const dCcy=settings.defaultCurrency||"NGN";
+  const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const now=new Date();
+  const revTargets:Record<string,number>=settings.revTargets||{};
+  const revYear:number=settings.revYear||now.getFullYear();
+  const currentMonthKey=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const monthsElapsed=now.getFullYear()===revYear?now.getMonth()+1:12;
+
+  const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
+  const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
+
+  const yearMpos=mpos.filter(m=>m.start&&m.start.startsWith(String(revYear)));
+
+  const totalTarget=Object.values(revTargets).reduce((a,v)=>a+Number(v||0),0);
+  const totalBooked=yearMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const annualGap=totalBooked-totalTarget;
+  const annualPct=totalTarget>0?((totalBooked/totalTarget)*100).toFixed(2):0;
+  const monthProj=totalTarget>0?Math.round(totalTarget/12*monthsElapsed):0;
+  const bookedToMonth=yearMpos.filter(m=>m.start&&m.start.slice(0,7)<=currentMonthKey)
+    .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const monthlyGap=bookedToMonth-monthProj;
+  const monthlyPct=monthProj>0?((bookedToMonth/monthProj)*100).toFixed(2):0;
+  const bookedWeek=yearMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
+    .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const bookedMonth=yearMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
+    .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const q1Mpos=yearMpos.filter(m=>m.start&&m.start.slice(5,7)<="03");
+  const q1Booked=q1Mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const q1Target=totalTarget>0?Math.round(totalTarget/4):0;
+  const q1Gap=q1Booked-q1Target;
+  const q1Pct=q1Target>0?((q1Booked/q1Target)*100).toFixed(2):0;
+
+  const rows=Object.keys(revTargets).map(adv=>{
+    const advMpos=yearMpos.filter(m=>m.client===adv||m.agency===adv);
+    const booked=advMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+    const inMonth=advMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
+      .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+    const inWeek=advMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
+      .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+    return {name:adv,target:Number(revTargets[adv]||0),booked,gap:booked-Number(revTargets[adv]||0),inMonth,inWeek};
+  });
+
+  const saveTarget=(name:string,amt:number)=>setSettings((s:any)=>({...s,revTargets:{...(s.revTargets||{}),[name]:amt}}));
+  const deleteTarget=(name:string)=>setSettings((s:any)=>{const t={...(s.revTargets||{})};delete t[name];return {...s,revTargets:t};});
+
+  const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const gapSpan=(v:number)=><span style={{color:v>=0?"#3B6D11":"#A32D2D",fontWeight:600}}>{v>=0?"+":"-"}{fm(Math.abs(v))}</span>;
+  const pctBadge=(p:any)=><span style={{fontSize:11,color:"var(--text3)",marginLeft:8}}>{p}%</span>;
+  const metricRow=(label:string,val:any)=>(
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}>
+      <span style={{color:"var(--text2)"}}>{label}</span>
+      <span style={{textAlign:"right"}}>{val}</span>
+    </div>
+  );
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:16}}>
+
+      {/* Year picker + Add advertiser */}
+      <div className="card" style={{padding:"14px 16px"}}>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Target Year</div>
+            <input type="number" className="form-input" style={{width:90}} value={revYear}
+              onChange={e=>setSettings((s:any)=>({...s,revYear:Number(e.target.value)}))} min={2020} max={2040}/>
+          </div>
+          <div style={{flex:1,minWidth:180}}>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Advertiser / Agency</div>
+            <input className="form-input" placeholder="e.g. TGI" value={rtNewAdv}
+              onChange={e=>setRtNewAdv(e.target.value.toUpperCase())} style={{textTransform:"uppercase"}}/>
+          </div>
+          <div style={{width:160}}>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Annual Target ({sym})</div>
+            <input type="number" className="form-input" placeholder="0" value={rtNewTarget} onChange={e=>setRtNewTarget(e.target.value)}/>
+          </div>
+          <button className="btn btn-primary btn-sm" style={{height:36}} onClick={()=>{
+            if(!rtNewAdv.trim()||!rtNewTarget)return;
+            saveTarget(rtNewAdv.trim(),Number(rtNewTarget));
+            setRtNewAdv("");setRtNewTarget("");
+          }}>Add</button>
+        </div>
+      </div>
+
+      {/* Summary KPIs */}
+      <div className="card" style={{padding:"14px 16px"}}>
+        <div style={{fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"var(--text3)",marginBottom:12}}>Revenue Summary — {revYear}</div>
+        {metricRow(`Total Annual Revenue Target (${sym})`,<strong>{fm(totalTarget)}</strong>)}
+        {metricRow(`Total Annual Revenue Achieved (JAN–DEC ${revYear})`,<><strong style={{color:annualGap>=0?"#3B6D11":"#185FA5"}}>{fm(totalBooked)}</strong>{pctBadge(annualPct)}</>)}
+        {metricRow("  — Annual Revenue Gap",gapSpan(annualGap))}
+        {metricRow("Total Revenue To Current Month — PROJ",<strong>{fm(monthProj)}</strong>)}
+        {metricRow("Total Revenue To Current Month (Achieved)",<><strong>{fm(bookedToMonth)}</strong>{pctBadge(monthlyPct)}</>)}
+        {metricRow("  — Monthly Revenue Gap",gapSpan(monthlyGap))}
+        {metricRow("Total Booked For The Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
+        {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,<strong>{fm(q1Target)}</strong>)}
+        {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,<><strong>{fm(q1Booked)}</strong>{pctBadge(q1Pct)}</>)}
+        {metricRow("  — EOQ Q1 Gap",gapSpan(q1Gap))}
+      </div>
+
+      {/* Gap callout cards */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div className="card" style={{padding:"14px 16px",background:"#FFF8E1",borderLeft:"4px solid #F5C97A"}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"#854F0B",marginBottom:4}}>{revYear} Revenue Target</div>
+          <div style={{fontSize:22,fontWeight:800,color:"#854F0B"}}>{fm(totalTarget)}</div>
+        </div>
+        <div className="card" style={{padding:"14px 16px",background:annualGap>=0?"#EAF3DE":"#FCEBEB",borderLeft:`4px solid ${annualGap>=0?"#3B6D11":"#A32D2D"}`}}>
+          <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:annualGap>=0?"#3B6D11":"#A32D2D",marginBottom:4}}>Revenue Gap</div>
+          <div style={{fontSize:22,fontWeight:800,color:annualGap>=0?"#3B6D11":"#A32D2D"}}>{annualGap>=0?"+":""}{fm(annualGap)}</div>
+        </div>
+      </div>
+
+      {/* Advertiser breakdown table */}
+      <div className="card" style={{padding:0,overflow:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead>
+            <tr style={{background:"#2C3E50"}}>
+              {["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK",""].map(h=>(
+                <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"nowrap",position:"sticky",top:0,background:"#2C3E50",zIndex:2}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set. Add an advertiser above.</td></tr>}
+            {rows.map((r,i)=>(
+              <tr key={r.name} style={{background:i%2===0?"var(--bg)":"var(--bg3)"}}>
+                <td style={{padding:"8px 12px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>{r.name}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600}}>
+                  {rtEditing===r.name
+                    ?<input autoFocus type="number" className="form-input" style={{width:120,height:28,fontSize:12,textAlign:"right"}} value={rtEditAmt} onChange={e=>setRtEditAmt(e.target.value)}/>
+                    :fm(r.target)}
+                </td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.booked>0?"#185FA5":"var(--text3)",fontWeight:r.booked>0?600:400}}>{r.booked>0?fm(r.booked):"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600,color:r.gap>=0?"#3B6D11":"#A32D2D"}}>{r.booked>0||r.target>0?<>{r.gap>=0?"+":""}{fm(r.gap)}</>:"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inMonth>0?"#534AB7":"var(--text3)",fontWeight:r.inMonth>0?600:400}}>{r.inMonth>0?fm(r.inMonth):"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inWeek>0?"#3B6D11":"var(--text3)",fontWeight:r.inWeek>0?700:400}}>{r.inWeek>0?fm(r.inWeek):"—"}</td>
+                <td style={{padding:"8px 12px",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>
+                  {rtEditing===r.name?(
+                    <div style={{display:"flex",gap:4}}>
+                      <button className="btn btn-primary btn-sm" onClick={()=>{saveTarget(r.name,Number(rtEditAmt));setRtEditing(null);}}>Save</button>
+                      <button className="btn btn-ghost btn-sm" onClick={()=>setRtEditing(null)}>Cancel</button>
+                    </div>
+                  ):(
+                    <div style={{display:"flex",gap:4}}>
+                      <button className="btn btn-ghost btn-sm" onClick={()=>{setRtEditing(r.name);setRtEditAmt(String(r.target));}}>Edit</button>
+                      <button className="btn btn-ghost btn-sm" style={{color:"#A32D2D"}} onClick={()=>{if(confirm(`Remove ${r.name}?`))deleteTarget(r.name);}}>✕</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {rows.length>0&&(
+            <tfoot>
+              <tr style={{background:"#2C3E50"}}>
+                <td style={{padding:"10px 12px",fontWeight:700,color:"#F5C97A",fontSize:11,textTransform:"uppercase",letterSpacing:".06em"}}>TOTALS</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalTarget)}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalBooked)}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:annualGap>=0?"#90EE90":"#FF9999"}}>{annualGap>=0?"+":""}{fm(annualGap)}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedMonth)}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedWeek)}</td>
+                <td/>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ═══ REPORTS ═══ */
 function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState("");const [to,setTo]=useState("");
-  // Revenue Target tab state
-  const [rtNewAdv,setRtNewAdv]=useState("");const [rtNewTarget,setRtNewTarget]=useState("");
-  const [rtEditing,setRtEditing]=useState<string|null>(null);const [rtEditAmt,setRtEditAmt]=useState("");
   const [mbClient,setMbClient]=useState("");const [mbMpo,setMbMpo]=useState("");
   const [mbMonth,setMbMonth]=useState("");const [mbAgency,setMbAgency]=useState("");
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
@@ -2723,8 +2896,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
     const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="report.csv";a.click();
   };
 
-  const TABS=["media-buy","revenue-target","summary","by-client","by-channel","cash-flow"];
-  const TAB_LABELS={"media-buy":"Media Buy","revenue-target":"Revenue Target","summary":"Summary","by-client":"By Client","by-channel":"By Channel","cash-flow":"Cash Flow"};
+  const TABS=["media-buy","summary","by-client","by-channel","cash-flow"];
+  const TAB_LABELS={"media-buy":"Media Buy","summary":"Summary","by-client":"By Client","by-channel":"By Channel","cash-flow":"Cash Flow"};
 
   return(
     <div>
@@ -2751,185 +2924,6 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         <button className="btn btn-primary" onClick={exportExcel}>{tab==="media-buy"?"Export Excel":"Export CSV"}</button>
       </div>
       <div className="tabs">{TABS.map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{TAB_LABELS[t]}</button>)}</div>
-
-      {tab==="revenue-target"&&(()=>{
-        const now=new Date();
-        const revTargets:Record<string,number>=settings.revTargets||{};
-        const revYear:number=settings.revYear||now.getFullYear();
-        const currentMonthKey=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-        const monthsElapsed=now.getFullYear()===revYear?now.getMonth()+1:12;
-
-        // Week bounds (Sun–Sat)
-        const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
-        const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
-
-        // MPOs for the target year
-        const yearMpos=mpos.filter(m=>m.start&&m.start.startsWith(String(revYear)));
-
-        // Aggregates
-        const totalTarget=Object.values(revTargets).reduce((a,v)=>a+Number(v||0),0);
-        const totalBooked=yearMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-        const annualGap=totalBooked-totalTarget;
-        const annualPct=totalTarget>0?((totalBooked/totalTarget)*100).toFixed(2):0;
-        const monthProj=totalTarget>0?Math.round(totalTarget/12*monthsElapsed):0;
-        const bookedToMonth=yearMpos.filter(m=>m.start&&m.start.slice(0,7)<=currentMonthKey)
-          .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-        const monthlyGap=bookedToMonth-monthProj;
-        const monthlyPct=monthProj>0?((bookedToMonth/monthProj)*100).toFixed(2):0;
-        const bookedWeek=yearMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
-          .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-        const bookedMonth=yearMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
-          .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-        // Q1 (Jan–Mar)
-        const q1Mpos=yearMpos.filter(m=>m.start&&m.start.slice(5,7)<="03");
-        const q1Booked=q1Mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-        const q1Target=totalTarget>0?Math.round(totalTarget/4):0;
-        const q1Gap=q1Booked-q1Target;
-        const q1Pct=q1Target>0?((q1Booked/q1Target)*100).toFixed(2):0;
-
-        // Per-advertiser rows
-        const rows=Object.keys(revTargets).map(adv=>{
-          const advMpos=yearMpos.filter(m=>m.client===adv||m.agency===adv);
-          const booked=advMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-          const inMonth=advMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
-            .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-          const inWeek=advMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
-            .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-          return {name:adv,target:Number(revTargets[adv]||0),booked,gap:booked-Number(revTargets[adv]||0),inMonth,inWeek};
-        });
-
-        const saveTarget=(name:string,amt:number)=>setSettings((s:any)=>({...s,revTargets:{...(s.revTargets||{}),[name]:amt}}));
-        const deleteTarget=(name:string)=>setSettings((s:any)=>{const t={...(s.revTargets||{})};delete t[name];return {...s,revTargets:t};});
-
-        // Number formatter
-        const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:2});
-        const gap=(v:number)=><span style={{color:v>=0?"#3B6D11":"#A32D2D",fontWeight:600}}>{v>=0?"+":"-"}{fm(Math.abs(v))}</span>;
-        const pctBadge=(p:any)=><span style={{fontSize:11,color:"var(--text3)",marginLeft:8}}>{p}%</span>;
-
-        const metricRow=(label:string,val:any,extra?:any)=>(
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}>
-            <span style={{color:"var(--text2)"}}>{label}</span>
-            <span style={{textAlign:"right"}}>{val}{extra}</span>
-          </div>
-        );
-
-        return(
-          <div style={{display:"flex",flexDirection:"column",gap:16}}>
-
-            {/* Year picker + Add advertiser */}
-            <div className="card" style={{padding:"14px 16px"}}>
-              <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
-                <div>
-                  <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Target Year</div>
-                  <input type="number" className="form-input" style={{width:90}} value={revYear}
-                    onChange={e=>setSettings((s:any)=>({...s,revYear:Number(e.target.value)}))} min={2020} max={2040}/>
-                </div>
-                <div style={{flex:1,minWidth:180}}>
-                  <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Advertiser / Agency</div>
-                  <input className="form-input" placeholder="e.g. TGI" value={rtNewAdv} onChange={e=>setRtNewAdv(e.target.value.toUpperCase())} style={{textTransform:"uppercase"}}/>
-                </div>
-                <div style={{width:160}}>
-                  <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Annual Target ({sym})</div>
-                  <input type="number" className="form-input" placeholder="0" value={rtNewTarget} onChange={e=>setRtNewTarget(e.target.value)}/>
-                </div>
-                <button className="btn btn-primary btn-sm" style={{height:36}} onClick={()=>{
-                  if(!rtNewAdv.trim()||!rtNewTarget)return;
-                  saveTarget(rtNewAdv.trim(),Number(rtNewTarget));
-                  setRtNewAdv("");setRtNewTarget("");
-                }}>Add</button>
-              </div>
-            </div>
-
-            {/* Summary KPIs */}
-            <div className="card" style={{padding:"14px 16px"}}>
-              <div style={{fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"var(--text3)",marginBottom:12}}>Revenue Summary — {revYear}</div>
-              {metricRow(`Total Annual Revenue Target (${sym})`,<strong>{fm(totalTarget)}</strong>)}
-              {metricRow(`Total Annual Revenue Achieved (JAN–DEC ${revYear})`,<>{gap(0)}<strong style={{marginLeft:8,color:annualGap>=0?"#3B6D11":"#185FA5"}}>{fm(totalBooked)}</strong>{pctBadge(annualPct)}</>)}
-              {metricRow("  — Annual Revenue Gap",gap(annualGap))}
-              {metricRow("Total Revenue To Current Month — PROJ",<strong>{fm(monthProj)}</strong>)}
-              {metricRow("Total Revenue To Current Month (Achieved)",<><strong>{fm(bookedToMonth)}</strong>{pctBadge(monthlyPct)}</>)}
-              {metricRow("  — Monthly Revenue Gap",gap(monthlyGap))}
-              {metricRow("Total Booked For The Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
-              {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,<strong>{fm(q1Target)}</strong>)}
-              {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,<><strong>{fm(q1Booked)}</strong>{pctBadge(q1Pct)}</>)}
-              {metricRow("  — EOQ Q1 Gap",gap(q1Gap))}
-            </div>
-
-            {/* Revenue gap callout */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div className="card" style={{padding:"14px 16px",background:"#FFF8E1",borderLeft:"4px solid #F5C97A"}}>
-                <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"#854F0B",marginBottom:4}}>{revYear} Revenue Target</div>
-                <div style={{fontSize:22,fontWeight:800,color:"#854F0B"}}>{fm(totalTarget)}</div>
-              </div>
-              <div className="card" style={{padding:"14px 16px",background:annualGap>=0?"#EAF3DE":"#FCEBEB",borderLeft:`4px solid ${annualGap>=0?"#3B6D11":"#A32D2D"}`}}>
-                <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:annualGap>=0?"#3B6D11":"#A32D2D",marginBottom:4}}>Revenue Gap</div>
-                <div style={{fontSize:22,fontWeight:800,color:annualGap>=0?"#3B6D11":"#A32D2D"}}>{annualGap>=0?"+":""}{fm(annualGap)}</div>
-              </div>
-            </div>
-
-            {/* Advertiser breakdown table */}
-            <div className="card" style={{padding:0,overflow:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead>
-                  <tr style={{background:"#2C3E50"}}>
-                    {["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK",""].map(h=>(
-                      <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"nowrap",position:"sticky",top:0,background:"#2C3E50",zIndex:2}}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set. Add an advertiser above.</td></tr>}
-                  {rows.map((r,i)=>(
-                    <tr key={r.name} style={{background:i%2===0?"var(--bg)":"var(--bg3)"}}>
-                      <td style={{padding:"8px 12px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>
-                        {rtEditing===r.name?(
-                          <input autoFocus className="form-input" style={{width:160,height:28,fontSize:12}} value={r.name} readOnly/>
-                        ):r.name}
-                      </td>
-                      <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600}}>
-                        {rtEditing===r.name?(
-                          <input autoFocus type="number" className="form-input" style={{width:120,height:28,fontSize:12,textAlign:"right"}}
-                            value={rtEditAmt} onChange={e=>setRtEditAmt(e.target.value)}/>
-                        ):fm(r.target)}
-                      </td>
-                      <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.booked>0?"#185FA5":"var(--text3)",fontWeight:r.booked>0?600:400}}>{r.booked>0?fm(r.booked):"—"}</td>
-                      <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600,color:r.gap>=0?"#3B6D11":"#A32D2D"}}>{r.booked>0||r.target>0?<>{r.gap>=0?"+":""}{fm(r.gap)}</>:"—"}</td>
-                      <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inMonth>0?"#534AB7":"var(--text3)",fontWeight:r.inMonth>0?600:400}}>{r.inMonth>0?fm(r.inMonth):"—"}</td>
-                      <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inWeek>0?"#3B6D11":"var(--text3)",fontWeight:r.inWeek>0?700:400}}>{r.inWeek>0?fm(r.inWeek):"—"}</td>
-                      <td style={{padding:"8px 12px",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>
-                        {rtEditing===r.name?(
-                          <div style={{display:"flex",gap:4}}>
-                            <button className="btn btn-primary btn-sm" onClick={()=>{saveTarget(r.name,Number(rtEditAmt));setRtEditing(null);}}>Save</button>
-                            <button className="btn btn-ghost btn-sm" onClick={()=>setRtEditing(null)}>Cancel</button>
-                          </div>
-                        ):(
-                          <div style={{display:"flex",gap:4}}>
-                            <button className="btn btn-ghost btn-sm" onClick={()=>{setRtEditing(r.name);setRtEditAmt(String(r.target));}}>Edit</button>
-                            <button className="btn btn-ghost btn-sm" style={{color:"#A32D2D"}} onClick={()=>{if(confirm(`Remove ${r.name}?`))deleteTarget(r.name);}}>✕</button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                {rows.length>0&&(
-                  <tfoot>
-                    <tr style={{background:"#2C3E50"}}>
-                      <td style={{padding:"10px 12px",fontWeight:700,color:"#F5C97A",fontSize:11,textTransform:"uppercase",letterSpacing:".06em"}}>TOTALS</td>
-                      <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalTarget)}</td>
-                      <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalBooked)}</td>
-                      <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:annualGap>=0?"#90EE90":"#FF9999"}}>{annualGap>=0?"+":""}{fm(annualGap)}</td>
-                      <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedMonth)}</td>
-                      <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedWeek)}</td>
-                      <td/>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
-          </div>
-        );
-      })()}
 
       {tab==="summary"&&(()=>{
         // ── derived summary stats ──────────────────────────────────────────────
@@ -3308,8 +3302,8 @@ function AuditContent({auditLog}){
 
 /* ═══ USERS ═══ */
 const ROLE_PERMISSIONS={
-  admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings"],
-  manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf"],
+  admin:   ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings"],
+  manager: ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","audit","invoice-wf"],
   viewer:  ["dashboard","mpo","clients","calendar"],
   client:  ["dashboard"],
 };
@@ -4094,8 +4088,9 @@ const NAV=[
   {id:"clients",  label:"Partners",    icon:"◉", section:"operations"},
   {id:"calendar", label:"Calendar",    icon:"▦", section:"operations"},
   {id:"finance",  label:"Finance",     icon:"◎", section:"finance"},
-  {id:"budgets",  label:"Budgets",     icon:"◐", section:"finance"},
-  {id:"reports",  label:"Reports",     icon:"▧", section:"finance"},
+  {id:"budgets",        label:"Budgets",         icon:"◐", section:"finance"},
+  {id:"revenue-target", label:"Revenue Target",  icon:"◎", section:"finance"},
+  {id:"reports",        label:"Reports",         icon:"▧", section:"finance"},
   {id:"analytics",label:"Analytics",   icon:"◑", section:"finance"},
   {id:"reminders",label:"Reminders",   icon:"◷", section:"tools"},
   {id:"audit",    label:"Audit Log",   icon:"◫", section:"tools"},
@@ -4103,7 +4098,7 @@ const NAV=[
   {id:"settings", label:"Settings",    icon:"⚙", section:"tools"},
 ];
 const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
-const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management",reports:"Reports",analytics:"Analytics",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
+const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management","revenue-target":"Revenue Target",reports:"Reports",analytics:"Analytics",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
 const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"audit",label:"Audit",icon:"◫"}];
 
 // ── Column transform helpers ─────────────────────────────────────────────────
@@ -4579,8 +4574,9 @@ function App(){
           {page==="clients"   &&<ClientsPage clients={clients} setClients={setClients} toast={toast} user={currentUser} addAudit={addAudit} onOnboard={()=>setWizardOpen(true)}/>}
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
-          {page==="budgets"   &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
-          {page==="reports"   &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} settings={settings} setSettings={setSettings}/>}
+          {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
+          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings}/>}
+          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} settings={settings} setSettings={setSettings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
