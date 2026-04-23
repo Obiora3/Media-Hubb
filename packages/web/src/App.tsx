@@ -3087,9 +3087,9 @@ function AuditContent({auditLog}){
 
 /* ═══ USERS ═══ */
 const ROLE_PERMISSIONS={
-  admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","feed"],
-  manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
-  viewer:  ["dashboard","mpo","clients","calendar","feed"],
+  admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings"],
+  manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf"],
+  viewer:  ["dashboard","mpo","clients","calendar"],
   client:  ["dashboard"],
 };
 
@@ -3470,67 +3470,6 @@ function CommentsPanel({ entityId, entityLabel, comments, currentUser, onAddComm
   );
 }
 
-/* Activity feed page */
-function ActivityFeedPage({ comments, mpos, receivables, auditLog, currentUser }) {
-  const [filter, setFilter] = useState("all");
-
-  // Flatten all comments into a feed
-  const commentFeed = Object.entries(comments).flatMap(([entityId, list]) =>
-    list.map(c => ({ ...c, type:"comment", entityId, sortTs: c.id }))
-  );
-  // Merge with recent audit entries (last 20)
-  const auditFeed = auditLog.slice(0,20).map(a => ({ ...a, type:"audit", sortTs: a.id }));
-  const feed = [...commentFeed, ...auditFeed].sort((a,b) => b.sortTs.localeCompare(a.sortTs));
-  const filtered = filter==="all" ? feed : feed.filter(f=>f.type===filter);
-
-  const entityLabel = id => {
-    const mpo = mpos.find(m=>m.id===id);
-    if(mpo) return `MPO ${id} — ${mpo.campaign}`;
-    const rec = receivables.find(r=>r.id===id);
-    if(rec) return `Invoice ${id} — ${rec.client}`;
-    return id;
-  };
-
-  return (
-    <div>
-      <div style={{marginBottom:16,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-        <div>
-          <div style={{fontWeight:500,fontSize:15}}>Activity Feed</div>
-          <div style={{fontSize:12,color:"var(--text3)",marginTop:2}}>All comments and actions across your workspace</div>
-        </div>
-      </div>
-      <div className="tabs">
-        {["all","comment","audit"].map(t=><button key={t} className={`tab ${filter===t?"active":""}`} onClick={()=>setFilter(t)}>{t==="all"?"All":t==="comment"?"Comments":"System Events"}</button>)}
-      </div>
-      <div className="card">
-        {filtered.length===0 && <div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No activity yet</div>}
-        {filtered.map((item,i)=>(
-          <div key={i} className="activity-feed-item">
-            <div className="af-avatar" style={{background:item.userColor||item.color||"#999"}}>{item.initials}</div>
-            <div style={{flex:1}}>
-              {item.type==="comment" ? (
-                <>
-                  <span style={{fontWeight:500}}>{item.userName?.split(" ")[0]}</span>
-                  <span style={{color:"var(--text2)"}}> commented on </span>
-                  <span className="feed-badge" style={{background:"var(--brand-light)",color:"var(--brand)"}}>{item.entityId}</span>
-                  <div style={{marginTop:4,fontSize:12,color:"var(--text)",background:"var(--bg3)",padding:"6px 10px",borderRadius:6,display:"inline-block",maxWidth:"100%"}}>{parseMentions(item.text)}</div>
-                </>
-              ) : (
-                <>
-                  <span style={{fontWeight:500}}>{item.userName?.split(" ")[0]}</span>
-                  <span style={{color:"var(--text2)"}}> {item.action} </span>
-                  <span className="feed-badge" style={{background:TAG_COLORS[item.tag]||"#eee",color:TAG_TEXT[item.tag]||"#555"}}>{item.entityId}</span>
-                  <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>{item.detail}</div>
-                </>
-              )}
-              <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{item.ts}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /* ══════════════════════════════════════════════════
    S6-2: PWA — SERVICE WORKER + MANIFEST + INSTALL
@@ -3941,11 +3880,10 @@ const NAV=[
   {id:"audit",    label:"Audit Log",   icon:"◫", section:"tools"},
   {id:"users",    label:"Users",       icon:"◉", section:"tools"},
   {id:"settings", label:"Settings",    icon:"⚙", section:"tools"},
-  {id:"feed",     label:"Activity Feed",icon:"◌",section:"tools"},
 ];
 const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
-const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management",reports:"Reports",analytics:"Analytics",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",feed:"Activity Feed"};
-const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"feed",label:"Feed",icon:"◌"}];
+const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management",reports:"Reports",analytics:"Analytics",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
+const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"audit",label:"Audit",icon:"◫"}];
 
 // ── Column transform helpers ─────────────────────────────────────────────────
 // DB snake_case → app camelCase (and back)
@@ -4427,7 +4365,6 @@ function App(){
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
           {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
           {page==="settings"  &&<SettingsPage settings={settings} setSettings={setSettings} user={currentUser} toast={toast}/>}
-          {page==="feed"      &&<ActivityFeedPage comments={comments} mpos={mpos} receivables={receivables} auditLog={auditLog} currentUser={currentUser}/>}
         </div>
       </div>
 
