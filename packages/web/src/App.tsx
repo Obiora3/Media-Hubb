@@ -4152,7 +4152,7 @@ create policy "workspace_isolation" on mpos using (workspace_id = auth.jwt()->>'
 const NAV=[
   {id:"dashboard",label:"Dashboard",   icon:"■", section:"overview"},
   {id:"mpo",      label:"Scheduling",  icon:"◈", section:"operations"},
-  {id:"clients",  label:"Clients",     icon:"◉", section:"operations"},
+  {id:"clients",  label:"Partners",    icon:"◉", section:"operations"},
   {id:"calendar", label:"Calendar",    icon:"▦", section:"operations"},
   {id:"finance",  label:"Finance",     icon:"◎", section:"finance"},
   {id:"budgets",  label:"Budgets",     icon:"◐", section:"finance"},
