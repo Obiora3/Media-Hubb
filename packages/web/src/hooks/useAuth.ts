@@ -30,7 +30,7 @@ export function useAuth() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setState((s) => ({ ...s, session, user: session?.user ?? null }));
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) fetchProfile(session.user);
       else setState((s) => ({ ...s, loading: false }));
     });
 
@@ -38,21 +38,43 @@ export function useAuth() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setState((s) => ({ ...s, session, user: session?.user ?? null }));
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) fetchProfile(session.user);
       else setState((s) => ({ ...s, profile: null, loading: false }));
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchProfile(userId: string) {
+  async function fetchProfile(authUser: User) {
     const { data } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", userId)
+      .eq("id", authUser.id)
       .single();
 
-    setState((s) => ({ ...s, profile: data as Profile | null, loading: false }));
+    const metadataName =
+      (authUser.user_metadata?.name as string | undefined)
+      ?? (authUser.user_metadata?.full_name as string | undefined)
+      ?? "";
+
+    const resolvedName = data?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
+    const resolvedInitials =
+      data?.initials?.trim()
+      || resolvedName.split(" ").filter(Boolean).map((part: string) => part[0]?.toUpperCase()).slice(0, 2).join("")
+      || "?";
+
+    setState((s) => ({
+      ...s,
+      profile: data
+        ? {
+            ...(data as Profile),
+            email: authUser.email ?? "",
+            name: resolvedName,
+            initials: resolvedInitials,
+          }
+        : null,
+      loading: false,
+    }));
   }
 
   async function signIn(email: string, password: string): Promise<SignInResult> {
@@ -87,7 +109,7 @@ export function useAuth() {
 
     // 3. Role-based permissions
     const permissionsByRole: Record<string, Profile["permissions"]> = {
-      admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production"],
+      admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed"],
       manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
       viewer:  ["dashboard","mpo","clients","calendar","feed"],
       client:  ["dashboard"],
