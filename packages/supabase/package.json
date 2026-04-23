@@ -6,7 +6,7 @@
     "db:push": "npx supabase db push",
     "db:reset": "npx supabase db reset",
     "db:seed": "npx supabase db seed",
-    "functions:deploy": "npx supabase functions deploy ai-chat --project-ref zrzrzjihcukbhdqxkqfd",
+    "functions:deploy": "npx supabase functions deploy invite-user --project-ref zrzrzjihcukbhdqxkqfd",
     "functions:secrets": "npx supabase secrets set --project-ref zrzrzjihcukbhdqxkqfd"
   }
 }

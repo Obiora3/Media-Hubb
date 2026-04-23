@@ -1,25 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const defaultAllowedOrigins = [
-  "https://media-hubb-web.vercel.app",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-];
-
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-const originAllowlist = new Set(
-  allowedOrigins.length > 0 ? allowedOrigins : defaultAllowedOrigins
-);
-
 function getCorsHeaders(origin: string | null) {
-  const allowOrigin = origin && originAllowlist.has(origin) ? origin : null;
+  const allowOrigin = origin ?? "*";
 
   return {
-    ...(allowOrigin ? { "Access-Control-Allow-Origin": allowOrigin } : {}),
+    "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Max-Age": "86400",
@@ -33,17 +18,7 @@ Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(origin);
 
   if (req.method === "OPTIONS") {
-    if (origin && !originAllowlist.has(origin)) {
-      return new Response("Origin not allowed", { status: 403, headers: corsHeaders });
-    }
     return new Response("ok", { headers: corsHeaders });
-  }
-
-  if (origin && !originAllowlist.has(origin)) {
-    return new Response(JSON.stringify({ error: "Origin not allowed" }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
   }
 
   try {

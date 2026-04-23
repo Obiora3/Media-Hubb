@@ -46,3 +46,6 @@ enable_confirmations = false
 
 [functions.ai-chat]
 verify_jwt = true
+
+[functions.invite-user]
+verify_jwt = false
