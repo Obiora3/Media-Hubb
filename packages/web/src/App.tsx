@@ -885,7 +885,7 @@ function printMPO(m:any,settings:any){
   const w=window.open("","_blank","width=780,height=900");w.document.write(html);w.document.close();w.onload=()=>w.print();
 }
 
-const EMPO={agency:"",client:"",vendor:"",campaign:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30"};
+const EMPO={agency:"",client:"",vendor:"",campaign:"",month:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30"};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
@@ -937,13 +937,13 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     if(search&&!`${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
-  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.start)e.start="Required";if(!form.end)e.end="Required";else if(form.start&&form.start>form.end)e.end="Must be after start";setErrs(e);return!Object.keys(e).length;};
+  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.month)e.month="Required";setErrs(e);return!Object.keys(e).length;};
   const openNew=()=>{
     if(!canEdit)return;
     currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
-  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||""),materialDuration:String(m.materialDuration||"30")});setEid(m.id);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,month:m.start?.slice(0,7)||"",start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||""),materialDuration:String(m.materialDuration||"30")});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
@@ -1055,8 +1055,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             <FF id="st" label="Status"><select id="st" className="form-input" value={form.status} onChange={e=>setForm(f=>({...f,status:e.target.value}))}><option value="pending">Pending</option><option value="active">Active</option><option value="completed">Completed</option></select></FF>
           </div>
           <div className="form-grid">
-            <FF id="sd" label="Start" required error={errs.start}><input id="sd" className={`form-input ${errs.start?"error":""}`} type="date" value={form.start} onChange={e=>setForm(f=>({...f,start:e.target.value}))}/></FF>
-            <FF id="ed" label="End" required error={errs.end}><input id="ed" className={`form-input ${errs.end?"error":""}`} type="date" value={form.end} onChange={e=>setForm(f=>({...f,end:e.target.value}))}/></FF>
+            <FF id="mpo-month" label="Campaign Month" required error={errs.month}>
+              <input id="mpo-month" className={`form-input ${errs.month?"error":""}`} type="month" value={form.month} onChange={e=>{const {start,end}=getMonthBounds(e.target.value);setForm(f=>({...f,month:e.target.value,start,end}));}}/>
+            </FF>
+            <span/>
           </div>
           {gross>0&&(
             <div style={{background:"var(--bg3)",border:"1px solid var(--border-c)",borderRadius:10,padding:"12px 16px",marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
