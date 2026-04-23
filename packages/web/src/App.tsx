@@ -430,6 +430,12 @@ function ProfileModal({user,onClose,toast}){
   const [saving,setSaving]=useState(false);
   const initials=name.split(" ").filter(Boolean).map(w=>w[0].toUpperCase()).slice(0,2).join("")||"?";
 
+  useEffect(()=>{
+    setName(user?.name||"");
+    setEmail(user?.email||"");
+    setColor(user?.color||"#534AB7");
+  },[user?.name,user?.email,user?.color]);
+
   const save=async()=>{
     if(!user?.id){toast("No user session","error");return;}
     setSaving(true);
@@ -4140,6 +4146,7 @@ function App(){
   const workspaceId = profile?.workspace_id ?? null;
   const currentUser = profile ? {
     ...profile,
+    email: profile.email || session?.user?.email || "",
     permissions: profile.permissions || [],
   } : null;
 
