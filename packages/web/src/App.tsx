@@ -2591,6 +2591,7 @@ function RevenueTargetPage({mpos,settings,setSettings}){
   const [rtNewTarget,setRtNewTarget]=useState("");
   const [rtEditing,setRtEditing]=useState<string|null>(null);
   const [rtEditAmt,setRtEditAmt]=useState("");
+  const [rtEditName,setRtEditName]=useState("");
 
   const dCcy=settings.defaultCurrency||"NGN";
   const sym=CURRENCIES[dCcy]?.symbol||"₦";
@@ -2717,10 +2718,14 @@ function RevenueTargetPage({mpos,settings,setSettings}){
             {rows.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set. Add an advertiser above.</td></tr>}
             {rows.map((r,i)=>(
               <tr key={r.name} style={{background:i%2===0?"var(--bg)":"var(--bg3)"}}>
-                <td style={{padding:"8px 12px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>{r.name}</td>
+                <td style={{padding:"8px 12px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>
+                  {rtEditing===r.name
+                    ?<input autoFocus className="form-input" style={{width:160,height:28,fontSize:12,textTransform:"uppercase"}} value={rtEditName} onChange={e=>setRtEditName(e.target.value.toUpperCase())}/>
+                    :r.name}
+                </td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600}}>
                   {rtEditing===r.name
-                    ?<input autoFocus type="number" className="form-input" style={{width:120,height:28,fontSize:12,textAlign:"right"}} value={rtEditAmt} onChange={e=>setRtEditAmt(e.target.value)}/>
+                    ?<input type="number" className="form-input" style={{width:120,height:28,fontSize:12,textAlign:"right"}} value={rtEditAmt} onChange={e=>setRtEditAmt(e.target.value)}/>
                     :fm(r.target)}
                 </td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.booked>0?"#185FA5":"var(--text3)",fontWeight:r.booked>0?600:400}}>{r.booked>0?fm(r.booked):"—"}</td>
@@ -2730,12 +2735,17 @@ function RevenueTargetPage({mpos,settings,setSettings}){
                 <td style={{padding:"8px 12px",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>
                   {rtEditing===r.name?(
                     <div style={{display:"flex",gap:4}}>
-                      <button className="btn btn-primary btn-sm" onClick={()=>{saveTarget(r.name,Number(rtEditAmt));setRtEditing(null);}}>Save</button>
+                      <button className="btn btn-primary btn-sm" onClick={()=>{
+                        const newName=rtEditName.trim()||r.name;
+                        if(newName!==r.name) deleteTarget(r.name);
+                        saveTarget(newName,Number(rtEditAmt));
+                        setRtEditing(null);
+                      }}>Save</button>
                       <button className="btn btn-ghost btn-sm" onClick={()=>setRtEditing(null)}>Cancel</button>
                     </div>
                   ):(
                     <div style={{display:"flex",gap:4}}>
-                      <button className="btn btn-ghost btn-sm" onClick={()=>{setRtEditing(r.name);setRtEditAmt(String(r.target));}}>Edit</button>
+                      <button className="btn btn-ghost btn-sm" onClick={()=>{setRtEditing(r.name);setRtEditAmt(String(r.target));setRtEditName(r.name);}}>Edit</button>
                       <button className="btn btn-ghost btn-sm" style={{color:"#A32D2D"}} onClick={()=>{if(confirm(`Remove ${r.name}?`))deleteTarget(r.name);}}>✕</button>
                     </div>
                   )}
