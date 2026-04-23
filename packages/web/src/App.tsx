@@ -2640,6 +2640,80 @@ function RevenueTargetPage({mpos,settings,setSettings}){
   const deleteTarget=(name:string)=>setSettings((s:any)=>{const t={...(s.revTargets||{})};delete t[name];return {...s,revTargets:t};});
 
   const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:2});
+
+  const exportExcel=async()=>{
+    const XLS=await import("xlsx-js-style");
+    const numFmt="#,##0.00";
+    const border={top:{style:"thin",color:{rgb:"CCCCCC"}},bottom:{style:"thin",color:{rgb:"CCCCCC"}},left:{style:"thin",color:{rgb:"CCCCCC"}},right:{style:"thin",color:{rgb:"CCCCCC"}}};
+    const hdrDark={font:{bold:true,sz:10,color:{rgb:"F5C97A"}},fill:{fgColor:{rgb:"2C3E50"}},border,alignment:{horizontal:"center",wrapText:true}};
+    const hdrLeft={...hdrDark,alignment:{horizontal:"left"}};
+    const numCell=(v:number,extra={})=>({v,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},...extra}});
+    const txt=(v:string,s={})=>({v,t:"s",s:{border,...s}});
+    const pct=(v:any)=>({v:`${v}%`,t:"s",s:{border,alignment:{horizontal:"right"}}});
+
+    // ── Title ───────────────────────────────────────────────────────────────
+    const companyName=settings.companyName||"MediaHub";
+    const titleRow=[{v:`${companyName} — REVENUE TARGET REPORT ${revYear}`,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Array(5).fill({v:"",t:"s",s:{}})];
+
+    // ── Summary section ─────────────────────────────────────────────────────
+    const summaryHdr=[{v:"REVENUE SUMMARY",t:"s",s:{font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"left"}}},...Array(5).fill({v:"",t:"s",s:{fill:{fgColor:{rgb:"1F3864"}},border}})];
+    const sRow=(label:string,val:string,extra?:string)=>[
+      txt(label,{font:{sz:10}}),txt(""),numCell(0,{v:val,t:"s",z:"",s:{border,alignment:{horizontal:"right"},font:{bold:true}}}),
+      txt(extra||""),txt(""),txt(""),
+    ];
+    const summaryRows=[
+      sRow(`Total Annual Revenue Target (${sym})`,fm(totalTarget)),
+      sRow(`Total Annual Revenue Achieved`,fm(totalBooked),`${annualPct}%`),
+      sRow("Annual Revenue Gap",`${annualGap>=0?"+":""}${fm(annualGap)}`),
+      sRow("Revenue To Current Month — PROJ",fm(monthProj)),
+      sRow("Revenue To Current Month — Achieved",fm(bookedToMonth),`${monthlyPct}%`),
+      sRow("Monthly Revenue Gap",`${monthlyGap>=0?"+":""}${fm(monthlyGap)}`),
+      sRow("Booked For The Week",fm(bookedWeek)),
+      sRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,fm(q1Target)),
+      sRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,fm(q1Booked),`${q1Pct}%`),
+      sRow("EOQ Q1 Gap",`${q1Gap>=0?"+":""}${fm(q1Gap)}`),
+    ];
+
+    // ── Table header ────────────────────────────────────────────────────────
+    const spacer=[Array(6).fill({v:"",t:"s",s:{}})];
+    const tableHdr=[
+      {v:"ADVERTISERS",t:"s",s:hdrLeft},
+      {v:"ANNUAL TARGET",t:"s",s:hdrDark},
+      {v:"BOOKED SO FAR",t:"s",s:hdrDark},
+      {v:"REVENUE GAP",t:"s",s:hdrDark},
+      {v:"BOOKED IN MONTH",t:"s",s:hdrDark},
+      {v:"BOOKED IN WEEK",t:"s",s:hdrDark},
+    ];
+
+    // ── Data rows ───────────────────────────────────────────────────────────
+    const dataRows=rows.map(r=>[
+      txt(r.name,{font:{bold:true}}),
+      numCell(r.target),
+      r.booked>0?numCell(r.booked):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
+      {v:`${r.gap>=0?"+":""}${fm(r.gap)}`,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true,color:{rgb:r.gap>=0?"1F5C1F":"A32D2D"}}}},
+      r.inMonth>0?numCell(r.inMonth):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
+      r.inWeek>0?numCell(r.inWeek):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
+    ]);
+
+    // ── Totals row ──────────────────────────────────────────────────────────
+    const totStyle={font:{bold:true,sz:10,color:{rgb:"F5C97A"}},fill:{fgColor:{rgb:"2C3E50"}},border,alignment:{horizontal:"right"}};
+    const totRow=[
+      {v:"TOTALS",t:"s",s:{...totStyle,alignment:{horizontal:"left"}}},
+      {v:totalTarget,t:"n",z:numFmt,s:totStyle},
+      {v:totalBooked,t:"n",z:numFmt,s:totStyle},
+      {v:`${annualGap>=0?"+":""}${fm(annualGap)}`,t:"s",s:{...totStyle,font:{bold:true,sz:10,color:{rgb:annualGap>=0?"90EE90":"FF9999"}}}},
+      {v:bookedMonth,t:"n",z:numFmt,s:totStyle},
+      {v:bookedWeek,t:"n",z:numFmt,s:totStyle},
+    ];
+
+    const sheetData=[titleRow,...spacer,summaryHdr,...summaryRows,...spacer,tableHdr,...dataRows,totRow];
+    const ws=XLS.utils.aoa_to_sheet(sheetData);
+    ws["!cols"]=[{wch:36},{wch:18},{wch:18},{wch:20},{wch:18},{wch:18}];
+    ws["!rows"]=[{hpt:24}];
+    const wb=XLS.utils.book_new();
+    XLS.utils.book_append_sheet(wb,ws,"Revenue Target");
+    XLS.writeFile(wb,`revenue-target-${revYear}.xlsx`);
+  };
   const gapSpan=(v:number)=><span style={{color:v>=0?"#3B6D11":"#A32D2D",fontWeight:600}}>{v>=0?"+":"-"}{fm(Math.abs(v))}</span>;
   const pctBadge=(p:any)=><span style={{fontSize:11,color:"var(--text3)",marginLeft:8}}>{p}%</span>;
   const metricRow=(label:string,val:any)=>(
@@ -2654,6 +2728,10 @@ function RevenueTargetPage({mpos,settings,setSettings}){
 
       {/* Year picker + Add advertiser */}
       <div className="card" style={{padding:"14px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:600}}>Revenue Targets — {revYear}</div>
+          <button className="btn btn-primary btn-sm" onClick={exportExcel}>Export Excel</button>
+        </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
           <div>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Target Year</div>
