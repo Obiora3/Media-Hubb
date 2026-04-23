@@ -2625,7 +2625,8 @@ function RevenueTargetPage({mpos,settings,setSettings}){
   const q1Pct=q1Target>0?((q1Booked/q1Target)*100).toFixed(2):0;
 
   const rows=Object.keys(revTargets).map(adv=>{
-    const advMpos=yearMpos.filter(m=>m.client===adv||m.agency===adv);
+    const advUp=adv.toUpperCase();
+    const advMpos=yearMpos.filter(m=>(m.client||"").toUpperCase()===advUp||(m.agency||"").toUpperCase()===advUp);
     const booked=advMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
     const inMonth=advMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
       .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
