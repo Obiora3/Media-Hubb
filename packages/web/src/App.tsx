@@ -1782,188 +1782,180 @@ async function exportROExcel(ro, settings={}){
   const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const totals=calcRoTotals(ro,whtRate);
   const numFmt="#,##0.00";
-
-  // ── Border helpers ────────────────────────────────────────────────────────
-  const thin=(rgb="BBBBBB")=>({style:"thin",color:{rgb}});
-  const med=(rgb="000000")=>({style:"medium",color:{rgb}});
-  const innerB={top:thin(),bottom:thin(),left:thin(),right:thin()};
-  // Outer border for meta box cells (applied per-cell at edges)
-  const outerTop={top:med(),bottom:thin(),left:thin(),right:thin()};
-  const outerBot={top:thin(),bottom:med(),left:thin(),right:thin()};
-  const outerL  ={top:thin(),bottom:thin(),left:med(), right:thin()};
-  const outerR  ={top:thin(),bottom:thin(),left:thin(),right:med()};
-  const outerTL ={top:med(),bottom:thin(),left:med(), right:thin()};
-  const outerTR ={top:med(),bottom:thin(),left:thin(),right:med()};
-  const outerBL ={top:thin(),bottom:med(),left:med(), right:thin()};
-  const outerBR ={top:thin(),bottom:med(),left:thin(),right:med()};
-  const allMed  ={top:med(),bottom:med(),left:med(), right:med()};
-
-  // ── Style presets ─────────────────────────────────────────────────────────
-  // Blank cell — no border, no fill (used for cells outside the data boxes)
-  const B=()=>({v:"",t:"s",s:{}});
-  const Bn=(n)=>Array.from({length:n},B);
-
-  const metaLblS=(bord)=>({font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1A3A6B"}},border:bord,alignment:{horizontal:"left"}});
-  const metaValS=(bord)=>({font:{sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:bord});
-  // Costing labels: same dark-blue as meta labels
-  const costLblS=(bord=innerB)=>({font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1A3A6B"}},border:bord,alignment:{horizontal:"left"}});
-  const costValS=(extra={})=>({font:{sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:innerB,alignment:{horizontal:"right"},...extra});
-  const colHdrS={font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1A3A6B"}},border:innerB,alignment:{horizontal:"center",wrapText:true}};
-  const dayNumS={font:{bold:true,sz:9,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"4472C4"}},border:innerB,alignment:{horizontal:"center"}};
-  const dayNameS={font:{bold:true,sz:9,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"4472C4"}},border:innerB,alignment:{horizontal:"center"}};
-  const dataS={font:{sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:innerB,alignment:{horizontal:"left"}};
-  const spotS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:innerB,alignment:{horizontal:"center"}};
-  const spotTotS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"EAF3DE"}},border:innerB,alignment:{horizontal:"center"}};
-
-  const txt=(v,s)=>({v:v??"",t:"s",s});
-  const num=(v,s)=>({v:v??0,t:"n",z:numFmt,s});
-  const numi=(v,s)=>({v:v??0,t:"n",z:"#,##0",s});
-  const eb=(bord=innerB)=>({v:"",t:"s",s:{border:bord}});
-
-  // ── Campaign month + all days in month ────────────────────────────────────
   const monthKey=ro.campaignMonth||ro.start?.slice(0,7)||"";
   const [mYr,mMo]=(monthKey||"2026-01").split("-").map(Number);
   const daysInMonth=new Date(mYr,mMo,0).getDate();
   const allDays=Array.from({length:daysInMonth},(_,i)=>i+1);
   const allDates=allDays.map(d=>new Date(mYr,mMo-1,d));
   const campaignMonthLabel=monthKey
-    ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
+    ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"})
+    :"—";
   const campaignMonthUpper=campaignMonthLabel.toUpperCase();
-
-  // Build spot lookup by day number
-  const schedMap=new Map<number,number>();
-  (ro.schedule||[]).forEach(s=>{
-    const d=new Date(s.date+"T12:00:00").getDate();
-    schedMap.set(d,(schedMap.get(d)||0)+Number(s.spots||0));
-  });
-  const totalSpots=[...schedMap.values()].reduce((a,v)=>a+v,0);
-  const matDur=ro.materialDuration?`${ro.materialDuration}" Secs`:"—";
-
-  // ── Column layout: TIME BELT | PROGRAMME | MAT DUR | d1…dN | NO OF SPOTS | MAT TITLE ──
+  const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0);
+  const ratePerSpot=totalSpots>0?totals.gross/totalSpots:Number(ro.rate)||0;
+  const matDur=displayRoMaterialDuration(ro.materialDuration);
+  const companyName=String((settings as any).companyName||"MediaHub").toUpperCase();
   const NCOLS=3+daysInMonth+2;
 
-  // ── Meta / header section ─────────────────────────────────────────────────
-  const companyName=(settings as any).companyName||"MediaHub";
+  const thin=(rgb="000000")=>({style:"thin",color:{rgb}});
+  const med=(rgb="000000")=>({style:"medium",color:{rgb}});
+  const makeBorder=({top=false,bottom=false,left=false,right=false}={})=>({
+    top:top?med():thin(),
+    bottom:bottom?med():thin(),
+    left:left?med():thin(),
+    right:right?med():thin(),
+  });
+  const txt=(v,s)=>({v:v??"",t:"s",s});
+  const num=(v,s)=>({v:v??0,t:"n",z:numFmt,s});
+  const numi=(v,s)=>({v:v??0,t:"n",z:"#,##0",s});
+  const blank=()=>({v:"",t:"s",s:{}});
+  const blanks=n=>Array.from({length:n},blank);
 
-  // Row 0: company name — no border, plain bold text
-  const row0=[{v:companyName,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Bn(NCOLS-1)];
+  const companyS={font:{bold:true,sz:17,color:{rgb:"1F3E74"}},alignment:{horizontal:"left",vertical:"center"}};
+  const releaseLeftS={font:{bold:true,sz:12,color:{rgb:"000000"}},border:makeBorder({top:true,bottom:true,left:true}),alignment:{horizontal:"center",vertical:"center"}};
+  const releaseRightS={border:makeBorder({top:true,bottom:true,right:true}),alignment:{horizontal:"center",vertical:"center"}};
+  const monthS={font:{bold:true,sz:11,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFC000"}},border:makeBorder({top:true,bottom:true,left:true,right:true}),alignment:{horizontal:"center",vertical:"center"}};
+  const scheduleHeaderFill={fgColor:{rgb:"11A7D8"}};
+  const scheduleCellFill={fgColor:{rgb:"FFFFFF"}};
+  const costHeaderFill={fgColor:{rgb:"1F3E74"}};
+  const metaLabelBase={font:{bold:true,sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"left",vertical:"center"}};
+  const metaValueBase={font:{bold:true,sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"left",vertical:"center"}};
+  const costLabelBase={font:{bold:true,sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"left",vertical:"center"}};
+  const costValBase={font:{sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"right",vertical:"center"}};
 
-  // Row 1: empty spacer
-  const row1=Bn(NCOLS);
-
-  // Row 2: RELEASE ORDER — bordered box cols A-B, rest blank
-  const row2=[
-    {v:"RELEASE ORDER",t:"s",s:{font:{bold:true,sz:13},alignment:{horizontal:"center"},border:{top:med(),bottom:thin(),left:med(),right:thin()}}},
-    {v:"",t:"s",s:{border:{top:med(),bottom:thin(),left:thin(),right:med()}}},
-    ...Bn(NCOLS-2)
-  ];
+  const row0=[txt(companyName,companyS),...blanks(NCOLS-1)];
+  const row1=blanks(NCOLS);
+  const row2=[txt("RELEASE ORDER",releaseLeftS),txt("",releaseRightS),...blanks(NCOLS-2)];
 
   const metaFields=[
-    ["RO Number:",        ro.id||""],
-    ["Brand:",            ro.client||""],
+    ["RO Number:", ro.id||""],
+    ["Brand:", ro.client||""],
     ["Vendor / Station:", ro.vendor||""],
-    ["Campaign:",         ro.campaign||""],
-    ["Channel:",          ro.channel||""],
-    ["Period:",           campaignMonthLabel],
-    ["Currency:",         ro.currency||"NGN"],
+    ["Campaign:", ro.campaign||""],
+    ["Channel:", ro.channel||""],
+    ["Period:", campaignMonthLabel],
+    ["Currency:", ro.currency||"NGN"],
   ];
-  const metaDataRows=metaFields.map(([lbl,val],i)=>{
-    const first=i===0; const last=i===metaFields.length-1;
-    const lblB={top:first?med():thin(),bottom:last?med():thin(),left:med(),right:thin()};
-    const valB={top:first?med():thin(),bottom:last?med():thin(),left:thin(),right:med()};
-    return [txt(lbl,metaLblS(lblB)),txt(val,metaValS(valB)),...Bn(NCOLS-2)];
-  });
-
-  // ── Calendar section ──────────────────────────────────────────────────────
-  const spacerRow=Bn(NCOLS);
-
-  // Month title row — yellow, merged full width
-  const monthTitleRow=[
-    {v:campaignMonthUpper,t:"s",s:{font:{bold:true,sz:11,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFD700"}},border:allMed,alignment:{horizontal:"center",vertical:"center"}}},
-    ...Bn(NCOLS-1)
-  ];
-
-  // Header row 1: col headers + day numbers
-  const hdr1=[
-    {v:"TIME BELT (CAT)",t:"s",s:colHdrS},
-    {v:"PROGRAMME",t:"s",s:colHdrS},
-    {v:"MATERIAL DURATION",t:"s",s:colHdrS},
-    ...allDays.map(d=>({v:d,t:"n",s:dayNumS})),
-    {v:"NO OF SPOTS",t:"s",s:colHdrS},
-    {v:"MATERIAL TITLE",t:"s",s:colHdrS},
-  ];
-
-  // Header row 2: day names
-  const hdr2=[
-    eb(),eb(),eb(),
-    ...allDates.map(d=>({v:DOW[d.getDay()],t:"s",s:dayNameS})),
-    eb(),eb(),
-  ];
-
-  // Data rows — one per time slot
-  const slots=[...new Set((ro.schedule||[]).map(s=>s.timeSlot||ro.timeSlot||"—"))].filter(Boolean);
-  const calDataRows=slots.length>0?slots.map(slot=>{
-    const slotSpots=new Map<number,number>();
-    (ro.schedule||[]).filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot&&Number(s.spots)>0)
-      .forEach(s=>slotSpots.set(new Date(s.date+"T12:00:00").getDate(),Number(s.spots)));
-    const rowTotal=[...slotSpots.values()].reduce((a,v)=>a+v,0);
+  const metaRows=metaFields.map(([lbl,val],index)=>{
+    const top=index===0;
+    const bottom=index===metaFields.length-1;
     return [
-      txt(slot,{...dataS,alignment:{horizontal:"left"}}),
-      txt(ro.programme||"ROS",{...dataS,alignment:{horizontal:"left"}}),
-      txt(matDur,{...dataS,alignment:{horizontal:"center"}}),
-      ...allDays.map(d=>slotSpots.has(d)?numi(slotSpots.get(d),spotS):eb()),
-      numi(rowTotal,spotTotS),
-      txt(ro.materialTitle||"",{...dataS,alignment:{horizontal:"left"}}),
+      txt(lbl,{...metaLabelBase,border:makeBorder({top,bottom,left:true})}),
+      txt(val,{...metaValueBase,border:makeBorder({top,bottom,right:true})}),
+      ...blanks(NCOLS-2),
     ];
-  }):[[txt("—",dataS),txt(ro.programme||"",dataS),txt(matDur,dataS),...Array.from({length:daysInMonth},eb),numi(0,spotTotS),txt("",dataS)]];
-
-  // ── Costing summary ───────────────────────────────────────────────────────
-  const ratePerSpot=totalSpots>0?totals.gross/totalSpots:Number(ro.rate)||0;
-  const costHdrRow=[
-    {v:"COSTING SUMMARY",t:"s",s:{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border:{top:med(),bottom:med(),left:med(),right:thin()},alignment:{horizontal:"left"}}},
-    {v:"",t:"s",s:{border:{top:med(),bottom:med(),left:thin(),right:med()}}},
-    ...Bn(NCOLS-2)
-  ];
-  const costData=[
-    ["Rate per Spot",        num(ratePerSpot,costValS()),                false],
-    [`Gross Total (${totalSpots} spots)`, num(totals.gross,costValS()), false],
-    [`Volume Discount (${totals.volumeDiscountPct}%)`, num(totals.volumeDiscountAmount>0?-totals.volumeDiscountAmount:0,costValS({font:{sz:10,color:{rgb:"A32D2D"}}})), false],
-    [`Agency Commission (${totals.agencyCommissionPct}%)`, num(totals.agencyCommissionAmount>0?-totals.agencyCommissionAmount:0,costValS({font:{sz:10,color:{rgb:"A32D2D"}}})), false],
-    ["Net Total",            num(totals.netTotal,costValS({font:{bold:true,sz:10}})), true],
-    [`WHT (${totals.whtPct}%)`, num(-totals.whtAmount,costValS({font:{sz:10,color:{rgb:"A32D2D"}}})), false],
-    ["AMOUNT PAYABLE",       num(totals.amountPayable,costValS({font:{bold:true,sz:12,color:{rgb:"1F5C1F"}},fill:{fgColor:{rgb:"EAF3DE"}}})), true],
-  ];
-  const costRows=costData.map(([lbl,val,bold],i)=>{
-    const last=i===costData.length-1;
-    const lblB={top:thin(),bottom:last?med():thin(),left:med(),right:thin()};
-    const valB={top:thin(),bottom:last?med():thin(),left:thin(),right:med()};
-    const lS=costLblS(lblB);
-    if(bold) (lS as any).font={...lS.font,bold:true};
-    return [txt(lbl as string,lS),{...(val as any),s:{...(val as any).s,border:valB}},...Bn(NCOLS-2)];
   });
 
-  // ── Assemble ──────────────────────────────────────────────────────────────
-  const sheetData=[row0,row1,row2,...metaDataRows,spacerRow,monthTitleRow,hdr1,hdr2,...calDataRows,spacerRow,costHdrRow,...costRows];
-  const ws=XLS.utils.aoa_to_sheet(sheetData);
+  const monthRow=[txt(campaignMonthUpper,monthS),...blanks(NCOLS-1)];
+  const scheduleColumns=[
+    "TIME BELT (CAT)",
+    "PROGRAMME",
+    "MATERIAL DURATION",
+    ...allDays,
+    "NO OF SPOTS",
+    "MATERIAL TITLE",
+  ];
+  const headerStyle=(colIndex,isBottom=false)=>({
+    font:{bold:true,sz:10,color:{rgb:"000000"}},
+    fill:scheduleHeaderFill,
+    border:makeBorder({
+      top:true,
+      bottom:isBottom,
+      left:colIndex===0,
+      right:colIndex===NCOLS-1,
+    }),
+    alignment:{horizontal:"center",vertical:"center",wrapText:true},
+  });
+  const dayNameStyle=(colIndex,hasBodyRows)=>({
+    font:{bold:true,sz:9,color:{rgb:"000000"}},
+    fill:scheduleHeaderFill,
+    border:makeBorder({
+      bottom:!hasBodyRows,
+      left:colIndex===0,
+      right:colIndex===NCOLS-1,
+    }),
+    alignment:{horizontal:"center",vertical:"center"},
+  });
 
+  const slots=[...new Set((ro.schedule||[]).map(s=>s.timeSlot||ro.timeSlot||"—"))].filter(Boolean);
+  const scheduleSlots=slots.length?slots:[ro.timeSlot||"—"];
+  const dataRows=scheduleSlots.map((slot,rowIndex)=>{
+    const slotSpots=new Map();
+    (ro.schedule||[])
+      .filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot && Number(s.spots)>0)
+      .forEach(s=>slotSpots.set(new Date(s.date+"T12:00:00").getDate(), Number(s.spots)||0));
+    const rowTotal=[...slotSpots.values()].reduce((a,v)=>a+v,0);
+    const isLastRow=rowIndex===scheduleSlots.length-1;
+    const bodyStyle=(colIndex,align="center")=>({
+      font:{sz:10,color:{rgb:"000000"}},
+      fill:scheduleCellFill,
+      border:makeBorder({
+        bottom:isLastRow,
+        left:colIndex===0,
+        right:colIndex===NCOLS-1,
+      }),
+      alignment:{horizontal:align,vertical:"center"},
+    });
+    return [
+      txt(slot,bodyStyle(0)),
+      txt(ro.programme||"ROS",bodyStyle(1)),
+      txt(matDur,bodyStyle(2)),
+      ...allDays.map((d,offset)=>slotSpots.has(d)?numi(slotSpots.get(d),bodyStyle(3+offset)):txt("",bodyStyle(3+offset))),
+      numi(rowTotal,{...bodyStyle(NCOLS-2),font:{bold:true,sz:10,color:{rgb:"000000"}}}),
+      txt(ro.materialTitle||"",bodyStyle(NCOLS-1)),
+    ];
+  });
+
+  const hdr1=scheduleColumns.map((value,colIndex)=>
+    typeof value==="number"
+      ?{v:value,t:"n",s:headerStyle(colIndex)}
+      :txt(value,headerStyle(colIndex))
+  );
+  const hdr2=[
+    txt("",dayNameStyle(0,dataRows.length>0)),
+    txt("",dayNameStyle(1,dataRows.length>0)),
+    txt("",dayNameStyle(2,dataRows.length>0)),
+    ...allDates.map((d,offset)=>txt(DOW[d.getDay()],dayNameStyle(3+offset,dataRows.length>0))),
+    txt("",dayNameStyle(NCOLS-2,dataRows.length>0)),
+    txt("",dayNameStyle(NCOLS-1,dataRows.length>0)),
+  ];
+
+  const costHeader=[txt("COSTING SUMMARY",{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:costHeaderFill,border:makeBorder({top:true,bottom:true,left:true}),alignment:{horizontal:"left",vertical:"center"}}),txt("",{fill:costHeaderFill,border:makeBorder({top:true,bottom:true,right:true})}),...blanks(NCOLS-2)];
+  const costRows=[
+    ["Rate per Spot", ratePerSpot, costValBase],
+    [`Gross Total (${totalSpots} spots)`, totals.gross, costValBase],
+    [`Volume Discount (${totals.volumeDiscountPct}%)`, totals.volumeDiscountAmount>0?-totals.volumeDiscountAmount:0, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
+    [`Agency Commission (${totals.agencyCommissionPct}%)`, totals.agencyCommissionAmount>0?-totals.agencyCommissionAmount:0, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
+    ["Net Total", totals.netTotal, {...costValBase,font:{bold:true,sz:10,color:{rgb:"000000"}}}],
+    [`WHT (${totals.whtPct}%)`, -totals.whtAmount, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
+    ["AMOUNT PAYABLE", totals.amountPayable, {font:{bold:true,sz:14,color:{rgb:"1F5E2B"}},fill:{fgColor:{rgb:"E2F0D9"}},alignment:{horizontal:"right",vertical:"center"}}],
+  ].map(([label,value,baseStyle],index)=>{
+    const bottom=index===6;
+    return [
+      txt(label,{...costLabelBase,border:makeBorder({bottom,left:true})}),
+      num(value,{...baseStyle,border:makeBorder({bottom,right:true})}),
+      ...blanks(NCOLS-2),
+    ];
+  });
+
+  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,blanks(NCOLS),costHeader,...costRows];
+  const ws=XLS.utils.aoa_to_sheet(sheetData);
   const metaStart=3;
   const calStart=metaStart+metaFields.length+1;
-  const costStart=calStart+3+calDataRows.length+1;
+  const costStart=calStart+3+dataRows.length+1;
   ws["!merges"]=[
-    {s:{r:0,c:0},e:{r:0,c:NCOLS-1}},                          // company name
-    {s:{r:2,c:0},e:{r:2,c:1}},                                 // RELEASE ORDER
-    {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},             // month title
-    {s:{r:costStart,c:0},e:{r:costStart,c:NCOLS-1}},           // COSTING SUMMARY header
+    {s:{r:0,c:0},e:{r:0,c:4}},
+    {s:{r:2,c:0},e:{r:2,c:1}},
+    {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},
+    {s:{r:costStart,c:0},e:{r:costStart,c:1}},
   ];
-
-  ws["!cols"]=[{wch:24},{wch:22},{wch:20},...Array(daysInMonth).fill({wch:4}),{wch:13},{wch:22}];
-  ws["!rows"]=[{hpt:22},{hpt:6},{hpt:20},...metaFields.map(()=>({hpt:18})),{hpt:6},{hpt:20},{hpt:20},{hpt:18}];
+  ws["!cols"]=[{wch:20},{wch:26},{wch:22},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
+  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
 
   const wb=XLS.utils.book_new();
   XLS.utils.book_append_sheet(wb,ws,"Release Order");
   XLS.writeFile(wb,`${ro.id}_release_order.xlsx`);
 }
-
 // ── Schedule helper ───────────────────────────────────────────────────────────
 function buildScheduleDays(start,end,existing=[],defaultRate=0){
   if(!start||!end||start>end) return [];
@@ -2002,6 +1994,53 @@ function calcRoTotals(ro, whtRate=0){
   return {gross,volumeDiscountPct,agencyCommissionPct,volumeDiscountAmount,agencyCommissionAmount,netTotal,whtPct,whtAmount,amountPayable};
 }
 
+const RO_MATERIAL_DURATION_OPTIONS=[
+  '5" Secs',
+  '10" Secs',
+  '15" Secs Prime Time',
+  '20" Secs',
+  '30" Secs Prime Time',
+  '30" Secs Off Peak',
+  '45" Secs',
+  '60" Secs Prime Time',
+  '60" Secs Off Peak',
+  '90" Secs',
+  '120" Secs / 2 Mins',
+  'Sponsored Mention',
+  'Live Mention',
+  'Product Placement',
+  'Other',
+];
+
+function normalizeRoMaterialDuration(value){
+  if(value===null||value===undefined) return "";
+  const raw=String(value).trim();
+  if(!raw) return "";
+  if(RO_MATERIAL_DURATION_OPTIONS.includes(raw)) return raw;
+  const lower=raw.toLowerCase();
+  if(lower.includes("sponsored")) return "Sponsored Mention";
+  if(lower.includes("live")) return "Live Mention";
+  if(lower.includes("product")) return "Product Placement";
+  const digits=raw.match(/\d+/)?.[0]||"";
+  if(digits==="5") return '5" Secs';
+  if(digits==="10") return '10" Secs';
+  if(digits==="15") return '15" Secs Prime Time';
+  if(digits==="20") return '20" Secs';
+  if(digits==="30" && lower.includes("off")) return '30" Secs Off Peak';
+  if(digits==="30") return '30" Secs Prime Time';
+  if(digits==="45") return '45" Secs';
+  if(digits==="60" && lower.includes("off")) return '60" Secs Off Peak';
+  if(digits==="60") return '60" Secs Prime Time';
+  if(digits==="90") return '90" Secs';
+  if(digits==="120"||lower.includes("2 min")) return '120" Secs / 2 Mins';
+  return raw;
+}
+
+function displayRoMaterialDuration(value){
+  const normalized=normalizeRoMaterialDuration(value);
+  return normalized||"—";
+}
+
 function getRoCalendarCells(ro){
   const monthKey=ro.campaignMonth || ro.start?.slice(0,7) || "";
   if(!monthKey) return null;
@@ -2031,8 +2070,8 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const initialMonth=initial?.campaignMonth || initial?.start?.slice(0,7) || "";
   const initialTimeSlot=initial?.timeSlot ?? initial?.schedule?.find(s=>s.timeSlot)?.timeSlot ?? "";
   // Seed from: editing existing → initial, resuming draft chip → draftInitial, else blank
-  const seed=initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:initial.materialDuration||""}
-    :draftInitial?.form?{...EMPTY_RO,...draftInitial.form}:{...EMPTY_RO};
+  const seed=initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:normalizeRoMaterialDuration(initial.materialDuration)}
+    :draftInitial?.form?{...EMPTY_RO,...draftInitial.form,materialDuration:normalizeRoMaterialDuration(draftInitial.form.materialDuration)}:{...EMPTY_RO};
   const [form,setForm]=useState(seed);
   const [errs,setErrs]=useState({});
   const [step,setStep]=useState(draftInitial?.step||1);
@@ -2230,7 +2269,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
             <FF id="ro-duration" label="Material Duration" style={{gridColumn:"1/-1"}}>
               <select id="ro-duration" className="form-input" value={form.materialDuration||""} onChange={e=>set("materialDuration",e.target.value)}>
                 <option value="">Select duration…</option>
-                {['5" Secs','10" Secs','15" Secs Prime Time','20" Secs','30" Secs Prime Time','30" Secs Off Peak','45" Secs','60" Secs Prime Time','60" Secs Off Peak','90" Secs','120" Secs / 2 Mins','Sponsored Mention','Live Mention','Product Placement','Other'].map(d=><option key={d}>{d}</option>)}
+                {RO_MATERIAL_DURATION_OPTIONS.map(d=><option key={d}>{d}</option>)}
               </select>
             </FF>
           </div>
@@ -3029,7 +3068,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         cell(ro.campaign,{s:{border}}),
         cell(shortId(ro.mpoId)||"—",{s:{border,font:{name:"Courier New",sz:9}}}),
         cell(ro.id,{s:{border,font:{name:"Courier New",sz:9}}}),
-        cell(ro.materialDuration||mpo?.materialDuration||"",{s:{border}}),
+        cell(displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration),{s:{border}}),
         num(mpoAmtInclVat,{s:{border,fill:{fgColor:{rgb:"FFFF00"}},font:{bold:true},alignment:{horizontal:"right"},z:numFmt}}),
         num(roAmtInclVat),
         num(roAmtLessVat),
@@ -3350,7 +3389,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{shortId(ro.mpoId)||"—"}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.id}</td>
-                    <td style={{padding:"7px 10px",fontSize:11}}>{ro.materialDuration||mpo?.materialDuration||"—"}</td>
+                    <td style={{padding:"7px 10px",fontSize:11}}>{displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px"}}>{sym}{roAmtLessVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
@@ -4369,7 +4408,7 @@ const toAudit = r => r ? ({
 const toRo = r => r ? ({
   id: r.id, mpoId: r.mpo_id||"", client: r.client, vendor: r.vendor,
   campaign: r.campaign, channel: r.channel||"TV",
-  programme: r.programme||"", materialTitle: r.material_title||"", materialDuration: r.material_duration||"",
+  programme: r.programme||"", materialTitle: r.material_title||"", materialDuration: normalizeRoMaterialDuration(r.material_duration),
   campaignMonth: r.campaign_month || (r.start_date ? String(r.start_date).slice(0,7) : ""),
   start: r.start_date, end: r.end_date,
   status: r.status||"draft", currency: r.currency||"NGN",
@@ -4383,7 +4422,7 @@ const fromRo = ro => ({
   id: ro.id,
   mpo_id: ro.mpoId||null, client: ro.client, vendor: ro.vendor,
   campaign: ro.campaign, channel: ro.channel||"TV",
-  programme: ro.programme||"", material_title: ro.materialTitle||"", material_duration: ro.materialDuration||"",
+  programme: ro.programme||"", material_title: ro.materialTitle||"", material_duration: normalizeRoMaterialDuration(ro.materialDuration)||"",
   campaign_month: ro.campaignMonth || (ro.start ? String(ro.start).slice(0,7) : null),
   start_date: ro.start, end_date: ro.end,
   status: ro.status||"draft", currency: ro.currency||"NGN",
