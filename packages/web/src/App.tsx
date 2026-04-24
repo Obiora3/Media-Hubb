@@ -1927,16 +1927,16 @@ async function exportROExcel(ro, settings={}){
   const calStart =metaStart+metaFields.length+1; // after spacer
   const costStart=calStart+3+calDataRows.length+1;
   ws["!merges"]=[
-    {s:{r:0,c:0},e:{r:0,c:NCOLS-1}},                       // company name
-    {s:{r:1,c:0},e:{r:1,c:NCOLS-1}},                       // spacer
-    {s:{r:2,c:0},e:{r:2,c:1}},                             // RELEASE ORDER title
-    ...metaFields.map((_,i)=>({s:{r:metaStart+i,c:1},e:{r:metaStart+i,c:NCOLS-1}})), // meta values span remaining cols
-    {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},          // month title
-    {s:{r:costStart,c:0},e:{r:costStart,c:NCOLS-1}},        // COSTING SUMMARY header
-    ...costRows.map((_,i)=>({s:{r:costStart+1+i,c:1},e:{r:costStart+1+i,c:NCOLS-1}})), // cost values span
+    {s:{r:0,c:0},e:{r:0,c:NCOLS-1}},          // company name — full width
+    {s:{r:1,c:0},e:{r:1,c:NCOLS-1}},          // spacer row — full width
+    {s:{r:2,c:0},e:{r:2,c:1}},                // RELEASE ORDER — cols A-B only
+    // meta value cells stay in col B — no merge needed
+    {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},   // month title — full width
+    {s:{r:costStart,c:0},e:{r:costStart,c:NCOLS-1}}, // COSTING SUMMARY header — full width
+    // costing value cells stay in col B — no merge needed
   ];
 
-  ws["!cols"]=[{wch:16},{wch:16},{wch:18},...Array(daysInMonth).fill({wch:4}),{wch:12},{wch:20}];
+  ws["!cols"]=[{wch:22},{wch:24},{wch:20},...Array(daysInMonth).fill({wch:4}),{wch:13},{wch:22}];
   ws["!rows"]=[{hpt:22},{hpt:8},{hpt:20},...metaFields.map(()=>({hpt:18})),{hpt:6},{hpt:20},{hpt:20},{hpt:18}];
 
   const wb=XLS.utils.book_new();
