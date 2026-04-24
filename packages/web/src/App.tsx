@@ -1781,97 +1781,164 @@ async function exportROExcel(ro, settings={}){
   const XLS=await import("xlsx-js-style");
   const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const totals=calcRoTotals(ro,whtRate);
-  const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
   const numFmt="#,##0.00";
-  const intFmt="#,##0";
-  const border={top:{style:"thin",color:{rgb:"AAAAAA"}},bottom:{style:"thin",color:{rgb:"AAAAAA"}},left:{style:"thin",color:{rgb:"AAAAAA"}},right:{style:"thin",color:{rgb:"AAAAAA"}}};
-  const hdrS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"DCE6F1"}},border,alignment:{horizontal:"center",wrapText:true}};
-  const metaLabel={font:{bold:true,sz:10},fill:{fgColor:{rgb:"F2F2F2"}},border};
-  const metaVal={font:{sz:10},border};
-  const numCell=(v,extra={})=>({v,t:"n",z:numFmt,s:{border,alignment:{horizontal:"center"},...extra}});
-  const spotCell=(v,extra={})=>({v,t:"n",z:intFmt,s:{border,alignment:{horizontal:"center"},...extra}});
-  const txtCell=(v,s={})=>({v:v||"",t:"s",s:{border,alignment:{horizontal:"center"},...s}});
 
-  // ── Campaign month label ──────────────────────────────────────────────────
+  // ── Border helpers ────────────────────────────────────────────────────────
+  const thin=(rgb="BBBBBB")=>({style:"thin",color:{rgb}});
+  const med=(rgb="000000")=>({style:"medium",color:{rgb}});
+  const innerB={top:thin(),bottom:thin(),left:thin(),right:thin()};
+  // Outer border for meta box cells (applied per-cell at edges)
+  const outerTop={top:med(),bottom:thin(),left:thin(),right:thin()};
+  const outerBot={top:thin(),bottom:med(),left:thin(),right:thin()};
+  const outerL  ={top:thin(),bottom:thin(),left:med(), right:thin()};
+  const outerR  ={top:thin(),bottom:thin(),left:thin(),right:med()};
+  const outerTL ={top:med(),bottom:thin(),left:med(), right:thin()};
+  const outerTR ={top:med(),bottom:thin(),left:thin(),right:med()};
+  const outerBL ={top:thin(),bottom:med(),left:med(), right:thin()};
+  const outerBR ={top:thin(),bottom:med(),left:thin(),right:med()};
+  const allMed  ={top:med(),bottom:med(),left:med(), right:med()};
+
+  // ── Style presets ─────────────────────────────────────────────────────────
+  const metaLblS=(bord=innerB)=>({font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1A3A6B"}},border:bord,alignment:{horizontal:"left"}});
+  const metaValS=(bord=innerB)=>({font:{sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:bord});
+  const colHdrS ={font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1A3A6B"}},border:innerB,alignment:{horizontal:"center",wrapText:true}};
+  const dayNumS ={font:{bold:true,sz:9, color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"4472C4"}},border:innerB,alignment:{horizontal:"center"}};
+  const dayNameS={font:{bold:true,sz:9, color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"4472C4"}},border:innerB,alignment:{horizontal:"center"}};
+  const dataS   ={font:{sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:innerB,alignment:{horizontal:"left"}};
+  const spotS   ={font:{bold:true,sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:innerB,alignment:{horizontal:"center"}};
+  const spotTotS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"EAF3DE"}},border:innerB,alignment:{horizontal:"center"}};
+  const costLblS={font:{bold:true,sz:10},fill:{fgColor:{rgb:"F2F2F2"}},border:innerB,alignment:{horizontal:"left"}};
+  const costValS=(extra={})=>({font:{sz:10},fill:{fgColor:{rgb:"FFFFFF"}},border:innerB,alignment:{horizontal:"right"},...extra});
+
+  const txt=(v,s)=>({v:v??""  ,t:"s",s});
+  const num=(v,s)=>({v:v??0   ,t:"n",z:numFmt,s});
+  const numi=(v,s)=>({v:v??0  ,t:"n",z:"#,##0",s});
+  const empty=(s=innerB)=>({v:"",t:"s",s:{border:s}});
+
+  // ── Campaign month + all days in month ────────────────────────────────────
   const monthKey=ro.campaignMonth||ro.start?.slice(0,7)||"";
+  const [mYr,mMo]=(monthKey||"2026-01").split("-").map(Number);
+  const daysInMonth=new Date(mYr,mMo,0).getDate();
+  const allDays=Array.from({length:daysInMonth},(_,i)=>i+1);
+  const allDates=allDays.map(d=>new Date(mYr,mMo-1,d));
   const campaignMonthLabel=monthKey
-    ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"})
-    :"—";
+    ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
   const campaignMonthUpper=campaignMonthLabel.toUpperCase();
 
-  // ── Section 1: RO header info (2-col label-value pairs) ───────────────────
-  const companyName=(settings as any).companyName||"MediaHub";
-  const tagline=(settings as any).tagline||"Media Agency · Lagos, Nigeria";
-  const metaRows=[
-    [{v:companyName,t:"s",s:{font:{bold:true,sz:15,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},{v:tagline,t:"s",s:{font:{sz:9,italic:true,color:{rgb:"999999"}},alignment:{horizontal:"right"}}}],
-    [{v:"",t:"s",s:{}},{v:"",t:"s",s:{}}], // spacer
-    [{v:"RELEASE ORDER",t:"s",s:{font:{bold:true,sz:14},alignment:{horizontal:"center"}}},{v:"",t:"s",s:{}}],
-    [{v:"RO Number:",t:"s",s:metaLabel},{v:ro.id,t:"s",s:{...metaVal,font:{bold:true,color:{rgb:"534AB7"}}}}],
-    [{v:"Client:",t:"s",s:metaLabel},{v:ro.client||"",t:"s",s:metaVal}],
-    [{v:"Vendor / Station:",t:"s",s:metaLabel},{v:ro.vendor||"",t:"s",s:metaVal}],
-    [{v:"Campaign:",t:"s",s:metaLabel},{v:ro.campaign||"",t:"s",s:metaVal}],
-    [{v:"Material Title:",t:"s",s:metaLabel},{v:ro.materialTitle||"",t:"s",s:metaVal}],
-    [{v:"Channel:",t:"s",s:metaLabel},{v:ro.channel||"",t:"s",s:metaVal}],
-    [{v:"Period:",t:"s",s:metaLabel},{v:campaignMonthLabel,t:"s",s:metaVal}],
-    [{v:"Currency:",t:"s",s:metaLabel},{v:ro.currency||"NGN",t:"s",s:metaVal}],
-    [{v:"",t:"s",s:{}},{v:"",t:"s",s:{}}], // spacer
-  ];
-
-  // ── Section 2: Horizontal calendar ─────────────────────────────────────
-  const activeDays=(ro.schedule||[]).filter(s=>Number(s.spots)>0);
-  const dayNumbers=activeDays.map(s=>new Date(s.date+"T12:00:00").getDate());
-  const dayNames=activeDays.map(s=>DOW[new Date(s.date+"T12:00:00").getDay()]);
-  const matDur=ro.materialDuration||"—";
-
-  const calTitle=[{v:campaignMonthUpper,t:"s",s:{font:{bold:true,color:{rgb:"FFFFFF"},sz:11},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"center"}}},...Array(activeDays.length+3).fill({v:"",t:"s",s:{}})];
-  const calHdr1=[{v:"TIME BELT",t:"s",s:hdrS},{v:"PROGRAMME",t:"s",s:hdrS},...dayNumbers.map(d=>({v:d,t:"n",s:{...hdrS,alignment:{horizontal:"center"}}})),{v:"NO OF SPOTS",t:"s",s:hdrS},{v:"MATERIAL DURATION",t:"s",s:hdrS},{v:"MATERIAL TITLE",t:"s",s:hdrS}];
-  const calHdr2=[{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS},...dayNames.map(d=>({v:d,t:"s",s:{...hdrS}})),{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS},{v:"",t:"s",s:hdrS}];
-
-  // Group by time slot
-  const slotMap=new Map();
+  // Build spot lookup by day number
+  const schedMap=new Map<number,number>();
   (ro.schedule||[]).forEach(s=>{
-    if(Number(s.spots)>0){const slot=s.timeSlot||ro.timeSlot||"—";if(!slotMap.has(slot))slotMap.set(slot,new Map());slotMap.get(slot).set(new Date(s.date+"T12:00:00").getDate(),Number(s.spots));}
+    const d=new Date(s.date+"T12:00:00").getDate();
+    schedMap.set(d,(schedMap.get(d)||0)+Number(s.spots||0));
   });
-  const calDataRows=[...slotMap.entries()].map(([slot,dayMap])=>{
-    const rowTotal=[...dayMap.values()].reduce((a,v)=>a+v,0);
-    return [
-      txtCell(slot,{alignment:{horizontal:"left"}}),
-      txtCell(ro.programme||"",{alignment:{horizontal:"left"}}),
-      ...dayNumbers.map(d=>dayMap.has(d)?spotCell(dayMap.get(d),{s:{border,alignment:{horizontal:"center"},font:{bold:true}}}):txtCell("",{fill:{fgColor:{rgb:"F9F9F9"}}})),
-      spotCell(rowTotal,{s:{border,font:{bold:true},fill:{fgColor:{rgb:"EAF3DE"}},alignment:{horizontal:"center"}}}),
-      txtCell(matDur,{alignment:{horizontal:"center"}}),
-      txtCell(ro.materialTitle||"",{alignment:{horizontal:"left"}}),
-    ];
-  });
-  if(calDataRows.length===0) calDataRows.push([txtCell("No spots selected",{alignment:{horizontal:"left"}}),...Array(activeDays.length+4).fill(txtCell(""))]);
+  const totalSpots=[...schedMap.values()].reduce((a,v)=>a+v,0);
+  const matDur=ro.materialDuration?`${ro.materialDuration}" Secs`:ro.materialDuration||"—";
 
-  // ── Section 3: Costing summary ───────────────────────────────────────────
-  const spacer=[{v:"",t:"s",s:{}}];
-  const costHdr=[{v:"COSTING SUMMARY",t:"s",s:{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"center"}}},{v:"",t:"s",s:{}}];
-  const costRows=[
-    [{v:"Rate per Spot",t:"s",s:metaLabel},{v:totals.gross>0&&activeDays.length>0?totals.gross/activeDays.reduce((a,s)=>a+Number(s.spots),0):Number(ro.rate)||0,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"}}}],
-    [{v:`Gross Total (${activeDays.reduce((a,s)=>a+Number(s.spots),0)} spots)`,t:"s",s:metaLabel},{v:totals.gross,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"}}}],
-    [{v:`Volume Discount (${totals.volumeDiscountPct}%)`,t:"s",s:metaLabel},{v:-totals.volumeDiscountAmount,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"A32D2D"}}}}],
-    [{v:`Agency Commission (${totals.agencyCommissionPct}%)`,t:"s",s:metaLabel},{v:-totals.agencyCommissionAmount,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"A32D2D"}}}}],
-    [{v:"Net Total",t:"s",s:{...metaLabel,font:{bold:true}}},{v:totals.netTotal,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{bold:true}}}],
-    [{v:`WHT (${totals.whtPct}%)`,t:"s",s:metaLabel},{v:-totals.whtAmount,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"A32D2D"}}}}],
-    [{v:"AMOUNT PAYABLE",t:"s",s:{...metaLabel,font:{bold:true,sz:11}}},{v:totals.amountPayable,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},font:{bold:true,sz:12,color:{rgb:"1F5C1F"}},fill:{fgColor:{rgb:"EAF3DE"}}}}],
+  // ── Column layout: TIME BELT | PROGRAMME | MAT DUR | d1…dN | NO OF SPOTS | MAT TITLE ──
+  const NCOLS=3+daysInMonth+2; // 3 fixed left + days + 2 fixed right
+  const fill=(n,s=innerB)=>Array(n).fill(empty(s));
+
+  // ── Meta / header section ─────────────────────────────────────────────────
+  const companyName=(settings as any).companyName||"MediaHub";
+  // Row 0: company name (merged across all cols)
+  const row0=[{v:companyName,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"},border:{top:med(),bottom:thin(),left:med(),right:med()}}},...fill(NCOLS-1)];
+  // Row 1: spacer
+  const row1=[{v:"",t:"s",s:{border:{top:thin(),bottom:thin(),left:med(),right:med()}}},...fill(NCOLS-1)];
+  // Row 2: RELEASE ORDER (merged cols 0-1)
+  const row2=[{v:"RELEASE ORDER",t:"s",s:{font:{bold:true,sz:13},alignment:{horizontal:"center"},border:{top:thin(),bottom:thin(),left:med(),right:thin()}}},{v:"",t:"s",s:{border:{top:thin(),bottom:thin(),left:thin(),right:med()}}},...fill(NCOLS-2)];
+
+  const metaFields=[
+    ["RO Number:",    ro.id||""],
+    ["Brand:",        ro.client||""],
+    ["Vendor / Station:", ro.vendor||""],
+    ["Campaign:",     ro.campaign||""],
+    ["Channel:",      ro.channel||""],
+    ["Period:",       campaignMonthLabel],
+    ["Currency:",     ro.currency||"NGN"],
+  ];
+  const metaDataRows=metaFields.map(([lbl,val],i)=>{
+    const isLast=i===metaFields.length-1;
+    const lblB=isLast?outerBL:outerL;
+    const valB=isLast?outerBR:outerR;
+    return [{v:lbl,t:"s",s:metaLblS(lblB)},{v:val,t:"s",s:metaValS(valB)},...fill(NCOLS-2)];
+  });
+
+  // ── Calendar section ──────────────────────────────────────────────────────
+  const spacerRow=[...fill(NCOLS)];
+
+  // Month title row (yellow) — merged
+  const monthTitleRow=[{v:campaignMonthUpper,t:"s",s:{font:{bold:true,sz:11,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFD700"}},border:allMed,alignment:{horizontal:"center",vertical:"center"}}},...fill(NCOLS-1)];
+
+  // Header row 1: fixed cols + day numbers + fixed cols
+  const hdr1=[
+    {v:"TIME BELT (CAT)",t:"s",s:colHdrS},
+    {v:"PROGRAMME",t:"s",s:colHdrS},
+    {v:"MATERIAL DURATION",t:"s",s:colHdrS},
+    ...allDays.map(d=>({v:d,t:"n",s:dayNumS})),
+    {v:"NO OF SPOTS",t:"s",s:colHdrS},
+    {v:"MATERIAL TITLE",t:"s",s:colHdrS},
   ];
 
-  // ── Assemble sheet ────────────────────────────────────────────────────────
-  const sheetData=[...metaRows,calTitle,calHdr1,calHdr2,...calDataRows,spacer,costHdr,...costRows];
+  // Header row 2: day names
+  const hdr2=[
+    empty(innerB),empty(innerB),empty(innerB),
+    ...allDates.map(d=>({v:DOW[d.getDay()],t:"s",s:dayNameS})),
+    empty(innerB),empty(innerB),
+  ];
+
+  // Data row(s) — group by time slot
+  const slotMap=new Map<string,string>();
+  (ro.schedule||[]).forEach(s=>{ if(Number(s.spots)>0){ const slot=s.timeSlot||ro.timeSlot||"—"; slotMap.set(slot,slot); } });
+  const slots=[...new Set((ro.schedule||[]).map(s=>s.timeSlot||ro.timeSlot||"—"))].filter(Boolean);
+  const calDataRows=slots.length>0?slots.map(slot=>{
+    const slotSpots=new Map<number,number>();
+    (ro.schedule||[]).filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot&&Number(s.spots)>0)
+      .forEach(s=>slotSpots.set(new Date(s.date+"T12:00:00").getDate(),Number(s.spots)));
+    const rowTotal=[...slotSpots.values()].reduce((a,v)=>a+v,0);
+    return [
+      txt(slot,{...dataS,alignment:{horizontal:"left"}}),
+      txt(ro.programme||"ROS",{...dataS,alignment:{horizontal:"left"}}),
+      txt(matDur,{...dataS,alignment:{horizontal:"center"}}),
+      ...allDays.map(d=>slotSpots.has(d)?numi(slotSpots.get(d),spotS):empty(innerB)),
+      numi(rowTotal,spotTotS),
+      txt(ro.materialTitle||"",{...dataS,alignment:{horizontal:"left"}}),
+    ];
+  }):[[ txt("—",dataS),txt(ro.programme||"",dataS),txt(matDur,dataS),...fill(daysInMonth),numi(0,spotTotS),txt("",dataS) ]];
+
+  // ── Costing summary ───────────────────────────────────────────────────────
+  const ratePerSpot=totalSpots>0?totals.gross/totalSpots:Number(ro.rate)||0;
+  const costHdrRow=[{v:"COSTING SUMMARY",t:"s",s:{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border:allMed,alignment:{horizontal:"left"}}},{v:"",t:"s",s:{border:innerB}},...fill(NCOLS-2)];
+  const costRows=[
+    [txt("Rate per Spot",costLblS),          num(ratePerSpot,costValS())],
+    [txt(`Gross Total (${totalSpots} spots)`,costLblS), num(totals.gross,costValS())],
+    [txt(`Volume Discount (${totals.volumeDiscountPct}%)`,costLblS), num(totals.volumeDiscountAmount>0?-totals.volumeDiscountAmount:0.00,costValS({font:{sz:10,color:{rgb:"A32D2D"}}}))],
+    [txt(`Agency Commission (${totals.agencyCommissionPct}%)`,costLblS), num(totals.agencyCommissionAmount>0?-totals.agencyCommissionAmount:0.00,costValS({font:{sz:10,color:{rgb:"A32D2D"}}}))],
+    [txt("Net Total",{...costLblS,font:{bold:true,sz:10}}),  num(totals.netTotal,costValS({font:{bold:true,sz:10}}))],
+    [txt(`WHT (${totals.whtPct}%)`,costLblS), num(-totals.whtAmount,costValS({font:{sz:10,color:{rgb:"A32D2D"}}}))],
+    [txt("AMOUNT PAYABLE",{...costLblS,font:{bold:true,sz:11},fill:{fgColor:{rgb:"D6E8D6"}}}), num(totals.amountPayable,costValS({font:{bold:true,sz:12,color:{rgb:"1F5C1F"}},fill:{fgColor:{rgb:"EAF3DE"}}}))],
+  ].map(([l,v])=>[l,v,...fill(NCOLS-2)]);
+
+  // ── Assemble ──────────────────────────────────────────────────────────────
+  const sheetData=[row0,row1,row2,...metaDataRows,spacerRow,monthTitleRow,hdr1,hdr2,...calDataRows,spacerRow,costHdrRow,...costRows];
   const ws=XLS.utils.aoa_to_sheet(sheetData);
 
-  // Merges: company header, RO title, broadcast title, costing title
-  const mergeWidth=activeDays.length+4; // timebelt + programme + days + no.spots + mat.dur + mat.title
+  // Merges
+  const metaStart=3; // row index where meta fields start
+  const calStart =metaStart+metaFields.length+1; // after spacer
+  const costStart=calStart+3+calDataRows.length+1;
   ws["!merges"]=[
-    {s:{r:0,c:0},e:{r:0,c:mergeWidth}}, // company name row
-    {s:{r:2,c:0},e:{r:2,c:1}}, // RELEASE ORDER title
-    {s:{r:metaRows.length,c:0},e:{r:metaRows.length,c:mergeWidth}}, // campaign month title
-    {s:{r:metaRows.length+calDataRows.length+3,c:0},e:{r:metaRows.length+calDataRows.length+3,c:1}}, // COSTING SUMMARY
+    {s:{r:0,c:0},e:{r:0,c:NCOLS-1}},                       // company name
+    {s:{r:1,c:0},e:{r:1,c:NCOLS-1}},                       // spacer
+    {s:{r:2,c:0},e:{r:2,c:1}},                             // RELEASE ORDER title
+    ...metaFields.map((_,i)=>({s:{r:metaStart+i,c:1},e:{r:metaStart+i,c:NCOLS-1}})), // meta values span remaining cols
+    {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},          // month title
+    {s:{r:costStart,c:0},e:{r:costStart,c:NCOLS-1}},        // COSTING SUMMARY header
+    ...costRows.map((_,i)=>({s:{r:costStart+1+i,c:1},e:{r:costStart+1+i,c:NCOLS-1}})), // cost values span
   ];
 
-  ws["!cols"]=[{wch:18},{wch:20},...Array(activeDays.length).fill({wch:5}),{wch:12},{wch:18},{wch:22}];
+  ws["!cols"]=[{wch:16},{wch:16},{wch:18},...Array(daysInMonth).fill({wch:4}),{wch:12},{wch:20}];
+  ws["!rows"]=[{hpt:22},{hpt:8},{hpt:20},...metaFields.map(()=>({hpt:18})),{hpt:6},{hpt:20},{hpt:20},{hpt:18}];
+
   const wb=XLS.utils.book_new();
   XLS.utils.book_append_sheet(wb,ws,"Release Order");
   XLS.writeFile(wb,`${ro.id}_release_order.xlsx`);
