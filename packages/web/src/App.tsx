@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "rea
 import { useAuth } from "@/hooks/useAuth"
 import { useSupabaseTable } from "@/hooks/useSupabaseTable"
 import { AuthScreen } from "@/components/auth/AuthScreen"
+import { SetPasswordScreen } from "@/components/auth/SetPasswordScreen"
 import { supabase } from "@/lib/supabase"
 
 /* ═══ HELPERS ═══ */
@@ -4342,7 +4343,7 @@ function makeArraySetter(getLocal, insertFn, updateFn, removeFn, fromRow, worksp
 
 function App(){
   // ── Auth ────────────────────────────────────────────────────────────────────
-  const { session, profile, loading: authLoading, signOut } = useAuth();
+  const { session, profile, loading: authLoading, needsPassword, signOut } = useAuth();
   const workspaceId = profile?.workspace_id ?? null;
   const currentUser = profile ? {
     ...profile,
@@ -4501,6 +4502,7 @@ function App(){
   );
 
   if(!session) return <AuthScreen onSuccess={()=>toast("Welcome back!","info")}/>;
+  if(needsPassword) return <SetPasswordScreen/>;
   if(!currentUser) return(
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"var(--bg)"}}>
       <div style={{width:40,height:40,borderRadius:"50%",border:"3px solid var(--brand)",borderTopColor:"transparent",animation:"spin 0.8s linear infinite"}}/>

@@ -8,6 +8,7 @@ interface AuthState {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  needsPassword: boolean;
 }
 
 interface SignInResult {
@@ -19,11 +20,15 @@ interface SignUpResult {
 }
 
 export function useAuth() {
+  // Detect invite/recovery links before Supabase clears the hash
   const [state, setState] = useState<AuthState>({
     session: null,
     user: null,
     profile: null,
     loading: true,
+    needsPassword: typeof window !== "undefined" &&
+      (window.location.hash.includes("type=invite") ||
+       window.location.hash.includes("type=recovery")),
   });
 
   // Load session on mount and listen for changes
@@ -36,7 +41,12 @@ export function useAuth() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setState((s) => ({ ...s, needsPassword: true, session, user: session?.user ?? null }));
+        if (session?.user) fetchProfile(session.user);
+        return;
+      }
       setState((s) => ({ ...s, session, user: session?.user ?? null }));
       if (session?.user) fetchProfile(session.user);
       else setState((s) => ({ ...s, profile: null, loading: false }));
@@ -151,11 +161,18 @@ export function useAuth() {
     return { error };
   }
 
+  async function setPassword(password: string): Promise<{ error: AuthError | null }> {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (!error) setState((s) => ({ ...s, needsPassword: false }));
+    return { error };
+  }
+
   return {
     ...state,
     signIn,
     signUp,
     signOut,
     resetPassword,
+    setPassword,
   };
 }
