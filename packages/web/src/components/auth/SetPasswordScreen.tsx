@@ -15,8 +15,9 @@ export function SetPasswordScreen() {
     if (password !== confirm) { setError("Passwords do not match."); return; }
     setLoading(true);
     const { error } = await setPassword(password);
-    if (error) setError(error.message);
-    setLoading(false);
+    if (error) { setError(error.message); setLoading(false); return; }
+    // Reload without the invite hash — session persists, needsPassword will be false
+    window.location.replace(window.location.origin + window.location.pathname);
   }
 
   return (
