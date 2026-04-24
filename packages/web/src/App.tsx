@@ -1684,7 +1684,7 @@ function printROCalendarLegacy(ro, settings={}){
 
   const css=`*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:20px 18px;font-size:11px}
-@page{size:landscape;margin:12mm}
+@page{size:portrait;margin:12mm}
 @media print{body{padding:0}}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .brand{font-size:17px;font-weight:800;color:#1a2d5a}
