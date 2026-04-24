@@ -2886,21 +2886,6 @@ function RevenueTargetPage({mpos,settings,setSettings}){
         </div>
       </div>
 
-      {/* Summary KPIs */}
-      <div className="card" style={{padding:"14px 16px"}}>
-        <div style={{fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"var(--text3)",marginBottom:12}}>Revenue Summary — {revYear}</div>
-        {metricRow(`Total Annual Revenue Target (${sym})`,<strong>{fm(totalTarget)}</strong>)}
-        {metricRow(`Total Annual Revenue Achieved (JAN–DEC ${revYear})`,<><strong style={{color:annualGap>=0?"#3B6D11":"#185FA5"}}>{fm(totalBooked)}</strong>{pctBadge(annualPct)}</>)}
-        {metricRow("  — Annual Revenue Gap",gapSpan(annualGap))}
-        {metricRow("Total Revenue To Current Month — PROJ",<strong>{fm(monthProj)}</strong>)}
-        {metricRow("Total Revenue To Current Month (Achieved)",<><strong>{fm(bookedToMonth)}</strong>{pctBadge(monthlyPct)}</>)}
-        {metricRow("  — Monthly Revenue Gap",gapSpan(monthlyGap))}
-        {metricRow("Total Booked For The Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
-        {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,<strong>{fm(q1Target)}</strong>)}
-        {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,<><strong>{fm(q1Booked)}</strong>{pctBadge(q1Pct)}</>)}
-        {metricRow("  — EOQ Q1 Gap",gapSpan(q1Gap))}
-      </div>
-
       {/* Callout cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,minWidth:0}}>
         {([
@@ -2916,6 +2901,21 @@ function RevenueTargetPage({mpos,settings,setSettings}){
             {c.bar!=null&&<div style={{marginTop:8,height:6,background:"rgba(0,0,0,.08)",borderRadius:3}}><div style={{width:`${c.bar}%`,height:"100%",background:c.color,borderRadius:3}}/></div>}
           </div>
         ))}
+      </div>
+
+      {/* Summary KPIs */}
+      <div className="card" style={{padding:"14px 16px"}}>
+        <div style={{fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"var(--text3)",marginBottom:12}}>Revenue Summary — {revYear}</div>
+        {metricRow(`Total Annual Revenue Target (${sym})`,<strong>{fm(totalTarget)}</strong>)}
+        {metricRow(`Total Annual Revenue Achieved (JAN–DEC ${revYear})`,<><strong style={{color:annualGap>=0?"#3B6D11":"#185FA5"}}>{fm(totalBooked)}</strong>{pctBadge(annualPct)}</>)}
+        {metricRow("  — Annual Revenue Gap",gapSpan(annualGap))}
+        {metricRow("Total Revenue To Current Month — PROJ",<strong>{fm(monthProj)}</strong>)}
+        {metricRow("Total Revenue To Current Month (Achieved)",<><strong>{fm(bookedToMonth)}</strong>{pctBadge(monthlyPct)}</>)}
+        {metricRow("  — Monthly Revenue Gap",gapSpan(monthlyGap))}
+        {metricRow("Total Booked For The Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
+        {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,<strong>{fm(q1Target)}</strong>)}
+        {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,<><strong>{fm(q1Booked)}</strong>{pctBadge(q1Pct)}</>)}
+        {metricRow("  — EOQ Q1 Gap",gapSpan(q1Gap))}
       </div>
 
       {/* Advertiser breakdown table */}
