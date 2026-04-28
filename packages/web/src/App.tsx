@@ -1774,7 +1774,6 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
 <table class="cst">
   <thead><tr><th colspan="2">COSTING SUMMARY</th></tr></thead>
   <tbody>
-    <tr><td>Rate per Spot</td><td>${fa(ro.rate||0)}</td></tr>
     <tr><td>Gross Total</td><td>${fa(totals.gross)}</td></tr>
     <tr><td>Volume Discount (${totals.volumeDiscountPct}%)</td><td class="neg">- ${fa(totals.volumeDiscountAmount)}</td></tr>
     <tr><td>Agency Commission (${totals.agencyCommissionPct}%)</td><td class="neg">- ${fa(totals.agencyCommissionAmount)}</td></tr>
@@ -1936,7 +1935,6 @@ async function exportROExcel(ro, settings={}){
 
   const costHeader=[txt("COSTING SUMMARY",{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:costHeaderFill,border:makeBorder({top:true,bottom:true,left:true}),alignment:{horizontal:"left",vertical:"center"}}),txt("",{fill:costHeaderFill,border:makeBorder({top:true,bottom:true,right:true})}),...blanks(NCOLS-2)];
   const costRows=[
-    ["Rate per Spot", ratePerSpot, costValBase],
     [`Gross Total (${totalSpots} spots)`, totals.gross, costValBase],
     [`Volume Discount (${totals.volumeDiscountPct}%)`, totals.volumeDiscountAmount>0?-totals.volumeDiscountAmount:0, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
     [`Agency Commission (${totals.agencyCommissionPct}%)`, totals.agencyCommissionAmount>0?-totals.agencyCommissionAmount:0, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
@@ -2167,7 +2165,8 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
     })
   }));
 
-  const totals=calcRoTotals(form,settings?.whtRate??5);
+  const effectiveSchedule=[...form.schedule,...(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(r.rate)||Number(form.rate)||0,timeSlot:r.timeSlot||""})))];
+  const totals=calcRoTotals({...form,schedule:effectiveSchedule},settings?.whtRate??5);
   const monthInfo=useMemo(()=>{
     if(!form.campaignMonth) return null;
     const [year,month]=form.campaignMonth.split("-").map(Number);
@@ -2479,9 +2478,6 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:8,alignItems:"start"}}>
           {/* Left: fields */}
           <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <FF id="ro-rate" label={`Rate per Spot (${sym})`} required err={errs.rate}>
-              <input id="ro-rate" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" value={form.rate||""} onChange={e=>applyRateToSchedule(Number(e.target.value)||0)} placeholder="Enter rate"/>
-            </FF>
             <FF id="ro-volume-discount" label="Volume Discount (%)" err={errs.volumeDiscount}>
               <input id="ro-volume-discount" className="form-input" type="number" min="0" value={form.volumeDiscount||""} onChange={e=>set("volumeDiscount",Number(e.target.value)||0)} placeholder="0"/>
             </FF>
@@ -2500,7 +2496,6 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
           <div style={{background:"var(--bg3)",borderRadius:12,padding:16,border:"1px solid var(--border-c)",position:"sticky",top:0}}>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"var(--text3)",marginBottom:12}}>Costing Summary</div>
             {([
-              {label:"Rate per Spot",val:fa(form.rate||0)},
               {label:`Gross Total (${totalSpots} spot${totalSpots!==1?"s":""})`,val:fa(totals.gross),sep:false},
               {label:`Volume Discount (${totals.volumeDiscountPct}%)`,val:`− ${fa(totals.volumeDiscountAmount)}`,red:true},
               {label:`Agency Commission (${totals.agencyCommissionPct}%)`,val:`− ${fa(totals.agencyCommissionAmount)}`,red:true},
@@ -3149,9 +3144,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       const roAmtLessVat=netTotal;
       const roAmtInclVat=netTotal*vatMult;
       const mpoAmtInclVat=mpo?mpo.amount*vatMult:0;
-      const ratePerSpot=totalSpots>0?amountPayable/totalSpots:0;
       const monthLabel=ro.campaignMonth?new Date(ro.campaignMonth+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
-      return {ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht:amountPayable,ratePerSpot,monthLabel};
+      return {ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht:amountPayable,monthLabel};
     }).filter(Boolean);
   },[ros,mpos,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate]);
 
@@ -3162,7 +3156,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
     const XLS=await import("xlsx-js-style");
     if(tab==="media-buy"){
       // ── helpers ──────────────────────────────────────────────────────────────
-      const COLS=13;
+      const COLS=12;
       const numFmt="#,##0.00";
       const border={top:{style:"thin",color:{rgb:"BBBBBB"}},bottom:{style:"thin",color:{rgb:"BBBBBB"}},left:{style:"thin",color:{rgb:"BBBBBB"}},right:{style:"thin",color:{rgb:"BBBBBB"}}};
       const cell=(v,s={})=>({v,t:typeof v==="number"?"n":"s",...(s as any)});
@@ -3178,12 +3172,12 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       const titleCell={v:title,t:"s",s:{font:{bold:true,sz:13},alignment:{horizontal:"center",vertical:"center"},fill:{fgColor:{rgb:"FFFFFF"}}}};
 
       // ── column headers ────────────────────────────────────────────────────────
-      const HEADERS=["Month","Agency Name","Client Name","Brand Name","Media Order Number","RO Number","Material Duration","MPO Amt (incl VAT)","RO Amt (incl VAT)","RO Amt less VAT","Net Amount less WHT NGN","Nos of Spot","Rate Per Spot"];
+      const HEADERS=["Month","Agency Name","Client Name","Brand Name","Media Order Number","RO Number","Material Duration","MPO Amt (incl VAT)","RO Amt (incl VAT)","RO Amt less VAT","Net Amount less WHT NGN","Nos of Spot"];
       const hdrStyle=(isYellow=false)=>({font:{bold:true,sz:10},fill:{fgColor:{rgb:isYellow?"FFFF00":"DCE6F1"}},border,alignment:{horizontal:"center",wrapText:true}});
       const hdrRow=HEADERS.map((h,i)=>({v:h,t:"s",s:hdrStyle(i===7)}));
 
       // ── data rows ─────────────────────────────────────────────────────────────
-      const dataRows=mbRows.map(({ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel})=>[
+      const dataRows=mbRows.map(({ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel})=>[
         cell(monthLabel,{s:{border,alignment:{horizontal:"center"}}}),
         cell(mpo?.agency||agencyName,{s:{border}}),
         cell(ro.client,{s:{border}}),
@@ -3196,7 +3190,6 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         num(roAmtLessVat),
         num(netAfterWht,{s:{border,font:{bold:true,color:{rgb:"1F5C1F"}},alignment:{horizontal:"right"},z:numFmt}}),
         {v:totalSpots,t:"n",s:{border,alignment:{horizontal:"center"},font:{bold:true}}},
-        num(ratePerSpot),
       ]);
 
       // ── totals ────────────────────────────────────────────────────────────────
@@ -3205,7 +3198,6 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       const totRoLessVat=mbRows.reduce((a,r)=>a+r.roAmtLessVat,0);
       const totNet=mbRows.reduce((a,r)=>a+r.netAfterWht,0);
       const totSpots=mbRows.reduce((a,r)=>a+r.totalSpots,0);
-      const totRate=totSpots>0?totNet/totSpots:0;
       const totStyle={font:{bold:true,sz:10},fill:{fgColor:{rgb:"E8E8E8"}},border};
       const totRow=[
         {v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},
@@ -3216,7 +3208,6 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         {v:totRoLessVat,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
         {v:totNet,t:"n",z:numFmt,s:{...totStyle,font:{bold:true,color:{rgb:"1F5C1F"}},alignment:{horizontal:"right"}}},
         {v:totSpots,t:"n",s:{...totStyle,alignment:{horizontal:"center"}}},
-        {v:totRate,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
       ];
 
       // ── assemble sheet ────────────────────────────────────────────────────────
@@ -3227,7 +3218,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       ws["!merges"]=[{s:{r:1,c:0},e:{r:1,c:COLS-1}}];
 
       // Column widths
-      ws["!cols"]=[{wch:12},{wch:16},{wch:20},{wch:18},{wch:22},{wch:16},{wch:20},{wch:16},{wch:16},{wch:16},{wch:22},{wch:10},{wch:14}];
+      ws["!cols"]=[{wch:12},{wch:16},{wch:20},{wch:18},{wch:22},{wch:16},{wch:20},{wch:16},{wch:16},{wch:16},{wch:22},{wch:10}];
 
       // Row heights: logo row + title row taller
       ws["!rows"]=[{hpt:22},{hpt:24},{hpt:32}];
@@ -3495,7 +3486,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
               <thead>
                 <tr style={{background:"var(--bg3)"}}>
-                  {["Agency Name","Client Name","Brand / Campaign","Month","Media Order No.","RO Number","Material / Duration","MPO Amt\n(incl VAT)","RO Amt\n(incl VAT)","RO Amt\nless VAT","Net Amt\nless WHT","No. of\nSpots","Rate\nPer Spot"].map(h=>(
+                  {["Agency Name","Client Name","Brand / Campaign","Month","Media Order No.","RO Number","Material / Duration","MPO Amt\n(incl VAT)","RO Amt\n(incl VAT)","RO Amt\nless VAT","Net Amt\nless WHT","No. of\nSpots"].map(h=>(
                     <th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:700,fontSize:10,letterSpacing:".04em",textTransform:"uppercase",color:"var(--text2)",borderBottom:"2px solid var(--border-c)",whiteSpace:"pre-line",lineHeight:1.2,position:"sticky",top:0,background:"var(--bg3)",zIndex:2}}>{h}</th>
                   ))}
                 </tr>
@@ -3503,7 +3494,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
               <tbody>
                 {mbRows.length===0?(
                   <tr><td colSpan={12} style={{padding:"32px 16px",textAlign:"center",color:"var(--text3)",fontSize:12}}>No ROs found. Create Release Orders in the Scheduling page.</td></tr>
-                ):mbRows.map(({ro,mpo,totalSpots,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,ratePerSpot,monthLabel},i)=>(
+                ):mbRows.map(({ro,mpo,totalSpots,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel},i)=>(
                   <tr key={ro.id} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}>
                     <td style={{padding:"7px 10px",fontWeight:500}}>{mpo?.agency||agencyName}</td>
                     <td style={{padding:"7px 10px"}}>{ro.client}</td>
@@ -3517,7 +3508,6 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
                     <td style={{padding:"7px 10px"}}>{sym}{roAmtLessVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,color:"#3B6D11"}}>{sym}{netAfterWht.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700}}>{totalSpots}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right"}}>{sym}{ratePerSpot.toLocaleString("en",{maximumFractionDigits:2})}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3536,7 +3526,6 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
                       <td style={{padding:"8px 10px"}}>{sym}{totRoLessVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td style={{padding:"8px 10px",color:"#3B6D11"}}>{sym}{totNet.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td style={{padding:"8px 10px",textAlign:"center"}}>{totSpots}</td>
-                      <td style={{padding:"8px 10px",textAlign:"right"}}>{totSpots>0?sym+(totNet/totSpots).toLocaleString("en",{maximumFractionDigits:2}):"—"}</td>
                     </tr>
                   </tfoot>
                 );
