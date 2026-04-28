@@ -3156,7 +3156,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
     const XLS=await import("xlsx-js-style");
     if(tab==="media-buy"){
       // ── helpers ──────────────────────────────────────────────────────────────
-      const COLS=12;
+      const COLS=13;
       const numFmt="#,##0.00";
       const border={top:{style:"thin",color:{rgb:"BBBBBB"}},bottom:{style:"thin",color:{rgb:"BBBBBB"}},left:{style:"thin",color:{rgb:"BBBBBB"}},right:{style:"thin",color:{rgb:"BBBBBB"}}};
       const cell=(v,s={})=>({v,t:typeof v==="number"?"n":"s",...(s as any)});
@@ -3172,9 +3172,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       const titleCell={v:title,t:"s",s:{font:{bold:true,sz:13},alignment:{horizontal:"center",vertical:"center"},fill:{fgColor:{rgb:"FFFFFF"}}}};
 
       // ── column headers ────────────────────────────────────────────────────────
-      const HEADERS=["Month","Agency Name","Client Name","Brand Name","Media Order Number","RO Number","Material Duration","MPO Amt (incl VAT)","RO Amt (incl VAT)","RO Amt less VAT","Net Amount less WHT NGN","Nos of Spot"];
+      const HEADERS=["Month","Agency Name","Client Name","Brand Name","Media Order Number","RO Number","Material Duration","Rate","MPO Amt (incl VAT)","RO Amt (incl VAT)","RO Amt less VAT","Net Amount less WHT NGN","Nos of Spot"];
       const hdrStyle=(isYellow=false)=>({font:{bold:true,sz:10},fill:{fgColor:{rgb:isYellow?"FFFF00":"DCE6F1"}},border,alignment:{horizontal:"center",wrapText:true}});
-      const hdrRow=HEADERS.map((h,i)=>({v:h,t:"s",s:hdrStyle(i===7)}));
+      const hdrRow=HEADERS.map((h,i)=>({v:h,t:"s",s:hdrStyle(i===8)}));
 
       // ── data rows ─────────────────────────────────────────────────────────────
       const dataRows=mbRows.map(({ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel})=>[
@@ -3185,6 +3185,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         cell(shortId(ro.mpoId)||"—",{s:{border,font:{name:"Courier New",sz:9}}}),
         cell(ro.id,{s:{border,font:{name:"Courier New",sz:9}}}),
         cell(displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration),{s:{border}}),
+        num(Number(ro.rate)||0),
         num(mpoAmtInclVat,{s:{border,fill:{fgColor:{rgb:"FFFF00"}},font:{bold:true},alignment:{horizontal:"right"},z:numFmt}}),
         num(roAmtInclVat),
         num(roAmtLessVat),
@@ -3203,6 +3204,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         {v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},
         {v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},{v:"",t:"s",s:totStyle},
         {v:"TOTALS",t:"s",s:{...totStyle,alignment:{horizontal:"right"}}},
+        {v:"",t:"s",s:totStyle},
         {v:totMpoVat,t:"n",z:numFmt,s:{...totStyle,fill:{fgColor:{rgb:"FFFF00"}},alignment:{horizontal:"right"}}},
         {v:totRoVat,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
         {v:totRoLessVat,t:"n",z:numFmt,s:{...totStyle,alignment:{horizontal:"right"}}},
@@ -3218,7 +3220,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       ws["!merges"]=[{s:{r:1,c:0},e:{r:1,c:COLS-1}}];
 
       // Column widths
-      ws["!cols"]=[{wch:12},{wch:16},{wch:20},{wch:18},{wch:22},{wch:16},{wch:20},{wch:16},{wch:16},{wch:16},{wch:22},{wch:10}];
+      ws["!cols"]=[{wch:12},{wch:16},{wch:20},{wch:18},{wch:22},{wch:16},{wch:20},{wch:14},{wch:16},{wch:16},{wch:16},{wch:22},{wch:10}];
 
       // Row heights: logo row + title row taller
       ws["!rows"]=[{hpt:22},{hpt:24},{hpt:32}];
@@ -3486,14 +3488,14 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
               <thead>
                 <tr style={{background:"var(--bg3)"}}>
-                  {["Agency Name","Client Name","Brand / Campaign","Month","Media Order No.","RO Number","Material / Duration","MPO Amt\n(incl VAT)","RO Amt\n(incl VAT)","RO Amt\nless VAT","Net Amt\nless WHT","No. of\nSpots"].map(h=>(
+                  {["Agency Name","Client Name","Brand / Campaign","Month","Media Order No.","RO Number","Material / Duration","Rate","MPO Amt\n(incl VAT)","RO Amt\n(incl VAT)","RO Amt\nless VAT","Net Amt\nless WHT","No. of\nSpots"].map(h=>(
                     <th key={h} style={{padding:"8px 10px",textAlign:"left",fontWeight:700,fontSize:10,letterSpacing:".04em",textTransform:"uppercase",color:"var(--text2)",borderBottom:"2px solid var(--border-c)",whiteSpace:"pre-line",lineHeight:1.2,position:"sticky",top:0,background:"var(--bg3)",zIndex:2}}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {mbRows.length===0?(
-                  <tr><td colSpan={12} style={{padding:"32px 16px",textAlign:"center",color:"var(--text3)",fontSize:12}}>No ROs found. Create Release Orders in the Scheduling page.</td></tr>
+                  <tr><td colSpan={13} style={{padding:"32px 16px",textAlign:"center",color:"var(--text3)",fontSize:12}}>No ROs found. Create Release Orders in the Scheduling page.</td></tr>
                 ):mbRows.map(({ro,mpo,totalSpots,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel},i)=>(
                   <tr key={ro.id} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}>
                     <td style={{padding:"7px 10px",fontWeight:500}}>{mpo?.agency||agencyName}</td>
@@ -3503,6 +3505,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{shortId(ro.mpoId)||"—"}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.id}</td>
                     <td style={{padding:"7px 10px",fontSize:11}}>{displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500}}>{ro.rate?sym+(Number(ro.rate)).toLocaleString("en",{maximumFractionDigits:2}):"—"}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px"}}>{sym}{roAmtLessVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
@@ -3521,6 +3524,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
                   <tfoot>
                     <tr style={{background:"var(--bg3)",fontWeight:700,borderTop:"2px solid var(--border-c)"}}>
                       <td colSpan={7} style={{padding:"8px 10px",fontSize:11,color:"var(--text2)"}}>TOTALS ({mbRows.length} ROs)</td>
+                      <td style={{padding:"8px 10px"}}>—</td>
                       <td style={{padding:"8px 10px",background:"#fffde7",color:"#856404"}}>{sym}{totMpoVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td style={{padding:"8px 10px"}}>{sym}{totRoVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td style={{padding:"8px 10px"}}>{sym}{totRoLessVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
