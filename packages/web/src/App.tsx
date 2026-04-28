@@ -2079,7 +2079,7 @@ function getRoCalendarCells(ro){
 }
 
 // ── RO form (create / edit) ───────────────────────────────────────────────────
-const EMPTY_RO={mpoId:"",client:"",vendor:"",campaign:"",programme:"",materialTitle:"",materialDuration:"",campaignMonth:"",channel:"TV",start:"",end:"",status:"draft",currency:"NGN",rate:0,timeSlot:"",volumeDiscount:0,agencyCommission:0,schedule:[],docs:[]};
+const EMPTY_RO={mpoId:"",client:"",vendor:"",campaign:"",programme:"",materialTitle:"",materialDuration:"",campaignMonth:"",channel:"TV",start:"",end:"",status:"draft",currency:"NGN",rate:0,timeSlot:"",volumeDiscount:0,agencyCommission:0,schedule:[],extraScheduleRows:[],docs:[]};
 function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}){
   const initialRate=initial?.rate ?? initial?.schedule?.find(s=>Number(s.rate)>0)?.rate ?? 0;
   const initialMonth=initial?.campaignMonth || initial?.start?.slice(0,7) || "";
@@ -2138,13 +2138,34 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
       campaignMonth:monthKey,
       start,
       end,
-      schedule:buildScheduleDays(start,end,f.schedule,f.rate)
+      schedule:buildScheduleDays(start,end,f.schedule,f.rate),
+      extraScheduleRows:(f.extraScheduleRows||[]).map(r=>({
+        ...r,
+        schedule:buildScheduleDays(start,end,r.schedule,f.rate)
+      }))
     }));
   };
 
   const setScheduleRow=(i,k,v)=>setForm(f=>{
     const s=[...f.schedule];s[i]={...s[i],[k]:k==="spots"?Number(v)||0:v};return{...f,schedule:s};
   });
+
+  const addExtraScheduleRow=()=>setForm(f=>{
+    const {start,end}=f.start&&f.end?{start:f.start,end:f.end}:{start:"",end:""};
+    const days=start&&end?buildScheduleDays(start,end,[],Number(f.rate)||0):[];
+    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,timeSlot:"",programme:"",schedule:days}]};
+  });
+
+  const removeExtraScheduleRow=(id)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).filter(r=>r.id!==id)}));
+
+  const updateExtraRowField=(id,field,value)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==id?r:{...r,[field]:value})}));
+
+  const setExtraRowSpot=(rowId,date,spots)=>setForm(f=>({
+    ...f,
+    extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==rowId?r:{
+      ...r,schedule:r.schedule.map(s=>s.date===date?{...s,spots:Math.max(0,Number(spots)||0)}:s)
+    })
+  }));
 
   const totals=calcRoTotals(form,settings?.whtRate??5);
   const monthInfo=useMemo(()=>{
@@ -2188,14 +2209,16 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const handleSave=()=>{
     if(!validateStep(3))return;
     if(roDraftIdRef.current)removeDraft(RO_DRAFTS_KEY,roDraftIdRef.current);
-    onSave({...form,schedule:form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}))});
+    const primaryEntries=form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}));
+    const extraEntries=(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(form.rate)||0,timeSlot:r.timeSlot||""})));
+    onSave({...form,schedule:[...primaryEntries,...extraEntries]});
   };
 
   const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
   const brandList=[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
 
-  const totalSpots=form.schedule.reduce((a,s)=>a+Number(s.spots||0),0);
-  const activeDays=form.schedule.filter(s=>Number(s.spots)>0).length;
+  const totalSpots=form.schedule.reduce((a,s)=>a+Number(s.spots||0),0)+(form.extraScheduleRows||[]).reduce((a,r)=>a+r.schedule.reduce((b,s)=>b+Number(s.spots||0),0),0);
+  const activeDays=form.schedule.filter(s=>Number(s.spots)>0).length+(form.extraScheduleRows||[]).reduce((a,r)=>a+r.schedule.filter(s=>Number(s.spots)>0).length,0);
 
   const STEPS=[{n:1,label:"Order Details"},{n:2,label:"Schedule"},{n:3,label:"Rates & Review"}];
 
@@ -2366,6 +2389,75 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
               </div>
               <div style={{marginTop:7,fontSize:11,color:"var(--text3)"}}>Click a day to add a spot · use <b>+</b> / <b>−</b> for finer control · days at 0 are excluded from the RO.</div>
             </div>
+          )}
+
+          {/* ── Extra schedule rows ── */}
+          {(form.extraScheduleRows||[]).map((row,rowIdx)=>{
+            const rowSpots=row.schedule.reduce((a,s)=>a+Number(s.spots||0),0);
+            const rowActiveDays=row.schedule.filter(s=>Number(s.spots)>0).length;
+            return(
+              <div key={row.id} style={{marginTop:16,border:"1.5px dashed var(--brand)",borderRadius:12,padding:14,position:"relative"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"var(--brand)"}}>Schedule Row {rowIdx+2}</div>
+                  <button type="button" className="btn btn-sm btn-ghost" style={{color:"#A32D2D",fontSize:11}} onClick={()=>removeExtraScheduleRow(row.id)}>✕ Remove Row</button>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 16px",marginBottom:12}}>
+                  <FF id={`extra-timeslot-${row.id}`} label="Time Slot">
+                    <input id={`extra-timeslot-${row.id}`} className="form-input" placeholder="e.g. 18:00–19:00" value={row.timeSlot} onChange={e=>updateExtraRowField(row.id,"timeSlot",e.target.value)}/>
+                  </FF>
+                  <FF id={`extra-programme-${row.id}`} label="Programme">
+                    <input id={`extra-programme-${row.id}`} className="form-input" placeholder="e.g. Evening News" value={row.programme} onChange={e=>updateExtraRowField(row.id,"programme",e.target.value)}/>
+                  </FF>
+                </div>
+                {monthInfo&&row.schedule.length>0&&(
+                  <div>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div style={{fontSize:11,color:"var(--text3)"}}>{rowActiveDays} day{rowActiveDays!==1?"s":""} · {rowSpots} spot{rowSpots!==1?"s":""}</div>
+                      <div style={{display:"flex",gap:6}}>
+                        <button type="button" className="btn btn-sm" style={{fontSize:11}} onClick={()=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==row.id?r:{...r,schedule:r.schedule.map(s=>({...s,spots:1}))})}))}>Select All</button>
+                        <button type="button" className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==row.id?r:{...r,schedule:r.schedule.map(s=>({...s,spots:0}))})}))}>Clear</button>
+                      </div>
+                    </div>
+                    <div style={{background:"var(--bg2)",border:"1px solid var(--border-c)",borderRadius:12,padding:10,overflow:"hidden"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",marginBottom:4}}>
+                        {["SUN","MON","TUE","WED","THU","FRI","SAT"].map(d=>(
+                          <div key={d} style={{textAlign:"center",fontSize:8,fontWeight:700,letterSpacing:".05em",color:"var(--text3)",paddingBottom:5,textTransform:"uppercase"}}>{d}</div>
+                        ))}
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:3}}>
+                        {monthInfo.cells.map((cell)=>{
+                          if(cell.empty) return <div key={cell.key}/>;
+                          const entry=row.schedule.find(s=>s.date===cell.date);
+                          const spots=Number(entry?.spots)||0;
+                          const isActive=spots>0;
+                          return(
+                            <div key={cell.key}
+                              onClick={()=>setExtraRowSpot(row.id,cell.date,spots+1)}
+                              style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"5px 2px 4px",borderRadius:7,cursor:"pointer",border:isActive?"2px solid var(--brand)":"1px solid var(--border-c)",background:isActive?"#eef3ff":"var(--bg1)",boxShadow:isActive?"0 2px 8px rgba(83,74,183,.18)":undefined,gap:2,overflow:"hidden",minWidth:0,transform:isActive?"scale(1.04)":"scale(1)",transition:"border-color .15s,background .15s,box-shadow .15s,transform .15s"}}>
+                              <span style={{fontSize:13,fontWeight:800,lineHeight:1,color:isActive?"var(--brand)":"var(--text)"}}>{cell.day}</span>
+                              <span style={{fontSize:7,fontWeight:600,letterSpacing:".03em",color:"var(--text3)",textTransform:"uppercase"}}>{["SU","M","T","W","TH","FR","SA"][new Date(`${cell.date}T12:00:00`).getDay()]}</span>
+                              <div style={{display:"flex",alignItems:"center",gap:2,marginTop:2,width:"100%",justifyContent:"center"}}>
+                                <button type="button" disabled={spots===0} onClick={e=>{e.stopPropagation();setExtraRowSpot(row.id,cell.date,spots-1);}} style={{width:16,height:16,borderRadius:4,border:"none",cursor:spots===0?"default":"pointer",background:spots>0?"var(--brand)":"var(--border-c)",color:"#fff",fontWeight:900,fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,opacity:spots===0?.3:1,transition:"background .12s,opacity .12s",padding:0}}>−</button>
+                                <span style={{fontSize:11,fontWeight:800,minWidth:12,textAlign:"center",color:isActive?"var(--brand)":"var(--text3)",lineHeight:1}}>{spots}</span>
+                                <button type="button" onClick={e=>{e.stopPropagation();setExtraRowSpot(row.id,cell.date,spots+1);}} style={{width:16,height:16,borderRadius:4,border:"none",cursor:"pointer",background:"var(--brand)",color:"#fff",fontWeight:900,fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .12s",padding:0}}>+</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {!form.campaignMonth&&<div style={{fontSize:11,color:"var(--text3)",textAlign:"center",padding:"12px 0"}}>Select a campaign month above to enable this row's calendar.</div>}
+              </div>
+            );
+          })}
+
+          {/* Add Another Schedule Row button */}
+          {form.campaignMonth&&(
+            <button type="button" className="btn btn-ghost" style={{marginTop:12,width:"100%",borderStyle:"dashed",fontSize:12,color:"var(--brand)",borderColor:"var(--brand)"}} onClick={addExtraScheduleRow}>
+              + Add Another Schedule Row
+            </button>
           )}
         </div>
       )}
