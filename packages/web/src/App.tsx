@@ -2153,7 +2153,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const addExtraScheduleRow=()=>setForm(f=>{
     const {start,end}=f.start&&f.end?{start:f.start,end:f.end}:{start:"",end:""};
     const days=start&&end?buildScheduleDays(start,end,[],Number(f.rate)||0):[];
-    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,timeSlot:"",programme:"",schedule:days}]};
+    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,timeSlot:"",programme:"",materialDuration:f.materialDuration||"",rate:Number(f.rate)||0,schedule:days}]};
   });
 
   const removeExtraScheduleRow=(id)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).filter(r=>r.id!==id)}));
@@ -2210,7 +2210,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
     if(!validateStep(3))return;
     if(roDraftIdRef.current)removeDraft(RO_DRAFTS_KEY,roDraftIdRef.current);
     const primaryEntries=form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}));
-    const extraEntries=(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(form.rate)||0,timeSlot:r.timeSlot||""})));
+    const extraEntries=(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(r.rate)||Number(form.rate)||0,timeSlot:r.timeSlot||"",materialDuration:r.materialDuration||""})));
     onSave({...form,schedule:[...primaryEntries,...extraEntries]});
   };
 
@@ -2304,11 +2304,14 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
             <FF id="ro-material" label="Material Title / Specification">
               <input id="ro-material" className="form-input" placeholder="e.g. Thematic, Product Launch" value={form.materialTitle} onChange={e=>set("materialTitle",e.target.value)}/>
             </FF>
-            <FF id="ro-duration" label="Material Duration" style={{gridColumn:"1/-1"}}>
+            <FF id="ro-duration" label="Material Duration">
               <select id="ro-duration" className="form-input" value={form.materialDuration||""} onChange={e=>set("materialDuration",e.target.value)}>
                 <option value="">Select duration…</option>
                 {RO_MATERIAL_DURATION_OPTIONS.map(d=><option key={d}>{d}</option>)}
               </select>
+            </FF>
+            <FF id="ro-rate-s2" label={`Rate per Spot (${sym})`} required err={errs.rate}>
+              <input id="ro-rate-s2" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" value={form.rate||""} onChange={e=>applyRateToSchedule(Number(e.target.value)||0)} placeholder="Enter rate"/>
             </FF>
           </div>
 
@@ -2407,6 +2410,15 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
                   </FF>
                   <FF id={`extra-programme-${row.id}`} label="Programme">
                     <input id={`extra-programme-${row.id}`} className="form-input" placeholder="e.g. Evening News" value={row.programme} onChange={e=>updateExtraRowField(row.id,"programme",e.target.value)}/>
+                  </FF>
+                  <FF id={`extra-duration-${row.id}`} label="Material Duration">
+                    <select id={`extra-duration-${row.id}`} className="form-input" value={row.materialDuration||""} onChange={e=>updateExtraRowField(row.id,"materialDuration",e.target.value)}>
+                      <option value="">Select duration…</option>
+                      {RO_MATERIAL_DURATION_OPTIONS.map(d=><option key={d}>{d}</option>)}
+                    </select>
+                  </FF>
+                  <FF id={`extra-rate-${row.id}`} label={`Rate per Spot (${sym})`}>
+                    <input id={`extra-rate-${row.id}`} className="form-input" type="number" min="0" placeholder="Enter rate" value={row.rate||""} onChange={e=>updateExtraRowField(row.id,"rate",Number(e.target.value)||0)}/>
                   </FF>
                 </div>
                 {monthInfo&&row.schedule.length>0&&(
