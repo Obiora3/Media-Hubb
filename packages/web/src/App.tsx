@@ -780,7 +780,7 @@ function printMPO(m:any,settings:any){
   const dateStr=new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"});
   const statusColor=m.status==="active"?"#3B6D11":m.status==="completed"?"#185FA5":"#854F0B";
   const gross=m.gross||0,disc=m.discount||0,ac=m.agencyCommission||0,net=m.net||0,vat=m.vat||0,total=m.total||0;
-  const discAmt=gross*(disc/100),acAmt=gross*(ac/100),vatRate=m.vatRate||7.5;
+  const discAmt=gross*(disc/100),acAmt=(gross-discAmt)*(ac/100),vatRate=m.vatRate||7.5;
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>MPO ${m.id}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -899,7 +899,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
     setMpoDraftSavedAt(null);
     const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
-    const gross=sp*rt,discAmt=gross*(disc/100),agencyComAmt=gross*(ac/100),net=gross-discAmt-agencyComAmt,vat=net*(vr/100),total=net+vat;
+    const gross=sp*rt,discAmt=gross*(disc/100),afterDisc=gross-discAmt,agencyComAmt=afterDisc*(ac/100),net=afterDisc-agencyComAmt,vat=net*(vr/100),total=net+vat;
     const md=Number(form.materialDuration)||30;
     const extra={spots:sp,rate:rt,discount:disc,agencyCommission:ac,gross,net,vat,total,amount:net,vatRate:vr,materialDuration:md};
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,...extra}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
@@ -970,7 +970,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
         const brandList=selAgency?(selAgency.brands||[]).map((b:any)=>b.name):[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
         const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
         const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
-        const gross=sp*rt,discAmt=gross*(disc/100),agencyComAmt=gross*(ac/100),net=gross-discAmt-agencyComAmt,vat=net*(vr/100),total=net+vat;
+        const gross=sp*rt,discAmt=gross*(disc/100),afterDisc=gross-discAmt,agencyComAmt=afterDisc*(ac/100),net=afterDisc-agencyComAmt,vat=net*(vr/100),total=net+vat;
         return(
         <Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
           <div className="form-grid">
@@ -1986,8 +1986,9 @@ function calcRoTotals(ro, whtRate=0){
   const volumeDiscountPct=Number(ro.volumeDiscount)||0;
   const agencyCommissionPct=Number(ro.agencyCommission)||0;
   const volumeDiscountAmount=gross*(volumeDiscountPct/100);
-  const agencyCommissionAmount=gross*(agencyCommissionPct/100);
-  const netTotal=gross-volumeDiscountAmount-agencyCommissionAmount;
+  const afterVolumeDiscount=gross-volumeDiscountAmount;
+  const agencyCommissionAmount=afterVolumeDiscount*(agencyCommissionPct/100);
+  const netTotal=afterVolumeDiscount-agencyCommissionAmount;
   const whtPct=Number(whtRate)||0;
   const whtAmount=netTotal*(whtPct/100);
   const amountPayable=netTotal-whtAmount;
