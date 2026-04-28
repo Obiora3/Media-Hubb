@@ -1808,7 +1808,7 @@ async function exportROExcel(ro, settings={}){
   const ratePerSpot=totalSpots>0?totals.gross/totalSpots:Number(ro.rate)||0;
   const matDur=displayRoMaterialDuration(ro.materialDuration);
   const companyName=String((settings as any).companyName||"MediaHub").toUpperCase();
-  const NCOLS=3+daysInMonth+2;
+  const NCOLS=4+daysInMonth+2;
 
   const thin=(rgb="000000")=>({style:"thin",color:{rgb}});
   const med=(rgb="000000")=>({style:"medium",color:{rgb}});
@@ -1864,6 +1864,7 @@ async function exportROExcel(ro, settings={}){
     "TIME BELT (CAT)",
     "PROGRAMME",
     "MATERIAL DURATION",
+    "RATE",
     ...allDays,
     "NO OF SPOTS",
     "MATERIAL TITLE",
@@ -1893,11 +1894,14 @@ async function exportROExcel(ro, settings={}){
   const slots=[...new Set((ro.schedule||[]).map(s=>s.timeSlot||ro.timeSlot||"—"))].filter(Boolean);
   const scheduleSlots=slots.length?slots:[ro.timeSlot||"—"];
   const dataRows=scheduleSlots.map((slot,rowIndex)=>{
+    const slotEntries=(ro.schedule||[]).filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot);
     const slotSpots=new Map();
-    (ro.schedule||[])
-      .filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot && Number(s.spots)>0)
+    slotEntries.filter(s=>Number(s.spots)>0)
       .forEach(s=>slotSpots.set(new Date(s.date+"T12:00:00").getDate(), Number(s.spots)||0));
     const rowTotal=[...slotSpots.values()].reduce((a,v)=>a+v,0);
+    const slotRate=slotEntries.find(s=>Number(s.rate)>0)?.rate||Number(ro.rate)||0;
+    const slotMatDur=displayRoMaterialDuration(slotEntries.find(s=>s.materialDuration)?.materialDuration||ro.materialDuration);
+    const slotMatTitle=slotEntries.find(s=>s.materialTitle)?.materialTitle||ro.materialTitle||"";
     const isLastRow=rowIndex===scheduleSlots.length-1;
     const bodyStyle=(colIndex,align="center")=>({
       font:{sz:10,color:{rgb:"000000"}},
@@ -1912,10 +1916,11 @@ async function exportROExcel(ro, settings={}){
     return [
       txt(slot,bodyStyle(0)),
       txt(ro.programme||"ROS",bodyStyle(1)),
-      txt(matDur,bodyStyle(2)),
-      ...allDays.map((d,offset)=>slotSpots.has(d)?numi(slotSpots.get(d),bodyStyle(3+offset)):txt("",bodyStyle(3+offset))),
+      txt(slotMatDur,bodyStyle(2)),
+      num(slotRate,{...bodyStyle(3),alignment:{horizontal:"right",vertical:"center"}}),
+      ...allDays.map((d,offset)=>slotSpots.has(d)?numi(slotSpots.get(d),bodyStyle(4+offset)):txt("",bodyStyle(4+offset))),
       numi(rowTotal,{...bodyStyle(NCOLS-2),font:{bold:true,sz:10,color:{rgb:"000000"}}}),
-      txt(ro.materialTitle||"",bodyStyle(NCOLS-1)),
+      txt(slotMatTitle,bodyStyle(NCOLS-1)),
     ];
   });
 
@@ -1928,7 +1933,8 @@ async function exportROExcel(ro, settings={}){
     txt("",dayNameStyle(0,dataRows.length>0)),
     txt("",dayNameStyle(1,dataRows.length>0)),
     txt("",dayNameStyle(2,dataRows.length>0)),
-    ...allDates.map((d,offset)=>txt(DOW[d.getDay()],dayNameStyle(3+offset,dataRows.length>0))),
+    txt("",dayNameStyle(3,dataRows.length>0)),
+    ...allDates.map((d,offset)=>txt(DOW[d.getDay()],dayNameStyle(4+offset,dataRows.length>0))),
     txt("",dayNameStyle(NCOLS-2,dataRows.length>0)),
     txt("",dayNameStyle(NCOLS-1,dataRows.length>0)),
   ];
@@ -2151,7 +2157,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const addExtraScheduleRow=()=>setForm(f=>{
     const {start,end}=f.start&&f.end?{start:f.start,end:f.end}:{start:"",end:""};
     const days=start&&end?buildScheduleDays(start,end,[],Number(f.rate)||0):[];
-    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,timeSlot:"",programme:"",materialDuration:f.materialDuration||"",rate:Number(f.rate)||0,schedule:days}]};
+    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,timeSlot:"",programme:"",materialDuration:f.materialDuration||"",materialTitle:f.materialTitle||"",rate:Number(f.rate)||0,schedule:days}]};
   });
 
   const removeExtraScheduleRow=(id)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).filter(r=>r.id!==id)}));
@@ -2209,7 +2215,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
     if(!validateStep(3))return;
     if(roDraftIdRef.current)removeDraft(RO_DRAFTS_KEY,roDraftIdRef.current);
     const primaryEntries=form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}));
-    const extraEntries=(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(r.rate)||Number(form.rate)||0,timeSlot:r.timeSlot||"",materialDuration:r.materialDuration||""})));
+    const extraEntries=(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(r.rate)||Number(form.rate)||0,timeSlot:r.timeSlot||"",materialDuration:r.materialDuration||"",materialTitle:r.materialTitle||""})));
     onSave({...form,schedule:[...primaryEntries,...extraEntries]});
   };
 
@@ -2418,6 +2424,9 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
                   </FF>
                   <FF id={`extra-rate-${row.id}`} label={`Rate per Spot (${sym})`}>
                     <input id={`extra-rate-${row.id}`} className="form-input" type="number" min="0" placeholder="Enter rate" value={row.rate||""} onChange={e=>updateExtraRowField(row.id,"rate",Number(e.target.value)||0)}/>
+                  </FF>
+                  <FF id={`extra-mattitle-${row.id}`} label="Material Title / Specification" style={{gridColumn:"1/-1"}}>
+                    <input id={`extra-mattitle-${row.id}`} className="form-input" placeholder="e.g. Thematic, Product Launch" value={row.materialTitle||""} onChange={e=>updateExtraRowField(row.id,"materialTitle",e.target.value)}/>
                   </FF>
                 </div>
                 {monthInfo&&row.schedule.length>0&&(
