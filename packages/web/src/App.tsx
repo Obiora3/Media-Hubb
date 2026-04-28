@@ -1897,7 +1897,7 @@ async function exportROExcel(ro, settings={}){
     const slotEntries=(ro.schedule||[]).filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot);
     const slotSpots=new Map();
     slotEntries.filter(s=>Number(s.spots)>0)
-      .forEach(s=>slotSpots.set(new Date(s.date+"T12:00:00").getDate(), Number(s.spots)||0));
+      .forEach(s=>{const day=new Date(s.date+"T12:00:00").getDate();slotSpots.set(day,(slotSpots.get(day)||0)+Number(s.spots));});
     const rowTotal=[...slotSpots.values()].reduce((a,v)=>a+v,0);
     const slotRate=slotEntries.find(s=>Number(s.rate)>0)?.rate||Number(ro.rate)||0;
     const slotMatDur=displayRoMaterialDuration(slotEntries.find(s=>s.materialDuration)?.materialDuration||ro.materialDuration);
@@ -1967,7 +1967,7 @@ async function exportROExcel(ro, settings={}){
     {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},
     {s:{r:costStart,c:0},e:{r:costStart,c:1}},
   ];
-  ws["!cols"]=[{wch:20},{wch:26},{wch:22},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
+  ws["!cols"]=[{wch:20},{wch:26},{wch:22},{wch:12},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
   ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
 
   const wb=XLS.utils.book_new();
