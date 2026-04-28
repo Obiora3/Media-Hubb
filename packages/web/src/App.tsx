@@ -857,6 +857,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   // ── MPO state ──────────────────────────────────────────────────────────────
   const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
   const [mpoAgencyFilter,setMpoAgencyFilter]=useState("");
+  const [mpoMonthFilter,setMpoMonthFilter]=useState("");
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(EMPO);const [errs,setErrs]=useState({});
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
@@ -879,11 +880,13 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     setMpoDraftSavedAt(new Date());
   },[form,showF,eid]);
   const mpoAgencies=[...new Set((mpos||[]).map(m=>m.agency).filter(Boolean))].sort();
+  const mpoMonths=[...new Set((mpos||[]).map(m=>m.start?.slice(0,7)).filter(Boolean))].sort().reverse();
   const filtered=mpos.filter(m=>{
     if(tab==="active"&&m.status!=="active")return false;
     if(tab==="pending"&&m.status!=="pending")return false;
     if(tab==="completed"&&m.status!=="completed")return false;
     if(mpoAgencyFilter&&m.agency!==mpoAgencyFilter)return false;
+    if(mpoMonthFilter&&(m.start||"").slice(0,7)!==mpoMonthFilter)return false;
     if(search&&!`${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
@@ -919,6 +922,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const [roStatusTab,setRoStatusTab]=useState("all");
   const [roClientFilter,setRoClientFilter]=useState("");
   const [roChannelFilter,setRoChannelFilter]=useState("");
+  const [roMonthFilter,setRoMonthFilter]=useState("");
   const [showRoForm,setShowRoForm]=useState(false);
   const [editRoId,setEditRoId]=useState(null);
   const [selRo,setSelRo]=useState(null);
@@ -926,10 +930,12 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   useEffect(()=>{if(!showRoForm)setRoDrafts(getDrafts(RO_DRAFTS_KEY));},[showRoForm]);
   const roClients=[...new Set((ros||[]).map(r=>r.client).filter(Boolean))].sort();
   const roChannels=[...new Set((ros||[]).map(r=>r.channel).filter(Boolean))].sort();
+  const roMonths=[...new Set((ros||[]).map(r=>r.campaignMonth).filter(Boolean))].sort().reverse();
   const filteredRos=(ros||[]).filter(r=>{
     if(roStatusTab!=="all"&&r.status!==roStatusTab)return false;
     if(roClientFilter&&r.client!==roClientFilter)return false;
     if(roChannelFilter&&r.channel!==roChannelFilter)return false;
+    if(roMonthFilter&&r.campaignMonth!==roMonthFilter)return false;
     if(roSearch&&!`${r.client}${r.campaign}${r.vendor}`.toLowerCase().includes(roSearch.toLowerCase()))return false;
     return true;
   });
@@ -1151,7 +1157,11 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                   <option value="">All Agencies</option>
                   {mpoAgencies.map(a=><option key={a} value={a}>{a}</option>)}
                 </select>
-                {mpoAgencyFilter&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setMpoAgencyFilter("")}>✕ Clear</button>}
+                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={mpoMonthFilter} onChange={e=>setMpoMonthFilter(e.target.value)}>
+                  <option value="">All Months</option>
+                  {mpoMonths.map(m=><option key={m} value={m}>{new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"numeric"})}</option>)}
+                </select>
+                {(mpoAgencyFilter||mpoMonthFilter)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setMpoAgencyFilter("");setMpoMonthFilter("");}}>✕ Clear</button>}
                 <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
               </div>
             </div>
@@ -1206,7 +1216,11 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                   <option value="">All Channels</option>
                   {roChannels.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
-                {(roClientFilter||roChannelFilter)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setRoClientFilter("");setRoChannelFilter("");}}>✕ Clear</button>}
+                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={roMonthFilter} onChange={e=>setRoMonthFilter(e.target.value)}>
+                  <option value="">All Months</option>
+                  {roMonths.map(m=><option key={m} value={m}>{new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"numeric"})}</option>)}
+                </select>
+                {(roClientFilter||roChannelFilter||roMonthFilter)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setRoClientFilter("");setRoChannelFilter("");setRoMonthFilter("");}}>✕ Clear</button>}
                 <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={roSearch} onChange={e=>setRoSearch(e.target.value)}/></div>
               </div>
             </div>
@@ -2714,7 +2728,8 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 }
 
 /* ═══ REVENUE TARGET PAGE ═══ */
-function RevenueTargetPage({mpos,settings,setSettings}){
+function RevenueTargetPage({mpos,settings,setSettings,user}){
+  const canEdit=user?.role==="admin"||user?.role==="manager";
   const [rtNewAdv,setRtNewAdv]=useState("");
   const [rtNewTarget,setRtNewTarget]=useState("");
   const [rtEditing,setRtEditing]=useState<string|null>(null);
@@ -2868,8 +2883,9 @@ function RevenueTargetPage({mpos,settings,setSettings}){
           <div>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Target Year</div>
             <input type="number" className="form-input" style={{width:90}} value={revYear}
-              onChange={e=>setSettings((s:any)=>({...s,revYear:Number(e.target.value)}))} min={2020} max={2040}/>
+              onChange={e=>canEdit&&setSettings((s:any)=>({...s,revYear:Number(e.target.value)}))} min={2020} max={2040} readOnly={!canEdit}/>
           </div>
+          {canEdit&&(<>
           <div style={{flex:1,minWidth:180}}>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Advertiser / Agency</div>
             <input className="form-input" placeholder="e.g. TGI" value={rtNewAdv}
@@ -2884,6 +2900,7 @@ function RevenueTargetPage({mpos,settings,setSettings}){
             saveTarget(rtNewAdv.trim(),Number(rtNewTarget));
             setRtNewAdv("");setRtNewTarget("");
           }}>Add</button>
+          </>)}
         </div>
       </div>
 
@@ -2924,13 +2941,13 @@ function RevenueTargetPage({mpos,settings,setSettings}){
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
             <tr style={{background:"#2C3E50"}}>
-              {["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK",""].map(h=>(
+              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK"],...(canEdit?[""]:[])] .map(h=>(
                 <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"nowrap",position:"sticky",top:0,background:"#2C3E50",zIndex:2}}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length===0&&<tr><td colSpan={7} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set. Add an advertiser above.</td></tr>}
+            {rows.length===0&&<tr><td colSpan={canEdit?7:6} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set.{canEdit?" Add an advertiser above.":""}</td></tr>}
             {rows.map((r,i)=>(
               <tr key={r.name} style={{background:i%2===0?"var(--bg)":"var(--bg3)"}}>
                 <td style={{padding:"8px 12px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>
@@ -2947,7 +2964,7 @@ function RevenueTargetPage({mpos,settings,setSettings}){
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600,color:r.gap>=0?"#3B6D11":"#A32D2D"}}>{r.booked>0||r.target>0?<>{r.gap>=0?"+":""}{fm(r.gap)}</>:"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inMonth>0?"#534AB7":"var(--text3)",fontWeight:r.inMonth>0?600:400}}>{r.inMonth>0?fm(r.inMonth):"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inWeek>0?"#3B6D11":"var(--text3)",fontWeight:r.inWeek>0?700:400}}>{r.inWeek>0?fm(r.inWeek):"—"}</td>
-                <td style={{padding:"8px 12px",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>
+                {canEdit&&<td style={{padding:"8px 12px",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>
                   {rtEditing===r.name?(
                     <div style={{display:"flex",gap:4}}>
                       <button className="btn btn-primary btn-sm" onClick={()=>{
@@ -2964,7 +2981,7 @@ function RevenueTargetPage({mpos,settings,setSettings}){
                       <button className="btn btn-ghost btn-sm" style={{color:"#A32D2D"}} onClick={()=>{if(confirm(`Remove ${r.name}?`))deleteTarget(r.name);}}>✕</button>
                     </div>
                   )}
-                </td>
+                </td>}
               </tr>
             ))}
           </tbody>
@@ -3530,8 +3547,8 @@ function AuditContent({auditLog}){
 const ROLE_PERMISSIONS={
   admin:   ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings"],
   manager: ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","audit","invoice-wf"],
-  viewer:  ["dashboard","mpo","clients","calendar"],
-  client:  ["dashboard"],
+  viewer:  ["dashboard","mpo","clients","revenue-target","calendar"],
+  client:  ["dashboard","revenue-target"],
 };
 
 function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser} toast={toast}/></RoleGuard>;}
@@ -4805,7 +4822,7 @@ function App(){
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
-          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings}/>}
+          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings} user={currentUser}/>}
           {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} settings={settings} setSettings={setSettings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}

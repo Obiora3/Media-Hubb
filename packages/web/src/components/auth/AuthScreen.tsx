@@ -18,6 +18,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
 
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -151,32 +152,44 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
           {mode !== "reset" && (
             <div className="form-row">
               <label className="form-label" htmlFor="auth-password">Password</label>
-              <input
-                id="auth-password"
-                className="form-input"
-                type="password"
-                placeholder={mode === "signup" ? "Min. 8 characters" : "••••••••"}
-                autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div style={{ position: "relative" }}>
+                <input
+                  id="auth-password"
+                  className="form-input"
+                  type={showPassword ? "text" : "password"}
+                  placeholder={mode === "signup" ? "Min. 8 characters" : "••••••••"}
+                  autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{ paddingRight: 40 }}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "var(--text3)", fontSize: 14, padding: 0, lineHeight: 1 }}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >{showPassword ? "Hide" : "Show"}</button>
+              </div>
             </div>
           )}
 
           {mode === "signup" && (
             <div className="form-row">
               <label className="form-label" htmlFor="auth-confirm">Confirm password</label>
-              <input
-                id="auth-confirm"
-                className="form-input"
-                type="password"
-                placeholder="Repeat password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
+              <div style={{ position: "relative" }}>
+                <input
+                  id="auth-confirm"
+                  className="form-input"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Repeat password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  style={{ paddingRight: 40 }}
+                  required
+                />
+              </div>
             </div>
           )}
 
