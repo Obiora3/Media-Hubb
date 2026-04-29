@@ -1936,22 +1936,6 @@ async function exportROExcel(ro, settings={}){
     ];
   });
 
-  // Grand-total row: sum spots per day across all slots
-  const dayTotalsMap=new Map();
-  (ro.schedule||[]).filter(s=>Number(s.spots)>0).forEach(s=>{
-    const day=new Date(s.date+"T12:00:00").getDate();
-    dayTotalsMap.set(day,(dayTotalsMap.get(day)||0)+Number(s.spots));
-  });
-  const gridGrandTotal=[...dayTotalsMap.values()].reduce((a,v)=>a+v,0);
-  const totFill={fgColor:{rgb:"BDD7EE"}};
-  const totS=(colIndex)=>({font:{bold:true,sz:10,color:{rgb:"000000"}},fill:totFill,border:makeBorder({top:true,bottom:true,left:colIndex===0,right:colIndex===NCOLS-1}),alignment:{horizontal:"center",vertical:"center"}});
-  const totRow=[
-    txt("TOTAL",{...totS(0),alignment:{horizontal:"left",vertical:"center"}}),
-    txt("",totS(1)),txt("",totS(2)),txt("",totS(3)),
-    ...allDays.map((d,offset)=>dayTotalsMap.has(d)?numi(dayTotalsMap.get(d),totS(4+offset)):txt("",totS(4+offset))),
-    numi(gridGrandTotal,{...totS(NCOLS-2),font:{bold:true,sz:11,color:{rgb:"1F5E2B"}}}),
-    txt("",totS(NCOLS-1)),
-  ];
 
   const hdr1=scheduleColumns.map((value,colIndex)=>
     typeof value==="number"
@@ -1985,11 +1969,11 @@ async function exportROExcel(ro, settings={}){
     ];
   });
 
-  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,totRow,blanks(NCOLS),costHeader,...costRows];
+  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,blanks(NCOLS),costHeader,...costRows];
   const ws=XLS.utils.aoa_to_sheet(sheetData);
   const metaStart=3;
   const calStart=metaStart+metaFields.length+1;
-  const costStart=calStart+3+dataRows.length+2; // +2: totRow + blank
+  const costStart=calStart+3+dataRows.length+1;
   ws["!merges"]=[
     {s:{r:0,c:0},e:{r:0,c:4}},
     {s:{r:2,c:0},e:{r:2,c:1}},
@@ -1997,7 +1981,7 @@ async function exportROExcel(ro, settings={}){
     {s:{r:costStart,c:0},e:{r:costStart,c:1}},
   ];
   ws["!cols"]=[{wch:20},{wch:26},{wch:22},{wch:12},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
-  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),{hpt:18},{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
+  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
 
   const wb=XLS.utils.book_new();
   XLS.utils.book_append_sheet(wb,ws,"Release Order");
@@ -2532,12 +2516,6 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
             </FF>
             <FF id="ro-agency-commission" label="Agency Commission (%)" err={errs.agencyCommission}>
               <input id="ro-agency-commission" className="form-input" type="number" min="0" value={form.agencyCommission||""} onChange={e=>set("agencyCommission",Number(e.target.value)||0)} placeholder="0"/>
-            </FF>
-            <FF id="ro-programme" label="Programme">
-              <input id="ro-programme" className="form-input" placeholder="e.g. Good Morning" value={form.programme} onChange={e=>set("programme",e.target.value)}/>
-            </FF>
-            <FF id="ro-material" label="Material Title / Specification">
-              <input id="ro-material" className="form-input" placeholder="e.g. Thematic, Product Launch" value={form.materialTitle} onChange={e=>set("materialTitle",e.target.value)}/>
             </FF>
           </div>
 
