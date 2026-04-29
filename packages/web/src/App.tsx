@@ -1058,7 +1058,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[selRo.status]||"#f0f0f0",color:RO_STATUS_COLOR[selRo.status]||"#888",textTransform:"uppercase"}}>{selRo.status}</span>
             <span style={{fontSize:11,color:"var(--text3)"}}>{selRo.channel}</span>
           </div>
-          {[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["Programme",selRo.programme||"—"],["Material Title",selRo.materialTitle||"—"],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days",selRo.schedule?.length||0],["Grand Total",fmt(selRo.schedule?.reduce((a,s)=>a+(s.spots*s.rate),0)||0)+" "+(selRo.currency||"NGN")]].map(([k,v])=>(
+          {(()=>{const _t=calcRoTotals(selRo,(settings||{}).whtRate??5);const _days=(selRo.schedule||[]).filter(s=>Number(s.spots)>0).length+(selRo.extraScheduleRows||[]).reduce((a,r)=>a+(r.schedule||[]).filter(s=>Number(s.spots)>0).length,0);return[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["Programme",selRo.programme||"—"],["Material Title",selRo.materialTitle||"—"],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days (active)",_days],["Grand Total",fmt(_t.gross)+" "+(selRo.currency||"NGN")]];})().map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
           ))}
           <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
@@ -1621,9 +1621,13 @@ function printRO(ro, settings={}){
   const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
   const fa=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
   const totals=calcRoTotals(ro);
-  const rows=ro.schedule.map(s=>{
+  const allEntries=[
+    ...(ro.schedule||[]).filter(s=>Number(s.spots)>0).map(s=>({...s,rate:Number(s.rate)||Number(ro.rate)||0})),
+    ...(ro.extraScheduleRows||[]).flatMap((r:any)=>(r.schedule||[]).filter((s:any)=>Number(s.spots)>0).map((s:any)=>({...s,rate:Number(r.rate)||Number(ro.rate)||0,timeSlot:r.timeSlot||ro.timeSlot||"—"}))),
+  ].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  const rows=allEntries.map(s=>{
     const dn=DNAMES[new Date(s.date+"T12:00:00").getDay()];
-    const st=s.spots*s.rate;
+    const st=Number(s.spots)*Number(s.rate);
     return `<tr><td>${s.date}</td><td>${dn}</td><td>${s.timeSlot||"—"}</td><td style="text-align:center">${s.spots}</td><td style="text-align:right">${fa(s.rate)}</td><td style="text-align:right;font-weight:600">${fa(st)}</td></tr>`;
   }).join("");
   const statusColor=ro.status==="confirmed"?"#3B6D11":ro.status==="executed"?"#185FA5":ro.status==="sent"?"#854F0B":"#888";
@@ -1663,26 +1667,24 @@ function printROCalendarLegacy(ro, settings={}){
     return DOW_SHORT[new Date(`${date}T12:00:00`).getDay()];
   });
 
-  // ── Group schedule entries by timeSlot ────────────────────────────────────
-  const slotMap=new Map<string,Map<number,number>>();
-  (ro.schedule||[]).forEach((s:any)=>{
-    const slot=s.timeSlot||ro.timeSlot||"—";
-    if(!slotMap.has(slot)) slotMap.set(slot,new Map());
-    const d=parseInt(s.date?.slice(8,10)||"0",10);
-    if(d>0) slotMap.get(slot)!.set(d,(slotMap.get(slot)!.get(d)||0)+Number(s.spots||0));
-  });
-  if(slotMap.size===0) slotMap.set(ro.timeSlot||"—",new Map());
-
-  // ── Build HTML rows ───────────────────────────────────────────────────────
-  const rows=([...slotMap.entries()] as [string,Map<number,number>][]).map(([slot,daySpots])=>{
-    const cells:Array<number|string>=Array.from({length:daysInMonth},(_,i)=>{
-      const v=daySpots.get(i+1)||0;
-      return v>0?v:"";
+  // ── Build standalone rows: primary + each extra row independently ─────────
+  const buildPdfRow=(slot:string,prog:string,matTitle:string,entries:any[])=>{
+    const daySpots=new Map<number,number>();
+    entries.forEach((s:any)=>{
+      const d=parseInt(s.date?.slice(8,10)||"0",10);
+      if(d>0&&Number(s.spots)>0) daySpots.set(d,(daySpots.get(d)||0)+Number(s.spots));
     });
+    const cells:Array<number|string>=Array.from({length:daysInMonth},(_,i)=>{const v=daySpots.get(i+1)||0;return v>0?v:"";});
     const rowTotal=[...daySpots.values()].reduce((a,v)=>a+v,0);
     const dayCells=cells.map(c=>`<td class="dc">${c}</td>`).join("");
-    return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${ro.programme||""}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${ro.materialTitle||""}</td></tr>`};
-  });
+    return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${prog}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${matTitle}</td></tr>`};
+  };
+  const rows=[
+    buildPdfRow(ro.timeSlot||"—",ro.programme||"",ro.materialTitle||"",ro.schedule||[]),
+    ...(ro.extraScheduleRows||[])
+      .filter((r:any)=>(r.schedule||[]).some((s:any)=>Number(s.spots)>0))
+      .map((r:any)=>buildPdfRow(r.timeSlot||ro.timeSlot||"—",r.programme||ro.programme||"",r.materialTitle||ro.materialTitle||"",r.schedule||[])),
+  ];
 
   const grandSpots=rows.reduce((a,r)=>a+r.rowTotal,0);
 
