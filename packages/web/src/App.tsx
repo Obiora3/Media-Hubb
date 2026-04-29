@@ -1709,7 +1709,7 @@ function printROCalendarLegacy(ro, settings={}){
     const dayCells=cells.map(c=>`<td class="dc">${c}</td>`).join("");
     return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${prog}</td><td class="du">${duration}</td><td class="rt">${fa(rate)}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${matTitle}</td></tr>`};
   };
-  const rows=getRoScheduleRows(ro).map((row:any)=>buildPdfRow(row.timeSlot||"—",row.programme||"",displayRoMaterialDuration(row.materialDuration),readRoNumber(row.rate,0),row.materialTitle||"",row.schedule||[]));
+  const rows=getRoScheduleRows(ro).filter((row:any)=>(row.schedule||[]).some((entry:any)=>Number(entry.spots)>0)).map((row:any)=>buildPdfRow(row.timeSlot||"—",row.programme||"",displayRoMaterialDuration(row.materialDuration),readRoNumber(row.rate,0),row.materialTitle||"",row.schedule||[]));
 
   const grandSpots=rows.reduce((a,r)=>a+r.rowTotal,0);
 
@@ -1920,7 +1920,7 @@ async function exportROExcel(ro, settings={}){
     alignment:{horizontal:"center",vertical:"center"},
   });
 
-  const scheduleRows=getRoScheduleRows(ro).map((row:any)=>({
+  const scheduleRows=getRoScheduleRows(ro).filter((row:any)=>(row.schedule||[]).some((entry:any)=>Number(entry.spots)>0)).map((row:any)=>({
     timeSlot:row.timeSlot||"—",
     programme:row.programme||"ROS",
     materialDuration:displayRoMaterialDuration(row.materialDuration),
