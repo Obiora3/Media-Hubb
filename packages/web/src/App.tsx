@@ -1947,8 +1947,8 @@ async function exportROExcel(ro, settings={}){
       txt(row.programme,bodyStyle(1)),
       txt(row.materialDuration,bodyStyle(2)),
       num(row.rate,{...bodyStyle(3),alignment:{horizontal:"right",vertical:"center"}}),
-      ...allDays.map((d,offset)=>spotsMap.has(d)?numi(spotsMap.get(d),bodyStyle(4+offset)):txt("",bodyStyle(4+offset))),
-      numi(rowTotal,{...bodyStyle(NCOLS-2),font:{bold:true,sz:10,color:{rgb:"000000"}}}),
+      ...allDays.map((d,offset)=>row.spotsMap.has(d)?numi(row.spotsMap.get(d),bodyStyle(4+offset)):txt("",bodyStyle(4+offset))),
+      numi(row.rowTotal,{...bodyStyle(NCOLS-2),font:{bold:true,sz:10,color:{rgb:"000000"}}}),
       txt(row.materialTitle,bodyStyle(NCOLS-1)),
     ];
   });
