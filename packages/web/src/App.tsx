@@ -1058,9 +1058,38 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[selRo.status]||"#f0f0f0",color:RO_STATUS_COLOR[selRo.status]||"#888",textTransform:"uppercase"}}>{selRo.status}</span>
             <span style={{fontSize:11,color:"var(--text3)"}}>{selRo.channel}</span>
           </div>
-          {(()=>{const _t=calcRoTotals(selRo,(settings||{}).whtRate??5);const _days=(selRo.schedule||[]).filter(s=>Number(s.spots)>0).length+(selRo.extraScheduleRows||[]).reduce((a,r)=>a+(r.schedule||[]).filter(s=>Number(s.spots)>0).length,0);return[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["Programme",selRo.programme||"—"],["Material Title",selRo.materialTitle||"—"],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days (active)",_days],["Grand Total",fmt(_t.gross)+" "+(selRo.currency||"NGN")]];})().map(([k,v])=>(
+          {(()=>{const _t=calcRoTotals(selRo,(settings||{}).whtRate??5);const _days=countRoActiveScheduleDays(selRo);return[["Client",selRo.client],["Vendor",selRo.vendor],["Campaign",selRo.campaign],["MPO Ref",selRo.mpoId||"—"],["Period",`${selRo.start} → ${selRo.end}`],["Schedule Days (active)",_days],["Total Spots",sumRoScheduleSpots(selRo)],["Grand Total",fmt(_t.gross)+" "+(selRo.currency||"NGN")]];})().map(([k,v])=>(
             <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}><span style={{color:"var(--text2)"}}>{k}</span><span style={{fontWeight:500}}>{v}</span></div>
           ))}
+          {(()=>{const rows=getRoVisibleScheduleRows(selRo);return(
+            <div style={{marginTop:14,border:"1px solid var(--border-c)",borderRadius:10,overflow:"hidden"}}>
+              <div style={{padding:"8px 10px",fontSize:10,fontWeight:800,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".06em",background:"var(--bg3)"}}>Schedule Rows</div>
+              {rows.length===0?(
+                <div style={{padding:12,fontSize:12,color:"var(--text3)"}}>No active schedule rows recorded.</div>
+              ):(
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:720}}>
+                    <thead>
+                      <tr style={{background:"var(--bg1)"}}>
+                        {["Time Belt","Programme","Duration","Rate","Material","Spots","Daily Schedule"].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"left",borderBottom:"1px solid var(--border-c)",fontSize:10,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".04em"}}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>{rows.map((row:any,index:number)=>(
+                      <tr key={row.id||index}>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",fontWeight:600}}>{row.timeSlot||"—"}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{row.programme||"—"}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{displayRoMaterialDuration(row.materialDuration)}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",textAlign:"right",whiteSpace:"nowrap"}}>{(CURRENCIES[selRo.currency||"NGN"]?.symbol||"₦")+readRoNumber(row.rate,0).toLocaleString("en",{maximumFractionDigits:2})}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{row.materialTitle||"—"}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",textAlign:"center",fontWeight:700}}>{(row.schedule||[]).reduce((a:number,s:any)=>a+Number(s.spots||0),0)}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",color:"var(--text2)",whiteSpace:"normal",lineHeight:1.4}}>{formatRoDailySchedule(row)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );})()}
           <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
             <button className="btn btn-primary btn-sm" onClick={()=>printROCalendarLegacy(selRo,settings||{})}>↓ PDF</button>
             <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(selRo,settings||{})}>↓ Excel</button>
@@ -1201,7 +1230,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
               {l:"Total ROs",v:(ros||[]).length},
               {l:"Confirmed",v:(ros||[]).filter(r=>r.status==="confirmed").length},
               {l:"Sent",v:(ros||[]).filter(r=>r.status==="sent").length},
-              {l:"Total Value",v:fmtK((ros||[]).reduce((a,r)=>a+(r.schedule||[]).reduce((b,s)=>b+(s.spots*s.rate),0),0),CURRENCIES[dCcy]?.symbol||"₦")},
+              {l:"Total Value",v:fmtK((ros||[]).reduce((a,r)=>a+calcRoTotals(r,settings?.whtRate||0).gross,0),CURRENCIES[dCcy]?.symbol||"₦")},
             ].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
           </div>
           <div className="card">
@@ -1239,7 +1268,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td>{r.campaign}</td>
                       <td><span className="rate-tag">{r.channel}</span></td>
                       <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(r.campaignMonth||r.start)}</td>
-                      <td style={{textAlign:"center",color:"var(--text3)"}}>{(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)}</td>
+                      <td style={{textAlign:"center",color:"var(--text3)"}}>{sumRoScheduleSpots(r)}</td>
                       <td style={{fontWeight:600}}>{sym}{roTotals.amountPayable.toLocaleString("en",{maximumFractionDigits:2})}</td>
                       <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
                       <td><div className="action-row" onClick={e=>e.stopPropagation()}>
@@ -1621,10 +1650,11 @@ function printRO(ro, settings={}){
   const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
   const fa=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:2});
   const totals=calcRoTotals(ro);
-  const allEntries=[
-    ...(ro.schedule||[]).filter(s=>Number(s.spots)>0).map(s=>({...s,rate:Number(s.rate)||Number(ro.rate)||0})),
-    ...(ro.extraScheduleRows||[]).flatMap((r:any)=>(r.schedule||[]).filter((s:any)=>Number(s.spots)>0).map((s:any)=>({...s,rate:Number(r.rate)||Number(ro.rate)||0,timeSlot:r.timeSlot||ro.timeSlot||"—"}))),
-  ].sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  const allEntries=getRoScheduleRows(ro)
+    .flatMap((row:any)=>(row.schedule||[])
+      .filter((s:any)=>Number(s.spots)>0)
+      .map((s:any)=>({...s,rate:row.rate,timeSlot:row.timeSlot,programme:row.programme,materialDuration:row.materialDuration,materialTitle:row.materialTitle})))
+    .sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
   const rows=allEntries.map(s=>{
     const dn=DNAMES[new Date(s.date+"T12:00:00").getDay()];
     const st=Number(s.spots)*Number(s.rate);
@@ -1668,7 +1698,7 @@ function printROCalendarLegacy(ro, settings={}){
   });
 
   // ── Build standalone rows: primary + each extra row independently ─────────
-  const buildPdfRow=(slot:string,prog:string,matTitle:string,entries:any[])=>{
+  const buildPdfRow=(slot:string,prog:string,duration:string,rate:number,matTitle:string,entries:any[])=>{
     const daySpots=new Map<number,number>();
     entries.forEach((s:any)=>{
       const d=parseInt(s.date?.slice(8,10)||"0",10);
@@ -1677,13 +1707,9 @@ function printROCalendarLegacy(ro, settings={}){
     const cells:Array<number|string>=Array.from({length:daysInMonth},(_,i)=>{const v=daySpots.get(i+1)||0;return v>0?v:"";});
     const rowTotal=[...daySpots.values()].reduce((a,v)=>a+v,0);
     const dayCells=cells.map(c=>`<td class="dc">${c}</td>`).join("");
-    return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${prog}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${matTitle}</td></tr>`};
+    return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${prog}</td><td class="du">${duration}</td><td class="rt">${fa(rate)}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${matTitle}</td></tr>`};
   };
-  const rows=[
-    buildPdfRow(ro.timeSlot||"—",ro.programme||"",ro.materialTitle||"",ro.schedule||[]),
-    ...(ro.extraScheduleRows||[])
-      .map((r:any)=>buildPdfRow(r.timeSlot||ro.timeSlot||"—",r.programme||ro.programme||"",r.materialTitle||ro.materialTitle||"",r.schedule||[])),
-  ];
+  const rows=getRoScheduleRows(ro).map((row:any)=>buildPdfRow(row.timeSlot||"—",row.programme||"",displayRoMaterialDuration(row.materialDuration),readRoNumber(row.rate,0),row.materialTitle||"",row.schedule||[]));
 
   const grandSpots=rows.reduce((a,r)=>a+r.rowTotal,0);
 
@@ -1699,7 +1725,7 @@ function printROCalendarLegacy(ro, settings={}){
 
   const css=`*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;padding:20px 18px;font-size:11px}
-@page{size:portrait;margin:12mm}
+@page{size:landscape;margin:10mm}
 @media print{body{padding:0}}
 .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .brand{font-size:17px;font-weight:800;color:#1a2d5a}
@@ -1717,6 +1743,8 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
 .dow{background:#c8d5ee;font-weight:700;color:#1a2d5a;font-size:7.5px}
 .tb{text-align:left;padding:3px 5px;font-weight:700;font-size:9px;min-width:72px;background:#fff}
 .pg{text-align:left;padding:3px 5px;font-size:9px;min-width:80px;background:#fff}
+.du{text-align:left;padding:3px 5px;font-size:8px;min-width:74px;background:#fff}
+.rt{text-align:right;padding:3px 5px;font-size:8px;min-width:56px;background:#fff}
 .dc.spot{font-weight:800;color:#1a2d5a}
 .st{font-weight:800;font-size:10px;color:#1a2d5a;background:#dde6f7;min-width:34px}
 .mc{text-align:left;padding:3px 5px;font-size:8.5px;min-width:90px;background:#fff}
@@ -1754,6 +1782,8 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
     <tr>
       <th class="th-side" rowspan="3" style="vertical-align:middle">Time Belt</th>
       <th class="th-side" rowspan="3" style="vertical-align:middle">Programme</th>
+      <th class="th-side" rowspan="3" style="vertical-align:middle">Duration</th>
+      <th class="th-side" rowspan="3" style="vertical-align:middle;text-align:right">Rate</th>
       <th class="th-hdr" colspan="${daysInMonth}">S C H E D U L E</th>
       <th class="th-hdr" rowspan="3" style="vertical-align:middle;min-width:34px">NO OF<br/>SPOTS</th>
       <th class="th-hdr" rowspan="3" style="vertical-align:middle;text-align:left;padding-left:5px;min-width:90px">MATERIAL TITLE/<br/>SPECIFICATION</th>
@@ -1764,7 +1794,7 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
   <tbody>
     ${rows.map(r=>r.html).join("")}
     <tr class="tr-tot">
-      <td colspan="2" style="text-align:right;padding-right:6px;font-size:9px;font-weight:700">TOTAL</td>
+      <td colspan="4" style="text-align:right;padding-right:6px;font-size:9px;font-weight:700">TOTAL</td>
       ${totalDayCells}
       <td class="st">${grandSpots}</td>
       <td class="mc"></td>
@@ -1805,10 +1835,7 @@ async function exportROExcel(ro, settings={}){
     ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"})
     :"—";
   const campaignMonthUpper=campaignMonthLabel.toUpperCase();
-  const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)
-    +(ro.extraScheduleRows||[]).reduce((acc,r)=>acc+(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0),0);
-  const ratePerSpot=totalSpots>0?totals.gross/totalSpots:Number(ro.rate)||0;
-  const matDur=displayRoMaterialDuration(ro.materialDuration);
+  const totalSpots=sumRoScheduleSpots(ro);
   const companyName=String((settings as any).companyName||"MediaHub").toUpperCase();
   const NCOLS=4+daysInMonth+2;
 
@@ -1893,19 +1920,14 @@ async function exportROExcel(ro, settings={}){
     alignment:{horizontal:"center",vertical:"center"},
   });
 
-  // Each row is standalone — primary from ro.schedule, extras each from their own extraScheduleRows entry
-  const scheduleRows=[
-    {timeSlot:ro.timeSlot||"—",programme:ro.programme||"ROS",materialDuration:displayRoMaterialDuration(ro.materialDuration),materialTitle:ro.materialTitle||"",rate:Number(ro.rate)||0,entries:ro.schedule||[]},
-    ...(ro.extraScheduleRows||[])
-      .map(r=>({
-        timeSlot:r.timeSlot||ro.timeSlot||"—",
-        programme:r.programme||ro.programme||"ROS",
-        materialDuration:displayRoMaterialDuration(r.materialDuration||ro.materialDuration),
-        materialTitle:r.materialTitle||ro.materialTitle||"",
-        rate:Number(r.rate)||Number(ro.rate)||0,
-        entries:r.schedule||[],
-      })),
-  ];
+  const scheduleRows=getRoScheduleRows(ro).map((row:any)=>({
+    timeSlot:row.timeSlot||"—",
+    programme:row.programme||"ROS",
+    materialDuration:displayRoMaterialDuration(row.materialDuration),
+    materialTitle:row.materialTitle||"",
+    rate:readRoNumber(row.rate,0),
+    entries:row.schedule||[],
+  }));
   const dataRows=scheduleRows.map((row)=>{
     const spotsMap=new Map();
     row.entries.filter(s=>Number(s.spots)>0)
@@ -2005,10 +2027,8 @@ function getMonthBounds(monthKey){
 }
 
 function calcRoTotals(ro, whtRate=0){
-  const primaryGross=(ro.schedule||[]).reduce((a,s)=>a+(Number(s.spots)||0)*(Number(s.rate)||0),0);
-  const extraGross=(ro.extraScheduleRows||[]).reduce((acc,r)=>
-    acc+(r.schedule||[]).reduce((a,s)=>a+(Number(s.spots)||0)*(Number(r.rate)||Number(ro.rate)||0),0),0);
-  const gross=primaryGross+extraGross;
+  const gross=getRoScheduleRows(ro).reduce((total:number,row:any)=>
+    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>rowTotal+(Number(entry.spots)||0)*readRoNumber(row.rate,readRoNumber(entry.rate,0)),0),0);
   const volumeDiscountPct=Number(ro.volumeDiscount)||0;
   const agencyCommissionPct=Number(ro.agencyCommission)||0;
   const volumeDiscountAmount=gross*(volumeDiscountPct/100);
@@ -2066,6 +2086,86 @@ function normalizeRoMaterialDuration(value){
 function displayRoMaterialDuration(value){
   const normalized=normalizeRoMaterialDuration(value);
   return normalized||"—";
+}
+
+function readRoNumber(value, fallback=0){
+  if(value===null||value===undefined||value==="") return fallback;
+  const n=Number(value);
+  return Number.isFinite(n)?n:fallback;
+}
+
+function normalizeRoScheduleEntries(entries:any[]=[], row:any={}, ro:any={}){
+  const rate=readRoNumber(row.rate,readRoNumber(ro.rate,0));
+  const timeSlot=row.timeSlot ?? ro.timeSlot ?? "";
+  const programme=row.programme ?? ro.programme ?? "";
+  const materialDuration=normalizeRoMaterialDuration(row.materialDuration ?? ro.materialDuration);
+  const materialTitle=row.materialTitle ?? ro.materialTitle ?? "";
+  return (entries||[]).map((entry:any)=>({
+    ...entry,
+    date:entry.date||"",
+    spots:readRoNumber(entry.spots,0),
+    rate:readRoNumber(entry.rate,rate),
+    timeSlot:entry.timeSlot ?? timeSlot,
+    programme:entry.programme ?? programme,
+    materialDuration:normalizeRoMaterialDuration(entry.materialDuration ?? materialDuration),
+    materialTitle:entry.materialTitle ?? materialTitle,
+  }));
+}
+
+function normalizeRoScheduleRow(row:any={}, ro:any={}, fallbackId="row"){
+  const rate=readRoNumber(row.rate,readRoNumber(ro.rate,0));
+  const materialDuration=normalizeRoMaterialDuration(row.materialDuration ?? ro.materialDuration);
+  return {
+    ...row,
+    id:row.id||fallbackId,
+    timeSlot:row.timeSlot ?? ro.timeSlot ?? "",
+    programme:row.programme ?? ro.programme ?? "",
+    materialDuration,
+    materialTitle:row.materialTitle ?? ro.materialTitle ?? "",
+    rate,
+    schedule:normalizeRoScheduleEntries(row.schedule||[],{...row,rate,materialDuration},ro),
+  };
+}
+
+function getRoScheduleRows(ro:any){
+  if(!ro) return [];
+  const primary=normalizeRoScheduleRow({
+    id:"primary",
+    timeSlot:ro.timeSlot||"",
+    programme:ro.programme||"",
+    materialDuration:ro.materialDuration||"",
+    materialTitle:ro.materialTitle||"",
+    rate:ro.rate,
+    schedule:ro.schedule||[],
+  },ro,"primary");
+  const extras=(ro.extraScheduleRows||[]).map((row:any,index:number)=>normalizeRoScheduleRow(row,ro,`row-${index+2}`));
+  return [primary,...extras];
+}
+
+function getRoVisibleScheduleRows(ro:any){
+  return getRoScheduleRows(ro).filter((row:any)=>
+    (row.schedule||[]).some((entry:any)=>Number(entry.spots)>0)||
+    !!row.timeSlot||!!row.programme||!!row.materialTitle||!!row.materialDuration||Number(row.rate)>0
+  );
+}
+
+function sumRoScheduleSpots(ro:any){
+  return getRoScheduleRows(ro).reduce((total:number,row:any)=>
+    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>rowTotal+readRoNumber(entry.spots,0),0),0);
+}
+
+function countRoActiveScheduleDays(ro:any){
+  return getRoScheduleRows(ro).reduce((total:number,row:any)=>
+    total+(row.schedule||[]).filter((entry:any)=>Number(entry.spots)>0).length,0);
+}
+
+function formatRoDailySchedule(row:any){
+  const active=(row.schedule||[]).filter((entry:any)=>Number(entry.spots)>0);
+  if(!active.length) return "—";
+  return active.map((entry:any)=>{
+    const day=entry.date?new Date(`${entry.date}T12:00:00`).toLocaleDateString("en-NG",{day:"2-digit",month:"short"}):"Date";
+    return `${day}: ${readRoNumber(entry.spots,0)}`;
+  }).join(", ");
 }
 
 function getRoCalendarCells(ro){
@@ -2155,7 +2255,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
       schedule:buildScheduleDays(start,end,f.schedule,f.rate),
       extraScheduleRows:(f.extraScheduleRows||[]).map(r=>({
         ...r,
-        schedule:buildScheduleDays(start,end,r.schedule,f.rate)
+        schedule:buildScheduleDays(start,end,r.schedule,readRoNumber(r.rate,readRoNumber(f.rate,0)))
       }))
     }));
   };
@@ -2172,7 +2272,17 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
 
   const removeExtraScheduleRow=(id)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).filter(r=>r.id!==id)}));
 
-  const updateExtraRowField=(id,field,value)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==id?r:{...r,[field]:value})}));
+  const updateExtraRowField=(id,field,value)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>{
+    if(r.id!==id)return r;
+    const next={...r,[field]:value};
+    if(["rate","timeSlot","programme","materialDuration","materialTitle"].includes(field)){
+      next.schedule=(r.schedule||[]).map(s=>({
+        ...s,
+        [field]:field==="rate"?readRoNumber(value,0):value,
+      }));
+    }
+    return next;
+  })}));
 
   const setExtraRowSpot=(rowId,date,spots)=>setForm(f=>({
     ...f,
@@ -2223,16 +2333,21 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const handleSave=()=>{
     if(!validateStep(3))return;
     if(roDraftIdRef.current)removeDraft(RO_DRAFTS_KEY,roDraftIdRef.current);
-    // Primary schedule only — extra rows are stored in extraScheduleRows, NOT merged here
-    const primaryEntries=form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}));
-    onSave({...form,schedule:primaryEntries});
+    const normalizedForm={
+      ...form,
+      rate:readRoNumber(form.rate,0),
+      materialDuration:normalizeRoMaterialDuration(form.materialDuration),
+      schedule:normalizeRoScheduleEntries(form.schedule||[],form,form),
+      extraScheduleRows:(form.extraScheduleRows||[]).map((row:any,index:number)=>normalizeRoScheduleRow(row,form,`row-${index+2}`)),
+    };
+    onSave(normalizedForm);
   };
 
   const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
   const brandList=[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
 
-  const totalSpots=form.schedule.reduce((a,s)=>a+Number(s.spots||0),0)+(form.extraScheduleRows||[]).reduce((a,r)=>a+r.schedule.reduce((b,s)=>b+Number(s.spots||0),0),0);
-  const activeDays=form.schedule.filter(s=>Number(s.spots)>0).length+(form.extraScheduleRows||[]).reduce((a,r)=>a+r.schedule.filter(s=>Number(s.spots)>0).length,0);
+  const totalSpots=sumRoScheduleSpots(form);
+  const activeDays=countRoActiveScheduleDays(form);
 
   const STEPS=[{n:1,label:"Order Details"},{n:2,label:"Schedule"},{n:3,label:"Rates & Review"}];
 
@@ -3146,8 +3261,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
     }).map(ro=>{
       const mpo=mpos.find(m=>m.id===ro.mpoId)||null;
       if(mbAgency&&(mpo?.agency||"")!==mbAgency) return null;
-      const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)
-        +(ro.extraScheduleRows||[]).reduce((acc,r)=>acc+(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0),0);
+      const totalSpots=sumRoScheduleSpots(ro);
       // Use calcRoTotals for all amounts — consistent with the RO detail view and PDF
       const rTotals=calcRoTotals(ro,whtRate);
       const {gross,netTotal,amountPayable}=rTotals;
@@ -3197,8 +3311,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         cell(ro.campaign,{s:{border}}),
         cell(shortId(ro.mpoId)||"—",{s:{border,font:{name:"Courier New",sz:9}}}),
         cell(ro.id,{s:{border,font:{name:"Courier New",sz:9}}}),
-        cell(displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration),{s:{border}}),
-        num(Number(ro.rate)||0),
+        cell(getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration),{s:{border}}),
+        num(getRoVisibleScheduleRows(ro).length===1?readRoNumber(getRoVisibleScheduleRows(ro)[0].rate,0):calcRoTotals(ro,whtRate).gross/Math.max(totalSpots,1)),
         num(mpoAmtInclVat,{s:{border,fill:{fgColor:{rgb:"FFFF00"}},font:{bold:true},alignment:{horizontal:"right"},z:numFmt}}),
         num(roAmtInclVat),
         num(roAmtLessVat),
@@ -3287,7 +3401,7 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
         const overdueRec=lR.filter(r=>r.status==="overdue");
         const overdueAmt=overdueRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
         const totalRos=(ros||[]).length;
-        const totalSpots=(ros||[]).reduce((a,ro)=>a+(ro.schedule||[]).reduce((b,s)=>b+Number(s.spots||0),0),0);
+        const totalSpots=(ros||[]).reduce((a,ro)=>a+sumRoScheduleSpots(ro),0);
         const netPos=tPd-totalPaid;
 
         // Top clients by MPO value
@@ -3517,8 +3631,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{shortId(ro.mpoId)||"—"}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.id}</td>
-                    <td style={{padding:"7px 10px",fontSize:11}}>{displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500}}>{ro.rate?sym+(Number(ro.rate)).toLocaleString("en",{maximumFractionDigits:2}):"—"}</td>
+                    <td style={{padding:"7px 10px",fontSize:11}}>{getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500}}>{(()=>{const rows=getRoVisibleScheduleRows(ro);const rate=rows.length===1?readRoNumber(rows[0].rate,0):calcRoTotals(ro,whtRate).gross/Math.max(totalSpots,1);return rate?sym+rate.toLocaleString("en",{maximumFractionDigits:2}):"—";})()}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px"}}>{sym}{roAmtLessVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
@@ -4533,33 +4647,42 @@ const toAudit = r => r ? ({
   detail: r.detail, tag: r.tag, ts: r.ts, workspace_id: r.workspace_id,
 }) : null;
 
-const toRo = r => r ? ({
-  id: r.id, mpoId: r.mpo_id||"", client: r.client, vendor: r.vendor,
-  campaign: r.campaign, channel: r.channel||"TV",
-  programme: r.programme||"", materialTitle: r.material_title||"", materialDuration: normalizeRoMaterialDuration(r.material_duration),
-  campaignMonth: r.campaign_month || (r.start_date ? String(r.start_date).slice(0,7) : ""),
-  start: r.start_date, end: r.end_date,
-  status: r.status||"draft", currency: r.currency||"NGN",
-  rate: r.rate ?? (r.schedule||[]).find(s=>Number(s?.rate)>0)?.rate ?? 0,
-  timeSlot: r.time_slot ?? (r.schedule||[]).find(s=>s?.timeSlot)?.timeSlot ?? "",
-  volumeDiscount: r.volume_discount ?? 0,
-  agencyCommission: r.agency_commission ?? 0,
-  schedule: r.schedule||[], extraScheduleRows: r.extra_schedule_rows||[], docs: r.docs||[], workspace_id: r.workspace_id,
-}) : null;
-const fromRo = ro => ({
-  id: ro.id,
-  mpo_id: ro.mpoId||null, client: ro.client, vendor: ro.vendor,
-  campaign: ro.campaign, channel: ro.channel||"TV",
-  programme: ro.programme||"", material_title: ro.materialTitle||"", material_duration: normalizeRoMaterialDuration(ro.materialDuration)||"",
-  campaign_month: ro.campaignMonth || (ro.start ? String(ro.start).slice(0,7) : null),
-  start_date: ro.start, end_date: ro.end,
-  status: ro.status||"draft", currency: ro.currency||"NGN",
-  rate: Number(ro.rate)||0,
-  time_slot: ro.timeSlot || "",
-  volume_discount: Number(ro.volumeDiscount)||0,
-  agency_commission: Number(ro.agencyCommission)||0,
-  schedule: ro.schedule||[], extra_schedule_rows: ro.extraScheduleRows||[], docs: ro.docs||[],
-});
+const toRo = r => {
+  if(!r) return null;
+  const ro={
+    id: r.id, mpoId: r.mpo_id||"", client: r.client, vendor: r.vendor,
+    campaign: r.campaign, channel: r.channel||"TV",
+    programme: r.programme||"", materialTitle: r.material_title||"", materialDuration: normalizeRoMaterialDuration(r.material_duration),
+    campaignMonth: r.campaign_month || (r.start_date ? String(r.start_date).slice(0,7) : ""),
+    start: r.start_date, end: r.end_date,
+    status: r.status||"draft", currency: r.currency||"NGN",
+    rate: r.rate ?? (r.schedule||[]).find(s=>Number(s?.rate)>0)?.rate ?? 0,
+    timeSlot: r.time_slot ?? (r.schedule||[]).find(s=>s?.timeSlot)?.timeSlot ?? "",
+    volumeDiscount: r.volume_discount ?? 0,
+    agencyCommission: r.agency_commission ?? 0,
+    schedule: r.schedule||[], extraScheduleRows: r.extra_schedule_rows||[], docs: r.docs||[], workspace_id: r.workspace_id,
+  };
+  const rows=getRoScheduleRows(ro);
+  return {...ro,schedule:rows[0]?.schedule||[],extraScheduleRows:rows.slice(1)};
+};
+const fromRo = ro => {
+  const rows=getRoScheduleRows(ro);
+  const primary=rows[0]||normalizeRoScheduleRow({schedule:[]},ro,"primary");
+  return {
+    id: ro.id,
+    mpo_id: ro.mpoId||null, client: ro.client, vendor: ro.vendor,
+    campaign: ro.campaign, channel: ro.channel||"TV",
+    programme: primary.programme||ro.programme||"", material_title: primary.materialTitle||ro.materialTitle||"", material_duration: normalizeRoMaterialDuration(primary.materialDuration||ro.materialDuration)||"",
+    campaign_month: ro.campaignMonth || (ro.start ? String(ro.start).slice(0,7) : null),
+    start_date: ro.start, end_date: ro.end,
+    status: ro.status||"draft", currency: ro.currency||"NGN",
+    rate: readRoNumber(primary.rate,readRoNumber(ro.rate,0)),
+    time_slot: primary.timeSlot || ro.timeSlot || "",
+    volume_discount: Number(ro.volumeDiscount)||0,
+    agency_commission: Number(ro.agencyCommission)||0,
+    schedule: primary.schedule||[], extra_schedule_rows: rows.slice(1), docs: ro.docs||[],
+  };
+};
 
 // ── makeArraySetter ───────────────────────────────────────────────────────────
 // Returns a React-compatible setter (accepts value or prev=>next) that also
