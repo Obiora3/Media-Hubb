@@ -2127,9 +2127,100 @@ function normalizeRoScheduleRow(row:any={}, ro:any={}, fallbackId="row"){
   };
 }
 
+function getRoScheduleEntryFields(entry:any={}, row:any={}, ro:any={}){
+  return {
+    timeSlot:entry.timeSlot ?? row.timeSlot ?? ro.timeSlot ?? "",
+    programme:entry.programme ?? row.programme ?? ro.programme ?? "",
+    materialDuration:normalizeRoMaterialDuration(entry.materialDuration ?? row.materialDuration ?? ro.materialDuration),
+    materialTitle:entry.materialTitle ?? row.materialTitle ?? ro.materialTitle ?? "",
+    rate:readRoNumber(entry.rate,readRoNumber(row.rate,readRoNumber(ro.rate,0))),
+  };
+}
+
+function getRoScheduleRowKey(fields:any){
+  return [
+    fields.timeSlot||"",
+    fields.programme||"",
+    fields.materialDuration||"",
+    fields.materialTitle||"",
+    String(readRoNumber(fields.rate,0)),
+  ].join("||");
+}
+
+function completeRoScheduleRowDays(row:any, ro:any, fallbackId:string){
+  const normalized=normalizeRoScheduleRow(row,ro,fallbackId);
+  if(!ro?.start||!ro?.end) return normalized;
+  return {
+    ...normalized,
+    schedule:normalizeRoScheduleEntries(
+      buildScheduleDays(ro.start,ro.end,normalized.schedule,normalized.rate),
+      normalized,
+      ro
+    ),
+  };
+}
+
+function splitRoScheduleRow(row:any={}, ro:any={}, fallbackId="row"){
+  const entries=row.schedule||[];
+  if(!entries.length) return [completeRoScheduleRowDays(row,ro,fallbackId)];
+
+  const groups:any[]=[];
+  const groupsByKey=new Map<string,any>();
+  entries.forEach((entry:any,index:number)=>{
+    const fields=getRoScheduleEntryFields(entry,row,ro);
+    const key=getRoScheduleRowKey(fields);
+    if(!groupsByKey.has(key)){
+      const group={key,fields,entries:[],firstIndex:index};
+      groupsByKey.set(key,group);
+      groups.push(group);
+    }
+    groupsByKey.get(key).entries.push({
+      ...entry,
+      _index:index,
+      timeSlot:fields.timeSlot,
+      programme:fields.programme,
+      materialDuration:fields.materialDuration,
+      materialTitle:fields.materialTitle,
+      rate:fields.rate,
+    });
+  });
+
+  const segments:any[]=[];
+  groups.forEach(group=>{
+    let current:any=null;
+    let seenDates=new Set<string>();
+    let previousDate="";
+
+    group.entries.forEach((entry:any)=>{
+      const {_index,...cleanEntry}=entry;
+      const date=entry.date||"";
+      const startsNewSegment=!current||
+        (!!date&&seenDates.has(date))||
+        (!!date&&!!previousDate&&date<previousDate);
+
+      if(startsNewSegment){
+        current={key:group.key,fields:group.fields,entries:[],firstIndex:_index};
+        segments.push(current);
+        seenDates=new Set<string>();
+      }
+
+      current.entries.push(cleanEntry);
+      if(date) seenDates.add(date);
+      previousDate=date||previousDate;
+    });
+  });
+
+  return segments.sort((a,b)=>a.firstIndex-b.firstIndex).map((segment,index)=>completeRoScheduleRowDays({
+    ...row,
+    id:index===0?row.id||fallbackId:`${fallbackId}-${index+1}`,
+    ...segment.fields,
+    schedule:segment.entries,
+  },ro,index===0?fallbackId:`${fallbackId}-${index+1}`));
+}
+
 function getRoScheduleRows(ro:any){
   if(!ro) return [];
-  const primary=normalizeRoScheduleRow({
+  const primaryRows=splitRoScheduleRow({
     id:"primary",
     timeSlot:ro.timeSlot||"",
     programme:ro.programme||"",
@@ -2138,8 +2229,8 @@ function getRoScheduleRows(ro:any){
     rate:ro.rate,
     schedule:ro.schedule||[],
   },ro,"primary");
-  const extras=(ro.extraScheduleRows||[]).map((row:any,index:number)=>normalizeRoScheduleRow(row,ro,`row-${index+2}`));
-  return [primary,...extras];
+  const extras=(ro.extraScheduleRows||[]).flatMap((row:any,index:number)=>splitRoScheduleRow(row,ro,`row-${index+2}`));
+  return [...primaryRows,...extras];
 }
 
 function getRoVisibleScheduleRows(ro:any){
@@ -4684,6 +4775,22 @@ const fromRo = ro => {
   };
 };
 
+function stableRoJson(value:any):string{
+  if(Array.isArray(value)) return `[${value.map(stableRoJson).join(",")}]`;
+  if(value&&typeof value==="object"){
+    return `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${stableRoJson(value[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function getRoScheduleRepairPatch(dbRow:any, ro:any){
+  const fixed=fromRo(ro);
+  const patch:any={};
+  if(stableRoJson(dbRow.schedule||[])!==stableRoJson(fixed.schedule||[])) patch.schedule=fixed.schedule||[];
+  if(stableRoJson(dbRow.extra_schedule_rows||[])!==stableRoJson(fixed.extra_schedule_rows||[])) patch.extra_schedule_rows=fixed.extra_schedule_rows||[];
+  return Object.keys(patch).length?patch:null;
+}
+
 // ── makeArraySetter ───────────────────────────────────────────────────────────
 // Returns a React-compatible setter (accepts value or prev=>next) that also
 // dispatches Supabase mutations by diffing old vs new array.
@@ -4756,7 +4863,17 @@ function App(){
   useEffect(()=>{ if(budgetsTable.data)   _setBudgets(budgetsTable.data.map(toBudget).filter(Boolean));       },[budgetsTable.data]);
   useEffect(()=>{ if(auditTable.data)     _setAuditLog(auditTable.data.map(toAudit).filter(Boolean));         },[auditTable.data]);
   useEffect(()=>{ if(notifTable.data)     _setNotifications(notifTable.data);                             },[notifTable.data]);
-  useEffect(()=>{ if(rosTable.data)       _setRos(rosTable.data.map(toRo).filter(Boolean));               },[rosTable.data]);
+  useEffect(()=>{
+    if(!rosTable.data) return;
+    const mapped=rosTable.data.map(toRo).filter(Boolean);
+    _setRos(mapped);
+    rosTable.data.forEach(row=>{
+      const ro=toRo(row);
+      if(!ro) return;
+      const patch=getRoScheduleRepairPatch(row,ro);
+      if(patch) rosTable.update(row.id,patch).catch(e=>console.error("RO schedule repair failed",e));
+    });
+  },[rosTable.data]);
 
   // ── Compatibility setters (work like usePersisted setters) ──────────────────
   const setMpos        = makeArraySetter(_setMpos,        mposTable.insert,     mposTable.update,     mposTable.remove,     fromMpo,     workspaceId);
