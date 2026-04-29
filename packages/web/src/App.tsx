@@ -1891,17 +1891,34 @@ async function exportROExcel(ro, settings={}){
     alignment:{horizontal:"center",vertical:"center"},
   });
 
-  const slots=[...new Set((ro.schedule||[]).map(s=>s.timeSlot||ro.timeSlot||"—"))].filter(Boolean);
-  const scheduleSlots=slots.length?slots:[ro.timeSlot||"—"];
-  const dataRows=scheduleSlots.map((slot,rowIndex)=>{
-    const slotEntries=(ro.schedule||[]).filter(s=>(s.timeSlot||ro.timeSlot||"—")===slot);
-    const slotSpots=new Map();
-    slotEntries.filter(s=>Number(s.spots)>0)
-      .forEach(s=>{const day=new Date(s.date+"T12:00:00").getDate();slotSpots.set(day,(slotSpots.get(day)||0)+Number(s.spots));});
-    const rowTotal=[...slotSpots.values()].reduce((a,v)=>a+v,0);
-    const slotRate=slotEntries.find(s=>Number(s.rate)>0)?.rate||Number(ro.rate)||0;
-    const slotMatDur=displayRoMaterialDuration(slotEntries.find(s=>s.materialDuration)?.materialDuration||ro.materialDuration);
-    const slotMatTitle=slotEntries.find(s=>s.materialTitle)?.materialTitle||ro.materialTitle||"";
+  // Build one row per schedule row (primary + each extra), preserving each as standalone.
+  // Do NOT group by timeSlot — that merges distinct rows the user defined separately.
+  const extraEntrySet=new Set(
+    (ro.extraScheduleRows||[]).flatMap(r=>
+      r.schedule.filter(s=>Number(s.spots)>0).map(s=>`${s.date}||${r.timeSlot||""}`)
+    )
+  );
+  const primaryEntries=(ro.schedule||[]).filter(s=>!extraEntrySet.has(`${s.date}||${s.timeSlot||""}`));
+  const scheduleRows=[
+    // Primary row always first
+    {timeSlot:ro.timeSlot||"—",programme:ro.programme||"ROS",materialDuration:displayRoMaterialDuration(ro.materialDuration),materialTitle:ro.materialTitle||"",rate:Number(ro.rate)||0,entries:primaryEntries},
+    // Each extra row as its own standalone row (skip rows with no spots booked)
+    ...(ro.extraScheduleRows||[])
+      .filter(r=>(r.schedule||[]).some(s=>Number(s.spots)>0))
+      .map(r=>({
+        timeSlot:r.timeSlot||ro.timeSlot||"—",
+        programme:r.programme||ro.programme||"ROS",
+        materialDuration:displayRoMaterialDuration(r.materialDuration||ro.materialDuration),
+        materialTitle:r.materialTitle||ro.materialTitle||"",
+        rate:Number(r.rate)||Number(ro.rate)||0,
+        entries:r.schedule||[],
+      })),
+  ];
+  const dataRows=scheduleRows.map((row)=>{
+    const spotsMap=new Map();
+    row.entries.filter(s=>Number(s.spots)>0)
+      .forEach(s=>{const day=new Date(s.date+"T12:00:00").getDate();spotsMap.set(day,(spotsMap.get(day)||0)+Number(s.spots));});
+    const rowTotal=[...spotsMap.values()].reduce((a,v)=>a+v,0);
     const bodyStyle=(colIndex,align="center")=>({
       font:{sz:10,color:{rgb:"000000"}},
       fill:scheduleCellFill,
@@ -1909,13 +1926,13 @@ async function exportROExcel(ro, settings={}){
       alignment:{horizontal:align,vertical:"center"},
     });
     return [
-      txt(slot,bodyStyle(0)),
-      txt(ro.programme||"ROS",bodyStyle(1)),
-      txt(slotMatDur,bodyStyle(2)),
-      num(slotRate,{...bodyStyle(3),alignment:{horizontal:"right",vertical:"center"}}),
-      ...allDays.map((d,offset)=>slotSpots.has(d)?numi(slotSpots.get(d),bodyStyle(4+offset)):txt("",bodyStyle(4+offset))),
+      txt(row.timeSlot,bodyStyle(0)),
+      txt(row.programme,bodyStyle(1)),
+      txt(row.materialDuration,bodyStyle(2)),
+      num(row.rate,{...bodyStyle(3),alignment:{horizontal:"right",vertical:"center"}}),
+      ...allDays.map((d,offset)=>spotsMap.has(d)?numi(spotsMap.get(d),bodyStyle(4+offset)):txt("",bodyStyle(4+offset))),
       numi(rowTotal,{...bodyStyle(NCOLS-2),font:{bold:true,sz:10,color:{rgb:"000000"}}}),
-      txt(slotMatTitle,bodyStyle(NCOLS-1)),
+      txt(row.materialTitle,bodyStyle(NCOLS-1)),
     ];
   });
 
