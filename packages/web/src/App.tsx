@@ -1682,7 +1682,6 @@ function printROCalendarLegacy(ro, settings={}){
   const rows=[
     buildPdfRow(ro.timeSlot||"—",ro.programme||"",ro.materialTitle||"",ro.schedule||[]),
     ...(ro.extraScheduleRows||[])
-      .filter((r:any)=>(r.schedule||[]).some((s:any)=>Number(s.spots)>0))
       .map((r:any)=>buildPdfRow(r.timeSlot||ro.timeSlot||"—",r.programme||ro.programme||"",r.materialTitle||ro.materialTitle||"",r.schedule||[])),
   ];
 
@@ -1898,7 +1897,6 @@ async function exportROExcel(ro, settings={}){
   const scheduleRows=[
     {timeSlot:ro.timeSlot||"—",programme:ro.programme||"ROS",materialDuration:displayRoMaterialDuration(ro.materialDuration),materialTitle:ro.materialTitle||"",rate:Number(ro.rate)||0,entries:ro.schedule||[]},
     ...(ro.extraScheduleRows||[])
-      .filter(r=>(r.schedule||[]).some(s=>Number(s.spots)>0))
       .map(r=>({
         timeSlot:r.timeSlot||ro.timeSlot||"—",
         programme:r.programme||ro.programme||"ROS",
@@ -4546,7 +4544,7 @@ const toRo = r => r ? ({
   timeSlot: r.time_slot ?? (r.schedule||[]).find(s=>s?.timeSlot)?.timeSlot ?? "",
   volumeDiscount: r.volume_discount ?? 0,
   agencyCommission: r.agency_commission ?? 0,
-  schedule: r.schedule||[], docs: r.docs||[], workspace_id: r.workspace_id,
+  schedule: r.schedule||[], extraScheduleRows: r.extra_schedule_rows||[], docs: r.docs||[], workspace_id: r.workspace_id,
 }) : null;
 const fromRo = ro => ({
   id: ro.id,
@@ -4560,7 +4558,7 @@ const fromRo = ro => ({
   time_slot: ro.timeSlot || "",
   volume_discount: Number(ro.volumeDiscount)||0,
   agency_commission: Number(ro.agencyCommission)||0,
-  schedule: ro.schedule||[], docs: ro.docs||[],
+  schedule: ro.schedule||[], extra_schedule_rows: ro.extraScheduleRows||[], docs: ro.docs||[],
 });
 
 // ── makeArraySetter ───────────────────────────────────────────────────────────
