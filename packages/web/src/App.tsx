@@ -3343,7 +3343,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user}){
 }
 
 /* ═══ REPORTS ═══ */
-function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
+function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings}){
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState("");const [to,setTo]=useState("");
   const [mbClient,setMbClient]=useState("");const [mbMpo,setMbMpo]=useState("");
   const [mbMonth,setMbMonth]=useState("");const [mbAgency,setMbAgency]=useState("");
@@ -3384,9 +3384,12 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       const roAmtInclVat=netTotal*vatMult;
       const mpoAmtInclVat=mpo?mpo.amount*vatMult:0;
       const monthLabel=ro.campaignMonth?new Date(ro.campaignMonth+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
-      return {ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht:amountPayable,monthLabel};
+      // Resolve agency from registered agencies: find the agency whose brands list contains this RO's client
+      const registeredAgency=(clients||[]).find((c:any)=>c.type==="Agency"&&(c.brands||[]).some((b:any)=>b.name===ro.client));
+      const agencyForRo=registeredAgency?.name||mpo?.agency||agencyName;
+      return {ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht:amountPayable,monthLabel,agencyForRo};
     }).filter(Boolean);
-  },[ros,mpos,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate]);
+  },[ros,mpos,clients,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate]);
 
   const mbClients=[...new Set((ros||[]).map(r=>r.client))].sort();
   const mbMpos=[...new Set((ros||[]).filter(r=>r.mpoId).map(r=>r.mpoId))].sort();
@@ -3416,9 +3419,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
       const hdrRow=HEADERS.map((h,i)=>({v:h,t:"s",s:hdrStyle(i===7)}));
 
       // ── data rows ─────────────────────────────────────────────────────────────
-      const dataRows=mbRows.map(({ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel})=>[
+      const dataRows=mbRows.map(({ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel,agencyForRo})=>[
         cell(monthLabel,{s:{border,alignment:{horizontal:"center"}}}),
-        cell(mpo?.agency||agencyName,{s:{border}}),
+        cell(agencyForRo,{s:{border}}),
         cell(ro.client,{s:{border}}),
         cell(ro.campaign,{s:{border}}),
         cell(shortId(ro.mpoId)||"—",{s:{border,font:{name:"Courier New",sz:9}}}),
@@ -3735,9 +3738,9 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
               <tbody>
                 {mbRows.length===0?(
                   <tr><td colSpan={13} style={{padding:"32px 16px",textAlign:"center",color:"var(--text3)",fontSize:12}}>No ROs found. Create Release Orders in the Scheduling page.</td></tr>
-                ):mbRows.map(({ro,mpo,totalSpots,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel},i)=>(
+                ):mbRows.map(({ro,mpo,totalSpots,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht,monthLabel,agencyForRo},i)=>(
                   <tr key={ro.id} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}>
-                    <td style={{padding:"7px 10px",fontWeight:500}}>{mpo?.agency||agencyName}</td>
+                    <td style={{padding:"7px 10px",fontWeight:500}}>{agencyForRo}</td>
                     <td style={{padding:"7px 10px"}}>{ro.client}</td>
                     <td style={{padding:"7px 10px"}}>{ro.campaign}</td>
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
@@ -5198,7 +5201,7 @@ function App(){
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
           {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings} user={currentUser}/>}
-          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} settings={settings} setSettings={setSettings}/>}
+          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
