@@ -1928,17 +1928,20 @@ async function exportROExcel(ro, settings={}){
     rate:readRoNumber(row.rate,0),
     entries:row.schedule||[],
   }));
-  const dataRows=scheduleRows.map((row)=>{
+  const scheduleRowData=scheduleRows.map((row)=>{
     const spotsMap=new Map();
     row.entries.filter(s=>Number(s.spots)>0)
       .forEach(s=>{const day=new Date(s.date+"T12:00:00").getDate();spotsMap.set(day,(spotsMap.get(day)||0)+Number(s.spots));});
     const rowTotal=[...spotsMap.values()].reduce((a,v)=>a+v,0);
-    const bodyStyle=(colIndex,align="center")=>({
-      font:{sz:10,color:{rgb:"000000"}},
-      fill:scheduleCellFill,
-      border:makeBorder({left:colIndex===0,right:colIndex===NCOLS-1}),
-      alignment:{horizontal:align,vertical:"center"},
-    });
+    return {...row,spotsMap,rowTotal};
+  });
+  const bodyStyle=(colIndex,align="center")=>({
+    font:{sz:10,color:{rgb:"000000"}},
+    fill:scheduleCellFill,
+    border:makeBorder({left:colIndex===0,right:colIndex===NCOLS-1}),
+    alignment:{horizontal:align,vertical:"center"},
+  });
+  const dataRows=scheduleRowData.map((row)=>{
     return [
       txt(row.timeSlot,bodyStyle(0)),
       txt(row.programme,bodyStyle(1)),
@@ -1949,6 +1952,24 @@ async function exportROExcel(ro, settings={}){
       txt(row.materialTitle,bodyStyle(NCOLS-1)),
     ];
   });
+  const totalBodyStyle=(colIndex,align="center")=>({
+    ...bodyStyle(colIndex,align),
+    font:{bold:true,sz:10,color:{rgb:"000000"}},
+    fill:{fgColor:{rgb:"EAF2F8"}},
+    border:makeBorder({bottom:true,left:colIndex===0,right:colIndex===NCOLS-1}),
+  });
+  const dayTotals=allDays.map(d=>scheduleRowData.reduce((sum,row)=>sum+(Number(row.spotsMap.get(d))||0),0));
+  const scheduleGrandTotal=dayTotals.reduce((sum,v)=>sum+v,0);
+  const scheduleTotalRow=[
+    txt("TOTAL",totalBodyStyle(0,"left")),
+    txt("",totalBodyStyle(1)),
+    txt("",totalBodyStyle(2)),
+    txt("",totalBodyStyle(3)),
+    ...dayTotals.map((v,offset)=>v>0?numi(v,totalBodyStyle(4+offset)):txt("",totalBodyStyle(4+offset))),
+    numi(scheduleGrandTotal,totalBodyStyle(NCOLS-2)),
+    txt("",totalBodyStyle(NCOLS-1)),
+  ];
+  const scheduleTotalRows=dataRows.length?[scheduleTotalRow]:[];
 
 
   const hdr1=scheduleColumns.map((value,colIndex)=>
@@ -1983,11 +2004,11 @@ async function exportROExcel(ro, settings={}){
     ];
   });
 
-  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,blanks(NCOLS),costHeader,...costRows];
+  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,...scheduleTotalRows,blanks(NCOLS),costHeader,...costRows];
   const ws=XLS.utils.aoa_to_sheet(sheetData);
   const metaStart=3;
   const calStart=metaStart+metaFields.length+1;
-  const costStart=calStart+3+dataRows.length+1;
+  const costStart=calStart+3+dataRows.length+scheduleTotalRows.length+1;
   ws["!merges"]=[
     {s:{r:0,c:0},e:{r:0,c:4}},
     {s:{r:2,c:0},e:{r:2,c:1}},
@@ -1995,7 +2016,7 @@ async function exportROExcel(ro, settings={}){
     {s:{r:costStart,c:0},e:{r:costStart,c:1}},
   ];
   ws["!cols"]=[{wch:20},{wch:26},{wch:22},{wch:12},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
-  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
+  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),...scheduleTotalRows.map(()=>({hpt:20})),{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
 
   const wb=XLS.utils.book_new();
   XLS.utils.book_append_sheet(wb,ws,"Release Order");
