@@ -33,16 +33,20 @@ export function useAuth() {
 
   // Load session on mount and listen for changes
   useEffect(() => {
-    // Fallback: if Supabase never responds (paused project, network issue), stop the spinner after 8s
+    // Fallback: if Supabase never responds (paused project, network issue), stop the spinner after 8s.
+    // Timeout must stay alive until fetchProfile resolves — don't clear it in getSession().then().
     const timeout = setTimeout(() => {
       setState((s) => s.loading ? { ...s, loading: false } : s);
     }, 8000);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      clearTimeout(timeout);
       setState((s) => ({ ...s, session, user: session?.user ?? null }));
-      if (session?.user) fetchProfile(session.user);
-      else setState((s) => ({ ...s, loading: false }));
+      if (session?.user) {
+        fetchProfile(session.user).finally(() => clearTimeout(timeout));
+      } else {
+        clearTimeout(timeout);
+        setState((s) => ({ ...s, loading: false }));
+      }
     }).catch(() => {
       clearTimeout(timeout);
       setState((s) => ({ ...s, loading: false }));

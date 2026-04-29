@@ -5020,8 +5020,12 @@ function App(){
   if(needsPassword) return <SetPasswordScreen/>;
   if(!currentUser) return(
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",flexDirection:"column",gap:16,background:"var(--bg)"}}>
-      <div style={{width:40,height:40,borderRadius:"50%",border:"3px solid var(--brand)",borderTopColor:"transparent",animation:"spin 0.8s linear infinite"}}/>
-      <div style={{fontSize:13,color:"var(--text3)"}}>Setting up your profile…</div>
+      <div style={{fontSize:14,color:"var(--text2)",fontWeight:600}}>Unable to load your profile</div>
+      <div style={{fontSize:12,color:"var(--text3)",maxWidth:300,textAlign:"center"}}>Your account exists but the profile could not be loaded. This usually means the server is unavailable. Try refreshing, or sign out and back in.</div>
+      <div style={{display:"flex",gap:8,marginTop:4}}>
+        <button className="btn btn-sm btn-primary" onClick={()=>window.location.reload()}>Refresh</button>
+        <button className="btn btn-sm btn-ghost" onClick={signOut}>Sign out</button>
+      </div>
     </div>
   );
   if(currentUser.role==="client") return <ClientPortal user={currentUser} receivables={receivables} mpos={mpos} onLogout={signOut}/>;
