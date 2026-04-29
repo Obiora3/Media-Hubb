@@ -33,10 +33,19 @@ export function useAuth() {
 
   // Load session on mount and listen for changes
   useEffect(() => {
+    // Fallback: if Supabase never responds (paused project, network issue), stop the spinner after 8s
+    const timeout = setTimeout(() => {
+      setState((s) => s.loading ? { ...s, loading: false } : s);
+    }, 8000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      clearTimeout(timeout);
       setState((s) => ({ ...s, session, user: session?.user ?? null }));
       if (session?.user) fetchProfile(session.user);
       else setState((s) => ({ ...s, loading: false }));
+    }).catch(() => {
+      clearTimeout(timeout);
+      setState((s) => ({ ...s, loading: false }));
     });
 
     const {
@@ -52,39 +61,43 @@ export function useAuth() {
       else setState((s) => ({ ...s, profile: null, loading: false }));
     });
 
-    return () => subscription.unsubscribe();
+    return () => { clearTimeout(timeout); subscription.unsubscribe(); };
   }, []);
 
   async function fetchProfile(authUser: User) {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", authUser.id)
-      .single();
+    try {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .single();
 
-    const metadataName =
-      (authUser.user_metadata?.name as string | undefined)
-      ?? (authUser.user_metadata?.full_name as string | undefined)
-      ?? "";
+      const metadataName =
+        (authUser.user_metadata?.name as string | undefined)
+        ?? (authUser.user_metadata?.full_name as string | undefined)
+        ?? "";
 
-    const resolvedName = data?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
-    const resolvedInitials =
-      data?.initials?.trim()
-      || resolvedName.split(" ").filter(Boolean).map((part: string) => part[0]?.toUpperCase()).slice(0, 2).join("")
-      || "?";
+      const resolvedName = data?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
+      const resolvedInitials =
+        data?.initials?.trim()
+        || resolvedName.split(" ").filter(Boolean).map((part: string) => part[0]?.toUpperCase()).slice(0, 2).join("")
+        || "?";
 
-    setState((s) => ({
-      ...s,
-      profile: data
-        ? {
-            ...(data as Profile),
-            email: authUser.email ?? "",
-            name: resolvedName,
-            initials: resolvedInitials,
-          }
-        : null,
-      loading: false,
-    }));
+      setState((s) => ({
+        ...s,
+        profile: data
+          ? {
+              ...(data as Profile),
+              email: authUser.email ?? "",
+              name: resolvedName,
+              initials: resolvedInitials,
+            }
+          : null,
+        loading: false,
+      }));
+    } catch {
+      setState((s) => ({ ...s, loading: false }));
+    }
   }
 
   async function signIn(email: string, password: string): Promise<SignInResult> {
