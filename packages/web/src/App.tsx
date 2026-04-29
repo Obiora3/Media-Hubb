@@ -1804,7 +1804,8 @@ async function exportROExcel(ro, settings={}){
     ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"})
     :"—";
   const campaignMonthUpper=campaignMonthLabel.toUpperCase();
-  const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0);
+  const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)
+    +(ro.extraScheduleRows||[]).reduce((acc,r)=>acc+(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0),0);
   const ratePerSpot=totalSpots>0?totals.gross/totalSpots:Number(ro.rate)||0;
   const matDur=displayRoMaterialDuration(ro.materialDuration);
   const companyName=String((settings as any).companyName||"MediaHub").toUpperCase();
@@ -1891,18 +1892,9 @@ async function exportROExcel(ro, settings={}){
     alignment:{horizontal:"center",vertical:"center"},
   });
 
-  // Build one row per schedule row (primary + each extra), preserving each as standalone.
-  // Do NOT group by timeSlot — that merges distinct rows the user defined separately.
-  const extraEntrySet=new Set(
-    (ro.extraScheduleRows||[]).flatMap(r=>
-      r.schedule.filter(s=>Number(s.spots)>0).map(s=>`${s.date}||${r.timeSlot||""}`)
-    )
-  );
-  const primaryEntries=(ro.schedule||[]).filter(s=>!extraEntrySet.has(`${s.date}||${s.timeSlot||""}`));
+  // Each row is standalone — primary from ro.schedule, extras each from their own extraScheduleRows entry
   const scheduleRows=[
-    // Primary row always first
-    {timeSlot:ro.timeSlot||"—",programme:ro.programme||"ROS",materialDuration:displayRoMaterialDuration(ro.materialDuration),materialTitle:ro.materialTitle||"",rate:Number(ro.rate)||0,entries:primaryEntries},
-    // Each extra row as its own standalone row (skip rows with no spots booked)
+    {timeSlot:ro.timeSlot||"—",programme:ro.programme||"ROS",materialDuration:displayRoMaterialDuration(ro.materialDuration),materialTitle:ro.materialTitle||"",rate:Number(ro.rate)||0,entries:ro.schedule||[]},
     ...(ro.extraScheduleRows||[])
       .filter(r=>(r.schedule||[]).some(s=>Number(s.spots)>0))
       .map(r=>({
@@ -2013,7 +2005,10 @@ function getMonthBounds(monthKey){
 }
 
 function calcRoTotals(ro, whtRate=0){
-  const gross=(ro.schedule||[]).reduce((a,s)=>a+(Number(s.spots)||0)*(Number(s.rate)||0),0);
+  const primaryGross=(ro.schedule||[]).reduce((a,s)=>a+(Number(s.spots)||0)*(Number(s.rate)||0),0);
+  const extraGross=(ro.extraScheduleRows||[]).reduce((acc,r)=>
+    acc+(r.schedule||[]).reduce((a,s)=>a+(Number(s.spots)||0)*(Number(r.rate)||Number(ro.rate)||0),0),0);
+  const gross=primaryGross+extraGross;
   const volumeDiscountPct=Number(ro.volumeDiscount)||0;
   const agencyCommissionPct=Number(ro.agencyCommission)||0;
   const volumeDiscountAmount=gross*(volumeDiscountPct/100);
@@ -2101,17 +2096,8 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const initialRate=initial?.rate ?? initial?.schedule?.find(s=>Number(s.rate)>0)?.rate ?? 0;
   const initialMonth=initial?.campaignMonth || initial?.start?.slice(0,7) || "";
   const initialTimeSlot=initial?.timeSlot ?? initial?.schedule?.find(s=>s.timeSlot)?.timeSlot ?? "";
-  // When editing, strip extra-row entries from schedule so form.schedule stays primary-only.
-  // Saved ro.schedule is a flat merge of primary (all days) + extra (spots>0 only); we need
-  // to undo that merge so re-saving doesn't double-count extra entries.
-  const initialExtraEntrySet=initial?new Set(
-    (initial.extraScheduleRows||[]).flatMap(r=>
-      r.schedule.filter(s=>Number(s.spots)>0).map(s=>`${s.date}||${r.timeSlot||""}`)
-    )
-  ):new Set();
-  const initialPrimarySchedule=initial
-    ?(initial.schedule||[]).filter(s=>!initialExtraEntrySet.has(`${s.date}||${s.timeSlot||""}`))
-    :[];
+  // ro.schedule is primary-only; extra rows live in ro.extraScheduleRows
+  const initialPrimarySchedule=initial?(initial.schedule||[]):[];
   // Seed from: editing existing → initial, resuming draft chip → draftInitial, else blank
   const seed=initial?{...initial,campaignMonth:initialMonth,rate:initialRate,timeSlot:initialTimeSlot,schedule:initialPrimarySchedule,volumeDiscount:initial.volumeDiscount||0,agencyCommission:initial.agencyCommission||0,programme:initial.programme||"",materialTitle:initial.materialTitle||"",materialDuration:normalizeRoMaterialDuration(initial.materialDuration)}
     :draftInitial?.form?{...EMPTY_RO,...draftInitial.form,materialDuration:normalizeRoMaterialDuration(draftInitial.form.materialDuration)}:{...EMPTY_RO};
@@ -2195,8 +2181,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
     })
   }));
 
-  const effectiveSchedule=[...form.schedule,...(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(r.rate)||Number(form.rate)||0,timeSlot:r.timeSlot||""})))];
-  const totals=calcRoTotals({...form,schedule:effectiveSchedule},settings?.whtRate??5);
+  const totals=calcRoTotals(form,settings?.whtRate??5);
   const monthInfo=useMemo(()=>{
     if(!form.campaignMonth) return null;
     const [year,month]=form.campaignMonth.split("-").map(Number);
@@ -2238,9 +2223,9 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const handleSave=()=>{
     if(!validateStep(3))return;
     if(roDraftIdRef.current)removeDraft(RO_DRAFTS_KEY,roDraftIdRef.current);
+    // Primary schedule only — extra rows are stored in extraScheduleRows, NOT merged here
     const primaryEntries=form.schedule.map(s=>({...s,rate:Number(form.rate)||0,timeSlot:form.timeSlot||""}));
-    const extraEntries=(form.extraScheduleRows||[]).flatMap(r=>r.schedule.filter(s=>Number(s.spots)>0).map(s=>({date:s.date,spots:Number(s.spots),rate:Number(r.rate)||Number(form.rate)||0,timeSlot:r.timeSlot||"",materialDuration:r.materialDuration||"",materialTitle:r.materialTitle||""})));
-    onSave({...form,schedule:[...primaryEntries,...extraEntries]});
+    onSave({...form,schedule:primaryEntries});
   };
 
   const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
@@ -3161,7 +3146,8 @@ function ReportsPage({mpos,receivables,payables,ros,settings,setSettings}){
     }).map(ro=>{
       const mpo=mpos.find(m=>m.id===ro.mpoId)||null;
       if(mbAgency&&(mpo?.agency||"")!==mbAgency) return null;
-      const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0);
+      const totalSpots=(ro.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0)
+        +(ro.extraScheduleRows||[]).reduce((acc,r)=>acc+(r.schedule||[]).reduce((a,s)=>a+Number(s.spots||0),0),0);
       // Use calcRoTotals for all amounts — consistent with the RO detail view and PDF
       const rTotals=calcRoTotals(ro,whtRate);
       const {gross,netTotal,amountPayable}=rTotals;
