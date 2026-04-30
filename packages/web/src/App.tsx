@@ -537,6 +537,7 @@ function SettingsContent({settings,setSettings,toast,user}){
     const {error}=await supabase.from("workspaces").update({
       name: settings.companyName||undefined,
       brand_color: settings.brandColor,
+      settings,
     }).eq("id",user.workspace_id);
     if(error) toast("Save failed: "+error.message,"error");
     else toast("Settings saved","success");
@@ -4969,11 +4970,12 @@ function App(){
   const [pwaBannerDismissed,setPwaBannerDismissed]=useState(false);
 
   // Fetch real workspace from Supabase and seed settings from it
+  const wsSettingsSeeded=useRef(false);
   useEffect(()=>{
     if(!workspaceId) return;
     supabase.from("workspaces").select("*").eq("id",workspaceId).single()
       .then(({data})=>{
-        if(!data) return;
+        if(!data) { wsSettingsSeeded.current=true; return; }
         const abbr = data.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
         setWorkspace({
           id:   data.id,
@@ -4986,8 +4988,18 @@ function App(){
         if(data.settings && Object.keys(data.settings).length > 0){
           setSettings(s=>({...DEFAULT_SETTINGS,...data.settings}));
         }
+        wsSettingsSeeded.current=true;
       });
   },[workspaceId]);
+
+  // Sync settings to Supabase so all workspace users share the same config (revenue targets, etc.)
+  useEffect(()=>{
+    if(!workspaceId||!wsSettingsSeeded.current) return;
+    const t=setTimeout(()=>{
+      supabase.from("workspaces").update({settings}).eq("id",workspaceId);
+    },1200);
+    return()=>clearTimeout(t);
+  },[settings,workspaceId]);
 
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",darkMode?"dark":"light"); },[darkMode]);
 
