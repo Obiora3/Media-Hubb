@@ -4970,12 +4970,12 @@ function App(){
   const [pwaBannerDismissed,setPwaBannerDismissed]=useState(false);
 
   // Fetch real workspace from Supabase and seed settings from it
-  const wsSettingsSeeded=useRef(false);
+  const [wsSettingsSeeded,setWsSettingsSeeded]=useState(false);
   useEffect(()=>{
     if(!workspaceId) return;
     supabase.from("workspaces").select("*").eq("id",workspaceId).single()
       .then(({data})=>{
-        if(!data) { wsSettingsSeeded.current=true; return; }
+        if(!data) { setWsSettingsSeeded(true); return; }
         const abbr = data.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
         setWorkspace({
           id:   data.id,
@@ -4988,18 +4988,22 @@ function App(){
         if(data.settings && Object.keys(data.settings).length > 0){
           setSettings(s=>({...DEFAULT_SETTINGS,...data.settings}));
         }
-        wsSettingsSeeded.current=true;
+        // Mark seeded — this state change re-triggers the sync effect even when
+        // the workspace had no settings yet (so the admin's localStorage targets
+        // get pushed to Supabase on first load).
+        setWsSettingsSeeded(true);
       });
   },[workspaceId]);
 
-  // Sync settings to Supabase so all workspace users share the same config (revenue targets, etc.)
+  // Sync settings to Supabase so all workspace users share the same config.
+  // Runs whenever settings change OR when seeding first completes.
   useEffect(()=>{
-    if(!workspaceId||!wsSettingsSeeded.current) return;
+    if(!workspaceId||!wsSettingsSeeded) return;
     const t=setTimeout(()=>{
       supabase.from("workspaces").update({settings}).eq("id",workspaceId);
     },1200);
     return()=>clearTimeout(t);
-  },[settings,workspaceId]);
+  },[settings,workspaceId,wsSettingsSeeded]);
 
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",darkMode?"dark":"light"); },[darkMode]);
 
