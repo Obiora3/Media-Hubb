@@ -3,6 +3,53 @@ import type { Session, User, AuthError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { Profile } from "@/types";
 
+const ROLE_PERMISSIONS: Record<Profile["role"], Profile["permissions"]> = {
+  admin: ["dashboard", "mpo", "clients", "finance", "budgets", "revenue-target", "reports", "calendar", "analytics", "reminders", "users", "audit", "invoice-wf", "settings", "dataviz", "feed"],
+  manager: ["dashboard", "mpo", "clients", "finance", "budgets", "revenue-target", "reports", "calendar", "analytics", "reminders", "audit", "invoice-wf", "feed"],
+  viewer: ["dashboard", "mpo", "clients", "revenue-target", "calendar", "feed"],
+  client: ["dashboard", "revenue-target"],
+};
+
+const PROFILE_COLORS = ["#534AB7", "#185FA5", "#3B6D11", "#854F0B", "#D85A30"];
+
+function metadataString(authUser: User, key: string): string {
+  const value = authUser.user_metadata?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeRole(role: unknown): Profile["role"] {
+  return role === "admin" || role === "manager" || role === "client" ? role : "viewer";
+}
+
+function initialsFor(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase())
+    .slice(0, 2)
+    .join("") || "?";
+}
+
+function fallbackProfile(authUser: User, existing?: Partial<Profile> | null): Profile {
+  const metadataName = metadataString(authUser, "name") || metadataString(authUser, "full_name");
+  const name = existing?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
+  const role = normalizeRole(existing?.role || metadataString(authUser, "role"));
+  const workspaceId = existing?.workspace_id || metadataString(authUser, "workspace_id") || null;
+  const initials = existing?.initials?.trim() || initialsFor(name);
+
+  return {
+    id: authUser.id,
+    workspace_id: workspaceId,
+    name,
+    email: authUser.email ?? "",
+    role,
+    permissions: existing?.permissions?.length ? existing.permissions : ROLE_PERMISSIONS[role],
+    color: existing?.color || PROFILE_COLORS[Math.abs(authUser.id.charCodeAt(0) || 0) % PROFILE_COLORS.length],
+    initials,
+    created_at: existing?.created_at || new Date().toISOString(),
+  } as Profile;
+}
+
 interface AuthState {
   session: Session | null;
   user: User | null;
@@ -74,45 +121,59 @@ export function useAuth() {
     const timeoutId = setTimeout(() => {
       timedOut = true;
       fetchingForRef.current = null;
-      setState((s) => ({ ...s, loading: false }));
+      setState((s) => ({ ...s, profile: fallbackProfile(authUser), loading: false }));
     }, 8000);
 
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", authUser.id)
-        .single();
+        .maybeSingle();
 
-      clearTimeout(timeoutId);
       if (timedOut) return; // timeout already fired, don't overwrite state
 
-      const metadataName =
-        (authUser.user_metadata?.name as string | undefined)
-        ?? (authUser.user_metadata?.full_name as string | undefined)
-        ?? "";
+      if (error) {
+        console.warn("[MediaHub] Could not load profile; using auth fallback.", error.message);
+      }
 
-      const resolvedName = data?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
-      const resolvedInitials =
-        data?.initials?.trim()
-        || resolvedName.split(" ").filter(Boolean).map((p: string) => p[0]?.toUpperCase()).slice(0, 2).join("")
-        || "?";
+      let resolvedProfile = fallbackProfile(authUser, data as Partial<Profile> | null);
 
+      if (!data) {
+        const repairPayload = {
+          id: resolvedProfile.id,
+          workspace_id: resolvedProfile.workspace_id,
+          name: resolvedProfile.name,
+          role: resolvedProfile.role,
+          permissions: resolvedProfile.permissions,
+          color: resolvedProfile.color,
+          initials: resolvedProfile.initials,
+        };
+
+        const { data: repaired, error: repairError } = await supabase
+          .from("profiles")
+          .upsert(repairPayload)
+          .select("*")
+          .maybeSingle();
+
+        if (timedOut) return; // timeout already fired, don't overwrite state
+
+        if (repairError) {
+          console.warn("[MediaHub] Could not repair missing profile; continuing with local fallback.", repairError.message);
+        } else if (repaired) {
+          resolvedProfile = fallbackProfile(authUser, repaired as Partial<Profile>);
+        }
+      }
+
+      clearTimeout(timeoutId);
       setState((s) => ({
         ...s,
-        profile: data
-          ? {
-              ...(data as Profile),
-              email: authUser.email ?? "",
-              name: resolvedName,
-              initials: resolvedInitials,
-            }
-          : null,
+        profile: resolvedProfile,
         loading: false,
       }));
     } catch {
       clearTimeout(timeoutId);
-      if (!timedOut) setState((s) => ({ ...s, loading: false }));
+      if (!timedOut) setState((s) => ({ ...s, profile: fallbackProfile(authUser), loading: false }));
     } finally {
       fetchingForRef.current = null;
     }
@@ -146,13 +207,7 @@ export function useAuth() {
     });
     if (error || !data.user) return { error };
 
-    const permissionsByRole: Record<string, Profile["permissions"]> = {
-      admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed"],
-      manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
-      viewer:  ["dashboard","mpo","clients","calendar","feed"],
-      client:  ["dashboard"],
-    };
-    const permissions = permissionsByRole[role] ?? permissionsByRole["viewer"];
+    const permissions = ROLE_PERMISSIONS[role] ?? ROLE_PERMISSIONS.viewer;
 
     const initials = name.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
     const colors = ["#534AB7", "#185FA5", "#3B6D11", "#854F0B", "#D85A30"];
