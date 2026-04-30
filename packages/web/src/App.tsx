@@ -1094,7 +1094,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
           <div style={{display:"flex",gap:8,marginTop:16,flexWrap:"wrap"}}>
             <button className="btn btn-primary btn-sm" onClick={()=>printROCalendarLegacy(selRo,settings||{})}>↓ PDF</button>
             <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(selRo,settings||{})}>↓ Excel</button>
-            {canEdit&&<button className="btn btn-sm btn-ghost" onClick={()=>{setSelRo(null);setEditRoId(selRo.id);setShowRoForm(true);}}>Edit</button>}
+            {canEdit&&<button className="btn btn-sm btn-edit" onClick={()=>{setSelRo(null);setEditRoId(selRo.id);setShowRoForm(true);}}>✎ Edit</button>}
             {canEdit&&<button className="btn btn-sm" style={{color:"#A32D2D",background:"transparent",border:"1px solid #A32D2D"}} onClick={()=>deleteRo(selRo.id)}>Delete</button>}
           </div>
         </Modal>
@@ -1176,7 +1176,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       {/* ══ MPO section ══ */}
       {docType==="mpo"&&(
         <>
-          <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+          <div className="stat-grid page-callout-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
             {[{l:"Total",v:mpos.length},{l:"Active",v:mpos.filter(m=>m.status==="active").length},{l:"Pending",v:mpos.filter(m=>m.status==="pending").length},{l:"Value",v:fmtK(mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
           </div>
           <div className="card">
@@ -1195,7 +1195,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                 <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
               </div>
             </div>
-            <div className="table-wrap"><table>
+            <div className="table-wrap sticky-table-wrap"><table>
               <thead><tr><th><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>Month</th><th>Status</th><th>Exec</th><th></th></tr></thead>
               <tbody>{filtered.length===0?<tr className="empty-row"><td colSpan={12}>No MPOs found</td></tr>
               :filtered.map(m=>(
@@ -1213,7 +1213,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                     <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printMPO(m,settings||{})}>PDF</button>
                     <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[m.id]||[]).length})`} onClick={()=>setCommentsFor(m.id)}>💬{(comments[m.id]||[]).length>0&&<span className="collab-badge">{(comments[m.id]||[]).length}</span>}</button>
                     <button className="btn btn-sm btn-ghost" title={`Docs (${(m.docs||[]).length})`} onClick={()=>setDocsFor(m.id)}>📎{(m.docs||[]).length>0&&<span style={{fontSize:9,marginLeft:1}}>{(m.docs||[]).length}</span>}</button>
-                    {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(m)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(m.id)}>✕</button></>}
+                    {canEdit&&<><button className="btn btn-sm btn-edit" title="Edit MPO" aria-label={`Edit MPO ${m.id}`} onClick={()=>openEdit(m)}>✎ Edit</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(m.id)}>✕</button></>}
                   </div></td>
                 </tr>
               ))}</tbody>
@@ -1226,7 +1226,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       {/* ══ RO section ══ */}
       {docType==="ro"&&(
         <>
-          <div className="stat-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+          <div className="stat-grid page-callout-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
             {[
               {l:"Total ROs",v:(ros||[]).length},
               {l:"Confirmed",v:(ros||[]).filter(r=>r.status==="confirmed").length},
@@ -1256,7 +1256,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             </div>
             {filteredRos.length===0
               ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
-              :<div className="table-wrap"><table>
+              :<div className="table-wrap sticky-table-wrap"><table>
                 <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Month</th><th>Spots</th><th>Amt Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>{filteredRos.map(r=>{
                   const roTotals=calcRoTotals(r,settings?.whtRate||0);
@@ -1275,7 +1275,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td><div className="action-row" onClick={e=>e.stopPropagation()}>
                         <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printROCalendarLegacy(r,settings||{})}>PDF</button>
                         <button className="btn btn-sm btn-ghost" style={{padding:"2px 8px",fontSize:11}} onClick={()=>exportROExcel(r,settings||{})}>XLS</button>
-                        {canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>{setEditRoId(r.id);setShowRoForm(true);}}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>deleteRo(r.id)}>✕</button></>}
+                        {canEdit&&<><button className="btn btn-sm btn-edit" title="Edit RO" aria-label={`Edit RO ${r.id}`} onClick={()=>{setEditRoId(r.id);setShowRoForm(true);}}>✎ Edit</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>deleteRo(r.id)}>✕</button></>}
                       </div></td>
                     </tr>
                   );
@@ -1546,7 +1546,7 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
             </div>
             {canEdit&&(
               <div style={{display:"flex",gap:8,paddingTop:8,borderTop:"1px solid var(--border-c)"}}>
-                <button className="btn btn-primary btn-sm" onClick={()=>{setEditAgencyId(viewAgency.id);setShowAgencyForm(true);setViewAgency(null);}}>✏ Edit Agency</button>
+                <button className="btn btn-sm btn-edit" onClick={()=>{setEditAgencyId(viewAgency.id);setShowAgencyForm(true);setViewAgency(null);}}>✎ Edit Agency</button>
                 <button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>{delAgency(viewAgency.id);setViewAgency(null);}}>Delete</button>
               </div>
             )}
@@ -1554,7 +1554,7 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
         </Modal>
       )}
 
-      <div className="stat-grid" style={{gridTemplateColumns:"repeat(5,1fr)"}}>
+      <div className="stat-grid page-callout-grid partners-callout-grid" style={{gridTemplateColumns:"repeat(5,1fr)"}}>
         {[{l:"Agencies",v:agencies.length},{l:"Clients",v:clients.filter(r=>r.type==="Client").length},{l:"Vendors",v:clients.filter(r=>r.type==="Vendor").length},{l:"Active",v:clients.filter(r=>r.status==="active").length},{l:"Total Brands",v:agencies.reduce((a,ag)=>a+(ag.brands||[]).length,0)}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
       </div>
 
@@ -1595,7 +1595,7 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
                     <div style={{display:"flex",alignItems:"center",gap:8}}>
                       <SBadge s={ag.status}/>
                       {canEdit&&<div className="action-row" onClick={e=>e.stopPropagation()}>
-                        <button className="btn btn-sm btn-ghost" onClick={()=>{setEditAgencyId(ag.id);setShowAgencyForm(true);}}>✏</button>
+                        <button className="btn btn-sm btn-edit" title="Edit agency" aria-label={`Edit agency ${ag.name}`} onClick={()=>{setEditAgencyId(ag.id);setShowAgencyForm(true);}}>✎ Edit</button>
                         <button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>delAgency(ag.id)}>✕</button>
                       </div>}
                     </div>
@@ -1631,7 +1631,7 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
                   <td>{r.contact||r.contactPerson||"—"}</td>
                   <td style={{color:"var(--text2)",fontSize:12}}><a href={`mailto:${r.email}`} style={{color:"inherit"}}>{r.email}</a></td>
                   <td><SBadge s={r.status}/></td>
-                  <td><div className="action-row">{canEdit&&<><button className="btn btn-sm btn-ghost" onClick={()=>openEdit(r)}>✏</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(r.id)}>✕</button></>}</div></td>
+                  <td><div className="action-row">{canEdit&&<><button className="btn btn-sm btn-edit" title="Edit partner" aria-label={`Edit ${r.name}`} onClick={()=>openEdit(r)}>✎ Edit</button><button className="btn btn-sm btn-ghost" style={{color:"#A32D2D"}} onClick={()=>del(r.id)}>✕</button></>}</div></td>
                 </tr>
               ))}</tbody>
             </table></div>
@@ -3319,7 +3319,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
                     </div>
                   ):(
                     <div style={{display:"flex",gap:4}}>
-                      <button className="btn btn-ghost btn-sm" onClick={()=>{setRtEditing(r.name);setRtEditAmt(String(r.target));setRtEditName(r.name);}}>Edit</button>
+                      <button className="btn btn-edit btn-sm" onClick={()=>{setRtEditing(r.name);setRtEditAmt(String(r.target));setRtEditName(r.name);}}>✎ Edit</button>
                       <button className="btn btn-ghost btn-sm" style={{color:"#A32D2D"}} onClick={()=>{if(confirm(`Remove ${r.name}?`))deleteTarget(r.name);}}>✕</button>
                     </div>
                   )}
@@ -5190,7 +5190,7 @@ function App(){
               <div style={{fontWeight:500,fontSize:12,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{currentUser.name.split(" ")[0]}</div>
               <div style={{fontSize:10,color:"var(--text3)",textTransform:"capitalize"}}>{currentUser.role}</div>
             </div>
-            <span style={{fontSize:10,color:"var(--text3)",flexShrink:0}}>✎</span>
+            <span className="profile-edit-icon">✎</span>
           </button>
           <div className="dark-toggle" style={{marginBottom:8,width:"100%",justifyContent:"space-between"}} onClick={()=>setDarkMode(d=>!d)}>
             <span>{darkMode?"☀️ Light mode":"🌙 Dark mode"}</span>

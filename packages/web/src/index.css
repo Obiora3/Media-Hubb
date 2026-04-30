@@ -58,6 +58,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .btn-sm{padding:4px 10px;font-size:12px}
 .btn-ghost{background:none;border-color:transparent;color:var(--text2)}
 .btn-ghost:hover{background:var(--hover);color:var(--text)}
+.btn-edit{background:#EAF3DE;color:#2F5C0E;border-color:rgba(59,109,17,.35);font-weight:700;box-shadow:0 1px 0 rgba(59,109,17,.12)}
+.btn-edit:hover{background:#DDEFCB;color:#254A0B;border-color:rgba(59,109,17,.55)}
+[data-theme="dark"] .btn-edit{background:rgba(59,109,17,.28);color:#AEE681;border-color:rgba(126,200,80,.35);box-shadow:none}
+[data-theme="dark"] .btn-edit:hover{background:rgba(59,109,17,.38);color:#C5F29E}
 .btn-danger{background:#FCEBEB;color:#A32D2D;border-color:#f5c6c6}
 .btn-ai{background:linear-gradient(135deg,#7B74D4,#534AB7);color:#fff;border:none}
 .btn-ai:hover{background:linear-gradient(135deg,#534AB7,#3C3489)}
@@ -65,6 +69,12 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 /* ═══ CONTENT ═══ */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
 .stat-card{background:var(--bg3);border-radius:var(--radius-md);padding:14px 16px}
+.page-callout-grid{gap:14px;margin-bottom:22px}
+.page-callout-grid .stat-card{background:linear-gradient(135deg,var(--surface),var(--brand-light));border:1px solid rgba(83,74,183,.24);box-shadow:0 8px 24px rgba(83,74,183,.10);position:relative;overflow:hidden}
+.page-callout-grid .stat-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--brand)}
+.page-callout-grid .stat-label{color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+.page-callout-grid .stat-value{font-weight:800;color:var(--text)}
+[data-theme="dark"] .page-callout-grid .stat-card{background:linear-gradient(135deg,var(--surface),rgba(83,74,183,.16));border-color:rgba(164,155,232,.24);box-shadow:none}
 .stat-label{font-size:13px;color:var(--text3);margin-bottom:4px}
 .stat-value{font-size:22px;font-weight:500;color:var(--text)}
 .stat-sub{font-size:11px;color:var(--text3);margin-top:2px}
@@ -74,6 +84,11 @@ body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:v
 .card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px}
 .card-title{font-size:14px;font-weight:500;color:var(--text)}
 .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.sticky-table-wrap{max-height:min(68vh,720px);overflow:auto;border-radius:var(--radius-md);border:var(--border)}
+.sticky-table-wrap table{border-collapse:separate;border-spacing:0}
+.sticky-table-wrap thead th{position:sticky;top:0;background:var(--surface);z-index:4;box-shadow:0 1px 0 var(--border-c),0 4px 14px rgba(0,0,0,.06)}
+.sticky-table-wrap thead th:first-child{border-top-left-radius:var(--radius-md)}
+.sticky-table-wrap thead th:last-child{border-top-right-radius:var(--radius-md)}
 table{width:100%;border-collapse:collapse;font-size:13px;min-width:500px}
 th{text-align:left;padding:8px 12px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:var(--border);white-space:nowrap}
 td{padding:10px 12px;border-bottom:var(--border);vertical-align:middle;color:var(--text)}
@@ -253,6 +268,8 @@ tr:hover td{background:var(--hover)}
 input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--brand)}
 .role-lock{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);padding:8px 12px;background:var(--bg3);border-radius:6px;margin-bottom:12px}
 .dark-toggle{display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 8px;border-radius:99px;border:var(--border);background:var(--bg3);font-size:12px;color:var(--text2)}
+.profile-edit-icon{width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#EAF3DE;color:#2F5C0E;border:1px solid rgba(59,109,17,.35);font-size:12px;font-weight:800;flex-shrink:0}
+[data-theme="dark"] .profile-edit-icon{background:rgba(59,109,17,.28);color:#AEE681;border-color:rgba(126,200,80,.35)}
 
 /* ═══ S7-1: BUDGET MANAGEMENT ═══ */
 .budget-card{background:var(--surface);border-radius:var(--radius-lg);border:var(--border);padding:18px 20px;position:relative;overflow:hidden;transition:box-shadow .15s}
