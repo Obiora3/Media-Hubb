@@ -14,12 +14,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(
   supabaseUrl  ?? "http://localhost",
-  supabaseAnonKey ?? "anon",
-  {
-    auth: {
-      storageKey: "mediahub-auth",
-      persistSession: true,
-      detectSessionInUrl: true,
-    },
-  }
+  supabaseAnonKey ?? "anon"
 );
