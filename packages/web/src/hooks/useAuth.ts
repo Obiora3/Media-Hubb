@@ -30,27 +30,17 @@ export function useAuth() {
        window.location.hash.includes("type=recovery")),
   });
 
-  // Prevent concurrent or duplicate profile fetches for the same user
   const fetchingForRef = useRef<string | null>(null);
-  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function clearFallback() {
-    if (fallbackTimerRef.current) {
-      clearTimeout(fallbackTimerRef.current);
-      fallbackTimerRef.current = null;
-    }
-  }
 
   useEffect(() => {
-    // Only fires if Supabase never responds at all (completely unreachable project).
-    // Cleared immediately once any auth event arrives.
-    fallbackTimerRef.current = setTimeout(() => {
+    // Hard fallback: if onAuthStateChange never fires at all (Supabase completely
+    // unreachable), unblock the spinner after 10s so the user sees the auth screen.
+    const globalFallback = setTimeout(() => {
       setState((s) => s.loading ? { ...s, loading: false } : s);
-    }, 8000);
+    }, 10000);
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      // Supabase is responding — cancel the no-response fallback immediately.
-      clearFallback();
+      clearTimeout(globalFallback);
 
       if (event === "PASSWORD_RECOVERY") {
         setState((s) => ({ ...s, needsPassword: true, session, user: session?.user ?? null, loading: false }));
@@ -58,38 +48,44 @@ export function useAuth() {
       }
 
       if (event === "SIGNED_OUT" || !session) {
+        fetchingForRef.current = null;
         setState({ session: null, user: null, profile: null, loading: false, needsPassword: false });
         return;
       }
 
-      // Session present — update session/user immediately, then fetch profile.
       setState((s) => ({ ...s, session, user: session.user }));
       fetchProfile(session.user);
     });
 
     return () => {
-      clearFallback();
+      clearTimeout(globalFallback);
       subscription.unsubscribe();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function fetchProfile(authUser: User, attempt = 1) {
+  async function fetchProfile(authUser: User) {
+    // Skip if already fetching for this user
     if (fetchingForRef.current === authUser.id) return;
     fetchingForRef.current = authUser.id;
 
+    // Race the DB query against a 8s hard timeout.
+    // Without this, a hanging Supabase connection keeps loading:true forever.
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      fetchingForRef.current = null;
+      setState((s) => ({ ...s, loading: false }));
+    }, 8000);
+
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", authUser.id)
         .single();
 
-      // Retry up to 3 times on network/server errors (transient Supabase issues)
-      if (error && attempt < 3) {
-        fetchingForRef.current = null;
-        await new Promise(r => setTimeout(r, attempt * 2000));
-        return fetchProfile(authUser, attempt + 1);
-      }
+      clearTimeout(timeoutId);
+      if (timedOut) return; // timeout already fired, don't overwrite state
 
       const metadataName =
         (authUser.user_metadata?.name as string | undefined)
@@ -115,12 +111,8 @@ export function useAuth() {
         loading: false,
       }));
     } catch {
-      if (attempt < 3) {
-        fetchingForRef.current = null;
-        await new Promise(r => setTimeout(r, attempt * 2000));
-        return fetchProfile(authUser, attempt + 1);
-      }
-      setState((s) => ({ ...s, loading: false }));
+      clearTimeout(timeoutId);
+      if (!timedOut) setState((s) => ({ ...s, loading: false }));
     } finally {
       fetchingForRef.current = null;
     }
@@ -180,7 +172,6 @@ export function useAuth() {
   }
 
   async function signOut() {
-    // Clear state immediately so the UI responds at once, then tell Supabase.
     setState({ session: null, user: null, profile: null, loading: false, needsPassword: false });
     fetchingForRef.current = null;
     await supabase.auth.signOut();
