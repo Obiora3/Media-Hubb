@@ -42,29 +42,27 @@ export function useAuth() {
   }
 
   useEffect(() => {
-    // Last-resort: if Supabase never fires at all (completely unreachable), unblock the UI.
+    // Only fires if Supabase never responds at all (completely unreachable project).
+    // Cleared immediately once any auth event arrives.
     fallbackTimerRef.current = setTimeout(() => {
       setState((s) => s.loading ? { ...s, loading: false } : s);
     }, 8000);
 
-    // onAuthStateChange fires INITIAL_SESSION from the local token cache synchronously
-    // (no network needed for the initial event). This replaces getSession() and avoids
-    // the double-fetchProfile race that was causing the flicker.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Supabase is responding — cancel the no-response fallback immediately.
+      clearFallback();
+
       if (event === "PASSWORD_RECOVERY") {
-        clearFallback();
         setState((s) => ({ ...s, needsPassword: true, session, user: session?.user ?? null, loading: false }));
         return;
       }
 
       if (event === "SIGNED_OUT" || !session) {
-        clearFallback();
         setState({ session: null, user: null, profile: null, loading: false, needsPassword: false });
         return;
       }
 
-      // Session present — update session/user immediately so the rest of the app
-      // can render its loading state, then fetch the profile.
+      // Session present — update session/user immediately, then fetch profile.
       setState((s) => ({ ...s, session, user: session.user }));
       fetchProfile(session.user);
     });
@@ -76,10 +74,15 @@ export function useAuth() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchProfile(authUser: User) {
-    // Skip if we're already fetching for this exact user — prevents the double-fetch
-    // that occurred when both getSession() and onAuthStateChange both triggered.
     if (fetchingForRef.current === authUser.id) return;
     fetchingForRef.current = authUser.id;
+
+    // Profile-specific timeout: if the profiles table query hangs, stop after 15s.
+    // This is separate from the auth fallback so a slow DB doesn't flash the error screen.
+    const profileTimeoutId = setTimeout(() => {
+      fetchingForRef.current = null;
+      setState((s) => ({ ...s, loading: false }));
+    }, 15000);
 
     try {
       const { data } = await supabase
@@ -99,7 +102,6 @@ export function useAuth() {
         || resolvedName.split(" ").filter(Boolean).map((p: string) => p[0]?.toUpperCase()).slice(0, 2).join("")
         || "?";
 
-      clearFallback();
       setState((s) => ({
         ...s,
         profile: data
@@ -113,10 +115,9 @@ export function useAuth() {
         loading: false,
       }));
     } catch {
-      clearFallback();
       setState((s) => ({ ...s, loading: false }));
     } finally {
-      // Reset so a subsequent sign-in for the same user re-fetches fresh profile data
+      clearTimeout(profileTimeoutId);
       fetchingForRef.current = null;
     }
   }
