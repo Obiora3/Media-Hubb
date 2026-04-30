@@ -73,23 +73,23 @@ export function useAuth() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function fetchProfile(authUser: User) {
+  async function fetchProfile(authUser: User, attempt = 1) {
     if (fetchingForRef.current === authUser.id) return;
     fetchingForRef.current = authUser.id;
 
-    // Profile-specific timeout: if the profiles table query hangs, stop after 15s.
-    // This is separate from the auth fallback so a slow DB doesn't flash the error screen.
-    const profileTimeoutId = setTimeout(() => {
-      fetchingForRef.current = null;
-      setState((s) => ({ ...s, loading: false }));
-    }, 15000);
-
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", authUser.id)
         .single();
+
+      // Retry up to 3 times on network/server errors (transient Supabase issues)
+      if (error && attempt < 3) {
+        fetchingForRef.current = null;
+        await new Promise(r => setTimeout(r, attempt * 2000));
+        return fetchProfile(authUser, attempt + 1);
+      }
 
       const metadataName =
         (authUser.user_metadata?.name as string | undefined)
@@ -115,9 +115,13 @@ export function useAuth() {
         loading: false,
       }));
     } catch {
+      if (attempt < 3) {
+        fetchingForRef.current = null;
+        await new Promise(r => setTimeout(r, attempt * 2000));
+        return fetchProfile(authUser, attempt + 1);
+      }
       setState((s) => ({ ...s, loading: false }));
     } finally {
-      clearTimeout(profileTimeoutId);
       fetchingForRef.current = null;
     }
   }
