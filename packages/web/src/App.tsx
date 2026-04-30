@@ -3067,7 +3067,7 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 }
 
 /* ═══ REVENUE TARGET PAGE ═══ */
-function RevenueTargetPage({mpos,settings,setSettings,user}){
+function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onSaveTarget,onDeleteTarget}:{mpos:any[],settings:any,setSettings:any,user:any,revTargetsData:any[],onSaveTarget:(adv:string,amt:number,yr:number)=>Promise<void>,onDeleteTarget:(adv:string,yr:number)=>Promise<void>}){
   const canEdit=user?.role==="admin"||user?.role==="manager";
   const [rtNewAdv,setRtNewAdv]=useState("");
   const [rtNewTarget,setRtNewTarget]=useState("");
@@ -3078,8 +3078,11 @@ function RevenueTargetPage({mpos,settings,setSettings,user}){
   const dCcy=settings.defaultCurrency||"NGN";
   const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const now=new Date();
-  const revTargets:Record<string,number>=settings.revTargets||{};
   const revYear:number=settings.revYear||now.getFullYear();
+  // Build revTargets from the Supabase table rows for the selected year
+  const revTargets:Record<string,number>=Object.fromEntries(
+    revTargetsData.filter((r:any)=>r.rev_year===revYear).map((r:any)=>[r.advertiser,Number(r.target)])
+  );
   const currentMonthKey=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
   const monthsElapsed=now.getFullYear()===revYear?now.getMonth()+1:12;
 
@@ -3118,8 +3121,8 @@ function RevenueTargetPage({mpos,settings,setSettings,user}){
     return {name:adv,target:Number(revTargets[adv]||0),booked,gap:booked-Number(revTargets[adv]||0),inMonth,inWeek};
   });
 
-  const saveTarget=(name:string,amt:number)=>setSettings((s:any)=>({...s,revTargets:{...(s.revTargets||{}),[name]:amt}}));
-  const deleteTarget=(name:string)=>setSettings((s:any)=>{const t={...(s.revTargets||{})};delete t[name];return {...s,revTargets:t};});
+  const saveTarget=(name:string,amt:number)=>onSaveTarget(name,amt,revYear);
+  const deleteTarget=(name:string)=>onDeleteTarget(name,revYear);
 
   const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:2});
 
@@ -4861,14 +4864,15 @@ function App(){
   } : null;
 
   // ── Supabase tables ─────────────────────────────────────────────────────────
-  const mposTable       = useSupabaseTable("mpos",       workspaceId);
-  const clientsTable    = useSupabaseTable("clients",    workspaceId);
-  const invoicesTable   = useSupabaseTable("invoices",   workspaceId);
-  const payablesTable   = useSupabaseTable("payables",   workspaceId);
-  const budgetsTable    = useSupabaseTable("budgets",    workspaceId);
-  const auditTable      = useSupabaseTable("audit_log",  workspaceId);
-  const notifTable      = useSupabaseTable("notifications", workspaceId);
-  const rosTable        = useSupabaseTable("ros",        workspaceId);
+  const mposTable       = useSupabaseTable("mpos",            workspaceId);
+  const clientsTable    = useSupabaseTable("clients",         workspaceId);
+  const invoicesTable   = useSupabaseTable("invoices",        workspaceId);
+  const payablesTable   = useSupabaseTable("payables",        workspaceId);
+  const budgetsTable    = useSupabaseTable("budgets",         workspaceId);
+  const auditTable      = useSupabaseTable("audit_log",       workspaceId);
+  const notifTable      = useSupabaseTable("notifications",   workspaceId);
+  const rosTable        = useSupabaseTable("ros",             workspaceId);
+  const revTargetsTable = useSupabaseTable("revenue_targets", workspaceId);
 
   // ── Local state (optimistic, seeded from DB) ────────────────────────────────
   const [mpos,        _setMpos]        = useState([]);
@@ -5009,6 +5013,35 @@ function App(){
     },1200);
     return()=>clearTimeout(t);
   },[settings,workspaceId,wsSettingsSeeded,currentUser?.role]);
+
+  // One-time migration: push any revTargets from localStorage/settings into the new table.
+  // Runs once when the table loads and the user is admin/manager.
+  useEffect(()=>{
+    if(!workspaceId||!wsSettingsSeeded) return;
+    if(currentUser?.role!=="admin"&&currentUser?.role!=="manager") return;
+    if(revTargetsTable.loading) return;
+    if(revTargetsTable.data.length>0) return; // table already has data, skip
+    const legacy:Record<string,number>=settings.revTargets||{};
+    const legacyYear:number=settings.revYear||new Date().getFullYear();
+    if(Object.keys(legacy).length===0) return;
+    // Migrate each advertiser entry into the new table
+    Object.entries(legacy).forEach(([advertiser,target])=>{
+      revTargetsTable.insert({workspace_id:workspaceId,advertiser,target:Number(target),rev_year:legacyYear} as any);
+    });
+  },[workspaceId,wsSettingsSeeded,currentUser?.role,revTargetsTable.loading,revTargetsTable.data.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSaveRevTarget=async(advertiser:string,target:number,revYear:number)=>{
+    const existing=(revTargetsTable.data as any[]).find((r:any)=>r.advertiser===advertiser&&r.rev_year===revYear);
+    if(existing){
+      await revTargetsTable.update(existing.id,{target} as any);
+    } else {
+      await revTargetsTable.insert({workspace_id:workspaceId,advertiser,target,rev_year:revYear} as any);
+    }
+  };
+  const handleDeleteRevTarget=async(advertiser:string,revYear:number)=>{
+    const existing=(revTargetsTable.data as any[]).find((r:any)=>r.advertiser===advertiser&&r.rev_year===revYear);
+    if(existing) await revTargetsTable.remove(existing.id);
+  };
 
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",darkMode?"dark":"light"); },[darkMode]);
 
@@ -5221,7 +5254,7 @@ function App(){
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
-          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings} user={currentUser}/>}
+          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
           {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
