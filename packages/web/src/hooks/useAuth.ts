@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Session, User, AuthError } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import type { Profile } from "@/types";
@@ -20,7 +20,6 @@ interface SignUpResult {
 }
 
 export function useAuth() {
-  // Detect invite/recovery links before Supabase clears the hash
   const [state, setState] = useState<AuthState>({
     session: null,
     user: null,
@@ -31,44 +30,57 @@ export function useAuth() {
        window.location.hash.includes("type=recovery")),
   });
 
-  // Load session on mount and listen for changes
+  // Prevent concurrent or duplicate profile fetches for the same user
+  const fetchingForRef = useRef<string | null>(null);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearFallback() {
+    if (fallbackTimerRef.current) {
+      clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+  }
+
   useEffect(() => {
-    // Fallback: if Supabase never responds (paused project, network issue), stop the spinner after 5s.
-    // Timeout must stay alive until fetchProfile resolves — don't clear it in getSession().then().
-    const timeout = setTimeout(() => {
+    // Last-resort: if Supabase never fires at all (completely unreachable), unblock the UI.
+    fallbackTimerRef.current = setTimeout(() => {
       setState((s) => s.loading ? { ...s, loading: false } : s);
-    }, 5000);
+    }, 8000);
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setState((s) => ({ ...s, session, user: session?.user ?? null }));
-      if (session?.user) {
-        fetchProfile(session.user).finally(() => clearTimeout(timeout));
-      } else {
-        clearTimeout(timeout);
-        setState((s) => ({ ...s, loading: false }));
-      }
-    }).catch(() => {
-      clearTimeout(timeout);
-      setState((s) => ({ ...s, loading: false }));
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    // onAuthStateChange fires INITIAL_SESSION from the local token cache synchronously
+    // (no network needed for the initial event). This replaces getSession() and avoids
+    // the double-fetchProfile race that was causing the flicker.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
-        setState((s) => ({ ...s, needsPassword: true, session, user: session?.user ?? null }));
-        if (session?.user) fetchProfile(session.user);
+        clearFallback();
+        setState((s) => ({ ...s, needsPassword: true, session, user: session?.user ?? null, loading: false }));
         return;
       }
-      setState((s) => ({ ...s, session, user: session?.user ?? null }));
-      if (session?.user) fetchProfile(session.user);
-      else setState((s) => ({ ...s, profile: null, loading: false }));
+
+      if (event === "SIGNED_OUT" || !session) {
+        clearFallback();
+        setState({ session: null, user: null, profile: null, loading: false, needsPassword: false });
+        return;
+      }
+
+      // Session present — update session/user immediately so the rest of the app
+      // can render its loading state, then fetch the profile.
+      setState((s) => ({ ...s, session, user: session.user }));
+      fetchProfile(session.user);
     });
 
-    return () => { clearTimeout(timeout); subscription.unsubscribe(); };
-  }, []);
+    return () => {
+      clearFallback();
+      subscription.unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function fetchProfile(authUser: User) {
+    // Skip if we're already fetching for this exact user — prevents the double-fetch
+    // that occurred when both getSession() and onAuthStateChange both triggered.
+    if (fetchingForRef.current === authUser.id) return;
+    fetchingForRef.current = authUser.id;
+
     try {
       const { data } = await supabase
         .from("profiles")
@@ -84,9 +96,10 @@ export function useAuth() {
       const resolvedName = data?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
       const resolvedInitials =
         data?.initials?.trim()
-        || resolvedName.split(" ").filter(Boolean).map((part: string) => part[0]?.toUpperCase()).slice(0, 2).join("")
+        || resolvedName.split(" ").filter(Boolean).map((p: string) => p[0]?.toUpperCase()).slice(0, 2).join("")
         || "?";
 
+      clearFallback();
       setState((s) => ({
         ...s,
         profile: data
@@ -100,7 +113,11 @@ export function useAuth() {
         loading: false,
       }));
     } catch {
+      clearFallback();
       setState((s) => ({ ...s, loading: false }));
+    } finally {
+      // Reset so a subsequent sign-in for the same user re-fetches fresh profile data
+      fetchingForRef.current = null;
     }
   }
 
@@ -116,7 +133,6 @@ export function useAuth() {
     inviteCode: string,
     role: Profile["role"] = "viewer"
   ): Promise<SignUpResult> {
-    // 1. Validate invite code and resolve workspace
     const { data: wsRows, error: wsErr } = await supabase
       .rpc("get_workspace_by_invite_code", { code: inviteCode.trim() });
 
@@ -126,7 +142,6 @@ export function useAuth() {
 
     const workspace_id = wsRows[0].id;
 
-    // 2. Create auth user — pass workspace_id in metadata so the DB trigger assigns it
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -134,7 +149,6 @@ export function useAuth() {
     });
     if (error || !data.user) return { error };
 
-    // 3. Role-based permissions
     const permissionsByRole: Record<string, Profile["permissions"]> = {
       admin:   ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed"],
       manager: ["dashboard","mpo","clients","finance","budgets","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
@@ -143,17 +157,10 @@ export function useAuth() {
     };
     const permissions = permissionsByRole[role] ?? permissionsByRole["viewer"];
 
-    const initials = name
-      .split(" ")
-      .slice(0, 2)
-      .map((p) => p[0])
-      .join("")
-      .toUpperCase();
-
+    const initials = name.split(" ").slice(0, 2).map((p) => p[0]).join("").toUpperCase();
     const colors = ["#534AB7", "#185FA5", "#3B6D11", "#854F0B", "#D85A30"];
     const color = colors[Math.floor(Math.random() * colors.length)];
 
-    // 4. Fill in the profile (trigger may have already created the row)
     await supabase.from("profiles").upsert({
       id: data.user.id,
       workspace_id,
@@ -168,6 +175,9 @@ export function useAuth() {
   }
 
   async function signOut() {
+    // Clear state immediately so the UI responds at once, then tell Supabase.
+    setState({ session: null, user: null, profile: null, loading: false, needsPassword: false });
+    fetchingForRef.current = null;
     await supabase.auth.signOut();
   }
 
