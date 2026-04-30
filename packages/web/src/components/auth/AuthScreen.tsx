@@ -28,53 +28,51 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     clearMessages();
-    setLoading(true);
 
-    if (mode === "signin") {
-      const { error } = await signIn(email, password);
-      if (error) setError(error.message);
-      else onSuccess();
-
-    } else if (mode === "signup") {
-      if (password !== confirmPassword) {
-        setError("Passwords do not match.");
-        setLoading(false);
-        return;
-      }
-      if (password.length < 8) {
-        setError("Password must be at least 8 characters.");
-        setLoading(false);
-        return;
-      }
-      if (!name.trim()) {
-        setError("Please enter your full name.");
-        setLoading(false);
-        return;
-      }
-      if (!inviteCode.trim()) {
-        setError("Please enter your workspace invite code.");
-        setLoading(false);
-        return;
-      }
-      const { error } = await signUp(email, password, name.trim(), inviteCode.trim());
-      if (error) setError(error.message);
-      else {
-        setInfo(
-          "Account created! Check your email to confirm your address, then sign in."
-        );
-        setMode("signin");
-      }
-
-    } else if (mode === "reset") {
-      const { error } = await resetPassword(email);
-      if (error) setError(error.message);
-      else {
-        setInfo("Password reset link sent — check your inbox.");
-        setMode("signin");
-      }
+    // Inline validation (no async needed)
+    if (mode === "signup") {
+      if (password !== confirmPassword) { setError("Passwords do not match."); return; }
+      if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+      if (!name.trim()) { setError("Please enter your full name."); return; }
+      if (!inviteCode.trim()) { setError("Please enter your workspace invite code."); return; }
     }
 
-    setLoading(false);
+    setLoading(true);
+
+    // Force-clear loading after 10s so the button never stays stuck if Supabase hangs
+    const timer = setTimeout(() => {
+      setLoading(false);
+      setError("Connection timed out. Check your internet and try again.");
+    }, 10000);
+
+    try {
+      if (mode === "signin") {
+        const { error } = await signIn(email, password);
+        if (error) setError(error.message);
+        else onSuccess();
+
+      } else if (mode === "signup") {
+        const { error } = await signUp(email, password, name.trim(), inviteCode.trim());
+        if (error) setError(error.message);
+        else {
+          setInfo("Account created! Check your email to confirm your address, then sign in.");
+          setMode("signin");
+        }
+
+      } else if (mode === "reset") {
+        const { error } = await resetPassword(email);
+        if (error) setError(error.message);
+        else {
+          setInfo("Password reset link sent — check your inbox.");
+          setMode("signin");
+        }
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      clearTimeout(timer);
+      setLoading(false);
+    }
   }
 
   return (
