@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import type { Profile } from "@/types";
 
 const ROLE_PERMISSIONS: Record<Profile["role"], Profile["permissions"]> = {
-  admin: ["dashboard", "mpo", "clients", "finance", "budgets", "revenue-target", "reports", "calendar", "analytics", "reminders", "users", "audit", "invoice-wf", "settings", "dataviz", "feed"],
+  admin: ["dashboard", "mpo", "clients", "finance", "budgets", "revenue-target", "reports", "calendar", "analytics", "reminders", "users", "audit", "invoice-wf", "settings", "dataviz", "feed", "production", "portal"],
   manager: ["dashboard", "mpo", "clients", "finance", "budgets", "revenue-target", "reports", "calendar", "analytics", "reminders", "audit", "invoice-wf", "feed"],
   viewer: ["dashboard", "mpo", "clients", "revenue-target", "calendar", "feed"],
   client: ["dashboard", "revenue-target"],
@@ -36,6 +36,9 @@ function fallbackProfile(authUser: User, existing?: Partial<Profile> | null): Pr
   const role = normalizeRole(existing?.role || metadataString(authUser, "role"));
   const workspaceId = existing?.workspace_id || metadataString(authUser, "workspace_id") || null;
   const initials = existing?.initials?.trim() || initialsFor(name);
+  const permissions = role === "admin"
+    ? ROLE_PERMISSIONS.admin
+    : existing?.permissions?.length ? existing.permissions : ROLE_PERMISSIONS[role];
 
   return {
     id: authUser.id,
@@ -43,7 +46,7 @@ function fallbackProfile(authUser: User, existing?: Partial<Profile> | null): Pr
     name,
     email: authUser.email ?? "",
     role,
-    permissions: existing?.permissions?.length ? existing.permissions : ROLE_PERMISSIONS[role],
+    permissions,
     color: existing?.color || PROFILE_COLORS[Math.abs(authUser.id.charCodeAt(0) || 0) % PROFILE_COLORS.length],
     initials,
     created_at: existing?.created_at || new Date().toISOString(),
