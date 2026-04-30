@@ -11,6 +11,28 @@ const ROLE_PERMISSIONS: Record<Profile["role"], Profile["permissions"]> = {
 };
 
 const PROFILE_COLORS = ["#534AB7", "#185FA5", "#3B6D11", "#854F0B", "#D85A30"];
+const PROFILE_CACHE_KEY = "mh_auth_profiles_v1";
+
+function cachedProfile(userId: string): Partial<Profile> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const cache = JSON.parse(window.localStorage.getItem(PROFILE_CACHE_KEY) || "{}");
+    return cache?.[userId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheProfile(profile: Profile) {
+  if (typeof window === "undefined") return;
+  try {
+    const cache = JSON.parse(window.localStorage.getItem(PROFILE_CACHE_KEY) || "{}");
+    cache[profile.id] = profile;
+    window.localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Local storage may be unavailable in private browsing or locked-down devices.
+  }
+}
 
 function metadataString(authUser: User, key: string): string {
   const value = authUser.user_metadata?.[key];
@@ -31,14 +53,15 @@ function initialsFor(name: string): string {
 }
 
 function fallbackProfile(authUser: User, existing?: Partial<Profile> | null): Profile {
+  const source = existing ?? cachedProfile(authUser.id);
   const metadataName = metadataString(authUser, "name") || metadataString(authUser, "full_name");
-  const name = existing?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
-  const role = normalizeRole(existing?.role || metadataString(authUser, "role"));
-  const workspaceId = existing?.workspace_id || metadataString(authUser, "workspace_id") || null;
-  const initials = existing?.initials?.trim() || initialsFor(name);
+  const name = source?.name?.trim() || metadataName || authUser.email?.split("@")[0] || "";
+  const role = normalizeRole(source?.role || metadataString(authUser, "role"));
+  const workspaceId = source?.workspace_id || metadataString(authUser, "workspace_id") || null;
+  const initials = source?.initials?.trim() || initialsFor(name);
   const permissions = role === "admin"
     ? ROLE_PERMISSIONS.admin
-    : existing?.permissions?.length ? existing.permissions : ROLE_PERMISSIONS[role];
+    : source?.permissions?.length ? source.permissions : ROLE_PERMISSIONS[role];
 
   return {
     id: authUser.id,
@@ -47,9 +70,9 @@ function fallbackProfile(authUser: User, existing?: Partial<Profile> | null): Pr
     email: authUser.email ?? "",
     role,
     permissions,
-    color: existing?.color || PROFILE_COLORS[Math.abs(authUser.id.charCodeAt(0) || 0) % PROFILE_COLORS.length],
+    color: source?.color || PROFILE_COLORS[Math.abs(authUser.id.charCodeAt(0) || 0) % PROFILE_COLORS.length],
     initials,
-    created_at: existing?.created_at || new Date().toISOString(),
+    created_at: source?.created_at || new Date().toISOString(),
   } as Profile;
 }
 
@@ -169,6 +192,7 @@ export function useAuth() {
       }
 
       clearTimeout(timeoutId);
+      cacheProfile(resolvedProfile);
       setState((s) => ({
         ...s,
         profile: resolvedProfile,

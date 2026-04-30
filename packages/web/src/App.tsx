@@ -3889,8 +3889,8 @@ function AuditContent({auditLog}){
 /* ═══ USERS ═══ */
 const ROLE_PERMISSIONS={
   admin:   ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production","portal"],
-  manager: ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","audit","invoice-wf"],
-  viewer:  ["dashboard","mpo","clients","revenue-target","calendar"],
+  manager: ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
+  viewer:  ["dashboard","mpo","clients","revenue-target","calendar","feed"],
   client:  ["dashboard","revenue-target"],
 };
 
