@@ -4984,26 +4984,31 @@ function App(){
           abbr,
           plan: data.plan || "free",
         });
-        // Seed settings from workspace (DB wins over localStorage)
         if(data.settings && Object.keys(data.settings).length > 0){
-          setSettings(s=>({...DEFAULT_SETTINGS,...data.settings}));
+          // For admin/manager: preserve localStorage revTargets when DB has none
+          // (handles the case where settings were set locally before sync was added).
+          // For viewers: DB is the only source of truth.
+          const localS = (():any=>{ try{ return JSON.parse(localStorage.getItem("mh_settings")||"null")||{}; }catch{ return {}; } })();
+          const isPrivileged = profile?.role==="admin"||profile?.role==="manager";
+          const revTargets = Object.keys(data.settings.revTargets||{}).length>0
+            ? data.settings.revTargets
+            : (isPrivileged ? (localS.revTargets||{}) : {});
+          setSettings(s=>({...DEFAULT_SETTINGS,...(isPrivileged?localS:{}),...data.settings,revTargets}));
         }
-        // Mark seeded — this state change re-triggers the sync effect even when
-        // the workspace had no settings yet (so the admin's localStorage targets
-        // get pushed to Supabase on first load).
         setWsSettingsSeeded(true);
       });
   },[workspaceId]);
 
-  // Sync settings to Supabase so all workspace users share the same config.
-  // Runs whenever settings change OR when seeding first completes.
+  // Sync settings to Supabase — admin/manager ONLY.
+  // Viewers must never write settings or they will overwrite shared revTargets with empty data.
   useEffect(()=>{
     if(!workspaceId||!wsSettingsSeeded) return;
+    if(currentUser?.role!=="admin"&&currentUser?.role!=="manager") return;
     const t=setTimeout(()=>{
       supabase.from("workspaces").update({settings}).eq("id",workspaceId);
     },1200);
     return()=>clearTimeout(t);
-  },[settings,workspaceId,wsSettingsSeeded]);
+  },[settings,workspaceId,wsSettingsSeeded,currentUser?.role]);
 
   useEffect(()=>{ document.documentElement.setAttribute("data-theme",darkMode?"dark":"light"); },[darkMode]);
 
