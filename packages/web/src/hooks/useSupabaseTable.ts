@@ -59,11 +59,13 @@ export function useSupabaseTable<T extends Row>(
     const ob = orderBy ?? { column: "created_at", ascending: false };
     query = query.order(ob.column, { ascending: ob.ascending ?? false });
 
-    query.then(({ data: rows, error: err }) => {
+    Promise.resolve(query).then(({ data: rows, error: err }) => {
       if (cancelled) return;
       if (err) setError(err.message);
       else setData((rows as T[]) ?? []);
       setLoading(false);
+    }).catch(() => {
+      if (!cancelled) setLoading(false);
     });
 
     return () => {

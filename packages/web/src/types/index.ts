@@ -8,6 +8,7 @@ export type Permission =
   | "clients"
   | "finance"
   | "budgets"
+  | "revenue-target"
   | "reports"
   | "calendar"
   | "analytics"
