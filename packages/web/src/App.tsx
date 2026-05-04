@@ -702,11 +702,20 @@ const DEFAULT_SETTINGS={
 };
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
+function Dashboard({mpos,ros,clients,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
   const lP=payables.map(p=>({...p,status:computeStatus(p)}));
   const dCcy=settings.defaultCurrency||"NGN";
-  const totalSpend=mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const whtRate=Number(settings?.whtRate??5);
+  const mpoById=useMemo(()=>new Map((mpos||[]).map((m:any)=>[m.id,m])),[mpos]);
+  const roValue=(ro:any)=>convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
+  const roAgency=(ro:any)=>{
+    const linkedMpo=mpoById.get(ro.mpoId);
+    const registeredAgency=(clients||[]).find((c:any)=>c.type==="Agency"&&(c.brands||[]).some((b:any)=>b.name===ro.client));
+    return registeredAgency?.name||linkedMpo?.agency||"No Agency";
+  };
+  const totalSpend=(ros||[]).reduce((a:number,ro:any)=>a+roValue(ro),0);
+  const totalRoSpots=(ros||[]).reduce((a:number,ro:any)=>a+sumRoScheduleSpots(ro),0);
   const outstanding=lR.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
   const payDue=lP.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
   const sym=CURRENCIES[dCcy]?.symbol||"₦";
@@ -714,24 +723,25 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
     const spent=(payables2||[]).filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);
     return spent>b.budget;
   }).length;
-  const donutData=[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
-  const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
-  const topClientSpend=useMemo(()=>Object.values((mpos||[]).reduce((acc:any,m:any)=>{
-    const name=m.client||"Unassigned";
+  const donutData=[{label:"Draft",value:(ros||[]).filter((ro:any)=>ro.status==="draft").length,color:"#8A8A8A"},{label:"Sent",value:(ros||[]).filter((ro:any)=>ro.status==="sent").length,color:"#854F0B"},{label:"Confirmed",value:(ros||[]).filter((ro:any)=>ro.status==="confirmed").length,color:"#3B6D11"},{label:"Executed",value:(ros||[]).filter((ro:any)=>ro.status==="executed").length,color:"#185FA5"}].filter(d=>d.value>0);
+  const monthly=useMemo(()=>{const map={};(ros||[]).forEach((ro:any)=>{const k=ro.campaignMonth||ro.start?.slice(0,7);if(!k)return;const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[ros,dCcy,whtRate]);
+  const topClientSpend=useMemo(()=>Object.values((ros||[]).reduce((acc:any,ro:any)=>{
+    const name=ro.client||"Unassigned";
     acc[name]=acc[name]||{name,amount:0,orders:0,spots:0};
-    acc[name].amount+=convertAmt(Number(m.amount)||0,m.currency||"NGN",dCcy);
+    acc[name].amount+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
     acc[name].orders+=1;
-    acc[name].spots+=calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots;
+    acc[name].spots+=sumRoScheduleSpots(ro);
     return acc;
-  },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,5),[mpos,dCcy,settings?.taxRate]);
-  const spendByAgency=useMemo(()=>Object.values((mpos||[]).reduce((acc:any,m:any)=>{
-    const name=m.agency||"No Agency";
+  },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,5),[ros,dCcy,whtRate]);
+  const spendByAgency=useMemo(()=>Object.values((ros||[]).reduce((acc:any,ro:any)=>{
+    const name=roAgency(ro);
     acc[name]=acc[name]||{name,amount:0,orders:0,spots:0};
-    acc[name].amount+=convertAmt(Number(m.amount)||0,m.currency||"NGN",dCcy);
+    acc[name].amount+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
     acc[name].orders+=1;
-    acc[name].spots+=calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots;
+    acc[name].spots+=sumRoScheduleSpots(ro);
     return acc;
-  },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,6),[mpos,dCcy,settings?.taxRate]);
+  },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,6),[ros,dCcy,whtRate,clients,mpoById]);
+  const recentRos=[...(ros||[])].sort((a:any,b:any)=>String(b.start||b.campaignMonth||"").localeCompare(String(a.start||a.campaignMonth||""))).slice(0,6);
   return(
     <div>
       {dCcy!=="NGN"&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--text3)"}}>
@@ -745,8 +755,8 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
         </div>
       )}
       <div className="stat-grid">
-        <div className="stat-card"><div className="stat-label">Total MPO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{mpos.length} orders</div></div>
-        <div className="stat-card"><div className="stat-label">Active Campaigns</div><div className="stat-value">{mpos.filter(m=>m.status==="active").length}</div><div className="stat-sub">{mpos.filter(m=>m.status==="pending").length} pending</div></div>
+        <div className="stat-card"><div className="stat-label">Total RO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{(ros||[]).length} release orders · {totalRoSpots} spots</div></div>
+        <div className="stat-card"><div className="stat-label">Confirmed ROs</div><div className="stat-value">{(ros||[]).filter((ro:any)=>ro.status==="confirmed").length}</div><div className="stat-sub">{(ros||[]).filter((ro:any)=>ro.status==="sent").length} sent</div></div>
         <div className="stat-card"><div className="stat-label">Receivables Due</div><div className="stat-value">{fmtK(outstanding,sym)}</div><div className="stat-sub">{lR.filter(r=>r.status==="overdue").length} overdue</div><div className="trend trend-down">↓ action needed</div></div>
         <div className="stat-card" style={{borderLeft:overBudgetCount>0?"3px solid #A32D2D":"3px solid #F5C97A"}}>
           <div className="stat-label">Budget Health</div>
@@ -755,12 +765,12 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
         </div>
       </div>
       <div className="grid2">
-        <div className="card"><div className="card-header"><span className="card-title">Campaign Status</span></div><DonutChart data={donutData} size={148}/></div>
-        <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={148} color="#534AB7"/></div>
+        <div className="card"><div className="card-header"><span className="card-title">RO Status</span></div><DonutChart data={donutData} size={148}/></div>
+        <div className="card"><div className="card-header"><span className="card-title">Monthly RO Value Trend</span></div><AreaChart data={monthly} height={148} color="#534AB7"/></div>
       </div>
       <div className="grid2">
         <div className="card">
-          <div className="card-header"><span className="card-title">Top Client Spend</span></div>
+          <div className="card-header"><span className="card-title">Top Client RO Spend</span></div>
           {topClientSpend.length===0?(
             <div style={{padding:18,textAlign:"center",fontSize:12,color:"var(--text3)"}}>No client spend yet</div>
           ):(
@@ -783,7 +793,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
                     </div>
                     <div style={{textAlign:"right"}}>
                       <div style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>{fmtK(client.amount,sym)}</div>
-                      <div style={{fontSize:10,color:"var(--text3)",marginTop:2}}>{client.orders} order{client.orders!==1?"s":""} · {client.spots} spots</div>
+                      <div style={{fontSize:10,color:"var(--text3)",marginTop:2}}>{client.orders} RO{client.orders!==1?"s":""} · {client.spots} spots</div>
                     </div>
                   </div>
                 );
@@ -792,7 +802,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
           )}
         </div>
         <div className="card">
-          <div className="card-header"><span className="card-title">Spend by Agency</span></div>
+          <div className="card-header"><span className="card-title">RO Spend by Agency</span></div>
           {spendByAgency.length===0?(
             <div style={{padding:18,textAlign:"center",fontSize:12,color:"var(--text3)"}}>No agency spend yet</div>
           ):(
@@ -811,7 +821,7 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
                       <div style={{height:8,background:"var(--bg3)",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${share}%`,background:color,borderRadius:99}}/></div>
                       <div style={{fontSize:10,color:"var(--text3)",textAlign:"right"}}>{share}%</div>
                     </div>
-                    <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{agency.orders} order{agency.orders!==1?"s":""} · {agency.spots} spots</div>
+                    <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{agency.orders} RO{agency.orders!==1?"s":""} · {agency.spots} spots</div>
                   </div>
                 );
               })}
@@ -820,22 +830,23 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
         </div>
       </div>
       <div className="card">
-        <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
-        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Brand</th><th>Campaign</th><th>Spots</th><th>Dur.</th><th>Value</th><th>Month</th><th>Status</th><th>Exec</th></tr></thead>
-          <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
-            <tr key={m.id}>
-              <td style={{fontFamily:"monospace",fontSize:11}}>{shortId(m.id)}</td>
-              <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
-              <td style={{fontSize:12}}>{m.client}</td>
-              <td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td>
-              <td style={{fontSize:12,textAlign:"center"}}>{calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots||"—"}</td>
-              <td style={{fontSize:11,textAlign:"center",color:"var(--text3)"}}>{mpoScheduleLabel(m)}</td>
-              <td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
-              <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(m.start)}</td>
-              <td><SBadge s={m.status}/></td>
-              <td><SBadge s={m.exec}/></td>
+        <div className="card-header"><span className="card-title">Recent Release Orders</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View ROs</button></div>
+        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Agency</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Spots</th><th>RO Value</th><th>Month</th><th>Status</th></tr></thead>
+          <tbody>{recentRos.length===0?<tr className="empty-row"><td colSpan={9}>No Release Orders found</td></tr>:recentRos.map((ro:any)=>{
+            const value=roValue(ro);
+            return(
+            <tr key={ro.id}>
+              <td style={{fontFamily:"monospace",fontSize:11}}>{ro.id}</td>
+              <td style={{fontSize:12,color:"var(--text2)"}}>{roAgency(ro)}</td>
+              <td style={{fontSize:12}}>{ro.client}</td>
+              <td style={{fontSize:12,color:"var(--text2)"}}>{ro.vendor}</td>
+              <td style={{fontSize:12,color:"var(--text2)"}}>{ro.campaign}</td>
+              <td style={{fontSize:12,textAlign:"center"}}>{sumRoScheduleSpots(ro)||"—"}</td>
+              <td style={{fontWeight:500,fontSize:12}}>{fmtK(value,sym)}</td>
+              <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(ro.campaignMonth||ro.start)}</td>
+              <td><SBadge s={ro.status}/></td>
             </tr>
-          ))}</tbody>
+          );})}</tbody>
         </table></div>
       </div>
     </div>
@@ -5436,7 +5447,7 @@ function App(){
           {page==="dashboard"&&currentUser.role!=="viewer"&&(
             <AIPanel mpos={mpos} receivables={receivables} payables={payables} clients={clients} toast={toast} currency={settings.defaultCurrency||"NGN"}/>
           )}
-          {page==="dashboard" &&<Dashboard mpos={mpos} receivables={lR} payables={lP} setPage={setPage} currency={settings.defaultCurrency||"NGN"} settings={settings} toast={toast} onOnboard={()=>setWizardOpen(true)} budgets={budgets} payables2={payables}/>}
+          {page==="dashboard" &&<Dashboard mpos={mpos} ros={ros} clients={clients} receivables={lR} payables={lP} setPage={setPage} currency={settings.defaultCurrency||"NGN"} settings={settings} toast={toast} onOnboard={()=>setWizardOpen(true)} budgets={budgets} payables2={payables}/>}
           {page==="mpo"       &&<MPOPage mpos={mpos} setMpos={setMpos} ros={ros} setRos={setRos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="clients"   &&<ClientsPage clients={clients} setClients={setClients} toast={toast} user={currentUser} addAudit={addAudit} onOnboard={()=>setWizardOpen(true)}/>}
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
