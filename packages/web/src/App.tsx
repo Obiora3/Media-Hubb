@@ -3314,7 +3314,9 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
       .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
     const inWeek=advMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
       .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-    return {name:adv,target:Number(revTargets[adv]||0),booked,gap:booked-Number(revTargets[adv]||0),inMonth,inWeek};
+    const target=Number(revTargets[adv]||0);
+    const achievedPct=target>0?((booked/target)*100).toFixed(2):"0.00";
+    return {name:adv,target,booked,achievedPct,gap:booked-target,inMonth,inWeek};
   });
 
   const saveTarget=(name:string,amt:number)=>onSaveTarget(name,amt,revYear);
@@ -3334,15 +3336,16 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
 
     // ── Title ───────────────────────────────────────────────────────────────
     const companyName=settings.companyName||"MediaHub";
-    const titleRow=[{v:`${companyName} — REVENUE TARGET REPORT ${revYear}`,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Array(5).fill({v:"",t:"s",s:{}})];
+    const titleRow=[{v:`${companyName} — REVENUE TARGET REPORT ${revYear}`,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{}})];
 
     // ── Summary section ─────────────────────────────────────────────────────
-    const summaryHdr=[{v:"REVENUE SUMMARY",t:"s",s:{font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"left"}}},...Array(5).fill({v:"",t:"s",s:{fill:{fgColor:{rgb:"1F3864"}},border}})];
+    const summaryHdr=[{v:"REVENUE SUMMARY",t:"s",s:{font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{fill:{fgColor:{rgb:"1F3864"}},border}})];
     const sRow=(label:string,val:string,extra?:string)=>[
       {v:label,t:"s",s:{border,font:{sz:10}}},
       {v:"",t:"s",s:{border}},
       {v:val,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true}}},
       {v:extra||"",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"666666"}}}},
+      {v:"",t:"s",s:{border}},
       {v:"",t:"s",s:{border}},
       {v:"",t:"s",s:{border}},
     ];
@@ -3360,11 +3363,12 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
     ];
 
     // ── Table header ────────────────────────────────────────────────────────
-    const spacer=[Array(6).fill({v:"",t:"s",s:{}})];
+    const spacer=[Array(7).fill({v:"",t:"s",s:{}})];
     const tableHdr=[
       {v:"ADVERTISERS",t:"s",s:hdrLeft},
       {v:"ANNUAL TARGET",t:"s",s:hdrDark},
       {v:"BOOKED SO FAR",t:"s",s:hdrDark},
+      {v:"% ACHIEVED",t:"s",s:hdrDark},
       {v:"REVENUE GAP",t:"s",s:hdrDark},
       {v:"BOOKED IN MONTH",t:"s",s:hdrDark},
       {v:"BOOKED IN WEEK",t:"s",s:hdrDark},
@@ -3375,6 +3379,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
       txt(r.name,{font:{bold:true}}),
       numCell(r.target),
       r.booked>0?numCell(r.booked):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
+      pct(r.achievedPct),
       {v:`${r.gap>=0?"+":""}${fm(r.gap)}`,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true,color:{rgb:r.gap>=0?"1F5C1F":"A32D2D"}}}},
       r.inMonth>0?numCell(r.inMonth):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
       r.inWeek>0?numCell(r.inWeek):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
@@ -3386,6 +3391,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
       {v:"TOTALS",t:"s",s:{...totStyle,alignment:{horizontal:"left"}}},
       {v:totalTarget,t:"n",z:numFmt,s:totStyle},
       {v:totalBooked,t:"n",z:numFmt,s:totStyle},
+      {v:`${annualPct}%`,t:"s",s:totStyle},
       {v:`${annualGap>=0?"+":""}${fm(annualGap)}`,t:"s",s:{...totStyle,font:{bold:true,sz:10,color:{rgb:annualGap>=0?"90EE90":"FF9999"}}}},
       {v:bookedMonth,t:"n",z:numFmt,s:totStyle},
       {v:bookedWeek,t:"n",z:numFmt,s:totStyle},
@@ -3393,7 +3399,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
 
     const sheetData=[titleRow,...spacer,summaryHdr,...summaryRows,...spacer,tableHdr,...dataRows,totRow];
     const ws=XLS.utils.aoa_to_sheet(sheetData);
-    ws["!cols"]=[{wch:36},{wch:18},{wch:18},{wch:20},{wch:18},{wch:18}];
+    ws["!cols"]=[{wch:36},{wch:18},{wch:18},{wch:14},{wch:20},{wch:18},{wch:18}];
     ws["!rows"]=[{hpt:24}];
     const wb=XLS.utils.book_new();
     XLS.utils.book_append_sheet(wb,ws,"Revenue Target");
@@ -3479,13 +3485,13 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
             <tr style={{background:"#2C3E50"}}>
-              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK"],...(canEdit?[""]:[])] .map(h=>(
+              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","% ACHIEVED","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK"],...(canEdit?[""]:[])] .map(h=>(
                 <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"nowrap",position:"sticky",top:0,background:"#2C3E50",zIndex:2}}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length===0&&<tr><td colSpan={canEdit?7:6} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set.{canEdit?" Add an advertiser above.":""}</td></tr>}
+            {rows.length===0&&<tr><td colSpan={canEdit?8:7} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No targets set.{canEdit?" Add an advertiser above.":""}</td></tr>}
             {rows.map((r,i)=>(
               <tr key={r.name} style={{background:i%2===0?"var(--bg)":"var(--bg3)"}}>
                 <td style={{padding:"8px 12px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>
@@ -3499,6 +3505,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
                     :fm(r.target)}
                 </td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.booked>0?"#185FA5":"var(--text3)",fontWeight:r.booked>0?600:400}}>{r.booked>0?fm(r.booked):"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:700,color:Number(r.achievedPct)>=100?"#3B6D11":r.booked>0?"#534AB7":"var(--text3)"}}>{r.target>0?`${r.achievedPct}%`:"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600,color:r.gap>=0?"#3B6D11":"#A32D2D"}}>{r.booked>0||r.target>0?<>{r.gap>=0?"+":""}{fm(r.gap)}</>:"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inMonth>0?"#534AB7":"var(--text3)",fontWeight:r.inMonth>0?600:400}}>{r.inMonth>0?fm(r.inMonth):"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inWeek>0?"#3B6D11":"var(--text3)",fontWeight:r.inWeek>0?700:400}}>{r.inWeek>0?fm(r.inWeek):"—"}</td>
@@ -3529,10 +3536,11 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
                 <td style={{padding:"10px 12px",fontWeight:700,color:"#F5C97A",fontSize:11,textTransform:"uppercase",letterSpacing:".06em"}}>TOTALS</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalTarget)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalBooked)}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{annualPct}%</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:annualGap>=0?"#90EE90":"#FF9999"}}>{annualGap>=0?"+":""}{fm(annualGap)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedMonth)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedWeek)}</td>
-                <td/>
+                {canEdit&&<td/>}
               </tr>
             </tfoot>
           )}
