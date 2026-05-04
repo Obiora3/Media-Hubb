@@ -716,6 +716,22 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
   }).length;
   const donutData=[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
   const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
+  const topClientSpend=useMemo(()=>Object.values((mpos||[]).reduce((acc:any,m:any)=>{
+    const name=m.client||"Unassigned";
+    acc[name]=acc[name]||{name,amount:0,orders:0,spots:0};
+    acc[name].amount+=convertAmt(Number(m.amount)||0,m.currency||"NGN",dCcy);
+    acc[name].orders+=1;
+    acc[name].spots+=calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots;
+    return acc;
+  },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,5),[mpos,dCcy,settings?.taxRate]);
+  const spendByAgency=useMemo(()=>Object.values((mpos||[]).reduce((acc:any,m:any)=>{
+    const name=m.agency||"No Agency";
+    acc[name]=acc[name]||{name,amount:0,orders:0,spots:0};
+    acc[name].amount+=convertAmt(Number(m.amount)||0,m.currency||"NGN",dCcy);
+    acc[name].orders+=1;
+    acc[name].spots+=calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots;
+    return acc;
+  },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,6),[mpos,dCcy,settings?.taxRate]);
   return(
     <div>
       {dCcy!=="NGN"&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--text3)"}}>
@@ -741,6 +757,67 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
       <div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Campaign Status</span></div><DonutChart data={donutData} size={148}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={148} color="#534AB7"/></div>
+      </div>
+      <div className="grid2">
+        <div className="card">
+          <div className="card-header"><span className="card-title">Top Client Spend</span></div>
+          {topClientSpend.length===0?(
+            <div style={{padding:18,textAlign:"center",fontSize:12,color:"var(--text3)"}}>No client spend yet</div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {topClientSpend.map((client:any,index:number)=>{
+                const share=totalSpend>0?Math.round((client.amount/totalSpend)*100):0;
+                const colors=["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"];
+                const color=colors[index%colors.length];
+                return(
+                  <div key={client.name} style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto",gap:10,alignItems:"center"}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                        <span style={{width:20,height:20,borderRadius:6,background:`${color}18`,color,fontSize:11,fontWeight:800,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{index+1}</span>
+                        <span style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{client.name}</span>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:6}}>
+                        <div style={{height:6,background:"var(--bg3)",borderRadius:99,overflow:"hidden",flex:1}}><div style={{height:"100%",width:`${share}%`,background:color,borderRadius:99}}/></div>
+                        <span style={{fontSize:10,color:"var(--text3)",minWidth:30,textAlign:"right"}}>{share}%</span>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:14,fontWeight:800,color:"var(--text)"}}>{fmtK(client.amount,sym)}</div>
+                      <div style={{fontSize:10,color:"var(--text3)",marginTop:2}}>{client.orders} order{client.orders!==1?"s":""} · {client.spots} spots</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="card">
+          <div className="card-header"><span className="card-title">Spend by Agency</span></div>
+          {spendByAgency.length===0?(
+            <div style={{padding:18,textAlign:"center",fontSize:12,color:"var(--text3)"}}>No agency spend yet</div>
+          ):(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {spendByAgency.map((agency:any,index:number)=>{
+                const share=totalSpend>0?Math.round((agency.amount/totalSpend)*100):0;
+                const colors=["#3B6D11","#534AB7","#185FA5","#854F0B","#D85A30","#A32D2D"];
+                const color=colors[index%colors.length];
+                return(
+                  <div key={agency.name}>
+                    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,marginBottom:5}}>
+                      <div style={{fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{agency.name}</div>
+                      <div style={{fontSize:13,fontWeight:800,color:"var(--text)",whiteSpace:"nowrap"}}>{fmtK(agency.amount,sym)}</div>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 42px",gap:8,alignItems:"center"}}>
+                      <div style={{height:8,background:"var(--bg3)",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${share}%`,background:color,borderRadius:99}}/></div>
+                      <div style={{fontSize:10,color:"var(--text3)",textAlign:"right"}}>{share}%</div>
+                    </div>
+                    <div style={{fontSize:10,color:"var(--text3)",marginTop:3}}>{agency.orders} order{agency.orders!==1?"s":""} · {agency.spots} spots</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
       <div className="card">
         <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
