@@ -751,8 +751,8 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
               <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
               <td style={{fontSize:12}}>{m.client}</td>
               <td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td>
-              <td style={{fontSize:12,textAlign:"center"}}>{m.spots||"—"}</td>
-              <td style={{fontSize:11,textAlign:"center",color:"var(--text3)"}}>{m.materialDuration||30}s</td>
+              <td style={{fontSize:12,textAlign:"center"}}>{calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots||"—"}</td>
+              <td style={{fontSize:11,textAlign:"center",color:"var(--text3)"}}>{mpoScheduleLabel(m)}</td>
               <td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
               <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(m.start)}</td>
               <td><SBadge s={m.status}/></td>
@@ -774,14 +774,93 @@ const removeDraft=(key:string,id:string)=>{try{localStorage.setItem(key,JSON.str
 const draftLabel=(form:any)=>{const p=[form?.client,form?.campaign].filter(Boolean);return p.length?p.join(" — "):"Untitled draft";};
 const timeAgo=(iso:string)=>{const ms=Date.now()-new Date(iso).getTime();const mn=Math.floor(ms/60000);if(mn<1)return"just now";if(mn<60)return`${mn}m ago`;const hr=Math.floor(mn/60);if(hr<24)return`${hr}h ago`;return`${Math.floor(hr/24)}d ago`;};
 
+function normalizeMpoScheduleRow(row:any={},fallback:any={},id:any=""){
+  const month=row.month || row.campaignMonth || row.start?.slice?.(0,7) || fallback.month || fallback.start?.slice?.(0,7) || "";
+  const bounds=getMonthBounds(month);
+  return {
+    id: row.id || id || `mpo-sch-${Date.now()}`,
+    spots: Number(row.spots)||0,
+    rate: Number(row.rate)||0,
+    discount: Number(row.discount)||0,
+    agencyCommission: Number(row.agencyCommission)||0,
+    materialDuration: Number(row.materialDuration||fallback.materialDuration)||30,
+    month,
+    start: row.start || bounds.start,
+    end: row.end || bounds.end,
+  };
+}
+
+function getMpoScheduleRows(mpo:any={}){
+  const primary=normalizeMpoScheduleRow({
+    id:"primary",
+    spots:mpo.spots,
+    rate:mpo.rate,
+    discount:mpo.discount,
+    agencyCommission:mpo.agencyCommission,
+    materialDuration:mpo.materialDuration,
+    month:mpo.month || mpo.start?.slice?.(0,7),
+    start:mpo.start,
+    end:mpo.end,
+  },mpo,"primary");
+  const extras=(mpo.extraScheduleRows||[])
+    .map((row:any,index:number)=>normalizeMpoScheduleRow(row,primary,`extra-${index+1}`))
+    .filter((row:any)=>row.spots>0||row.rate>0||row.month);
+  return [primary,...extras];
+}
+
+function calcMpoRowTotals(row:any,vatRate=0){
+  const spots=Number(row.spots)||0;
+  const rate=Number(row.rate)||0;
+  const discount=Number(row.discount)||0;
+  const agencyCommission=Number(row.agencyCommission)||0;
+  const gross=spots*rate;
+  const discountAmount=gross*(discount/100);
+  const afterDiscount=gross-discountAmount;
+  const agencyCommissionAmount=afterDiscount*(agencyCommission/100);
+  const net=afterDiscount-agencyCommissionAmount;
+  const vat=net*((Number(vatRate)||0)/100);
+  const total=net+vat;
+  return {gross,discountAmount,agencyCommissionAmount,net,vat,total};
+}
+
+function calcMpoTotals(rows:any[]=[],vatRate=0){
+  return rows.reduce((acc:any,row:any)=>{
+    const t=calcMpoRowTotals(row,vatRate);
+    acc.spots+=(Number(row.spots)||0);
+    acc.gross+=t.gross;
+    acc.discountAmount+=t.discountAmount;
+    acc.agencyCommissionAmount+=t.agencyCommissionAmount;
+    acc.net+=t.net;
+    acc.vat+=t.vat;
+    acc.total+=t.total;
+    return acc;
+  },{spots:0,gross:0,discountAmount:0,agencyCommissionAmount:0,net:0,vat:0,total:0});
+}
+
+function mpoScheduleLabel(mpo:any){
+  const rows=getMpoScheduleRows(mpo).filter((row:any)=>row.spots>0||row.rate>0||row.month);
+  return rows.length>1?`${rows.length} schedules`:`${Number(rows[0]?.materialDuration||30)}s`;
+}
+
 function printMPO(m:any,settings:any){
   const sym=CURRENCIES[m.currency||"NGN"]?.symbol||"₦";
   const fa=(n:number)=>sym+Number(n).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:2});
   const logoHtml=settings.logoDataUrl?`<img src="${settings.logoDataUrl}" alt="Logo" style="height:48px;max-width:140px;object-fit:contain;margin-bottom:4px;display:block"/>`:"";
   const dateStr=new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"});
   const statusColor=m.status==="active"?"#3B6D11":m.status==="completed"?"#185FA5":"#854F0B";
-  const gross=m.gross||0,disc=m.discount||0,ac=m.agencyCommission||0,net=m.net||0,vat=m.vat||0,total=m.total||0;
-  const discAmt=gross*(disc/100),acAmt=(gross-discAmt)*(ac/100),vatRate=m.vatRate||7.5;
+  const vatRate=m.vatRate||settings?.taxRate||7.5;
+  const scheduleRows=getMpoScheduleRows(m).filter((row:any)=>row.spots>0||row.rate>0||row.month);
+  const totals=calcMpoTotals(scheduleRows,vatRate);
+  const periodStart=scheduleRows.map((row:any)=>row.start).filter(Boolean).sort()[0]||m.start||"—";
+  const periodEnd=scheduleRows.map((row:any)=>row.end).filter(Boolean).sort().slice(-1)[0]||m.end||"—";
+  const scheduleRowsHtml=scheduleRows.map((row:any,index:number)=>{
+    const t=calcMpoRowTotals(row,vatRate);
+    const month=row.month?new Date(row.month+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"numeric"}):"—";
+    return `<tr><td>${index+1}</td><td>${month}</td><td style="text-align:center">${row.spots}</td><td style="text-align:right">${fa(row.rate)}</td><td style="text-align:center">${row.materialDuration}s</td><td style="text-align:right;font-weight:600">${fa(t.net)}</td></tr>`;
+  }).join("");
+  m={...m,spots:totals.spots,start:periodStart,end:periodEnd,materialDuration:scheduleRows.length>1?`${scheduleRows.length} schedules`:m.materialDuration,rate:scheduleRows.length>1&&totals.spots>0?totals.gross/totals.spots:m.rate};
+  const gross=totals.gross,disc=0,ac=0,net=totals.net,vat=totals.vat,total=totals.total;
+  const discAmt=0,acAmt=0;
   const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>MPO ${m.id}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -818,11 +897,15 @@ function printMPO(m:any,settings:any){
   <div class="meta-row"><span class="meta-label">Vendor / Station</span><span class="meta-val">${m.vendor||"—"}</span></div>
   <div class="meta-row"><span class="meta-label">Campaign</span><span class="meta-val">${m.campaign||"—"}</span></div>
   <div class="meta-row"><span class="meta-label">Period</span><span class="meta-val">${m.start||"—"} → ${m.end||"—"}</span></div>
-  <div class="meta-row"><span class="meta-label">Material Duration</span><span class="meta-val">${m.materialDuration||30} seconds</span></div>
+  <div class="meta-row"><span class="meta-label">Schedules</span><span class="meta-val">${scheduleRows.length}</span></div>
   <div class="meta-row"><span class="meta-label">No. of Spots</span><span class="meta-val">${m.spots||0}</span></div>
   <div class="meta-row"><span class="meta-label">Rate per Spot</span><span class="meta-val">${fa(m.rate||0)}</span></div>
 </div>
 <hr/>
+<table>
+  <thead><tr><th>#</th><th>Campaign Month</th><th style="text-align:center">Spots</th><th style="text-align:right">Rate</th><th style="text-align:center">Duration</th><th style="text-align:right">Net Value</th></tr></thead>
+  <tbody>${scheduleRowsHtml}</tbody>
+</table>
 <div class="total-section">
   <div class="total-row"><span>Gross (${m.spots||0} spots × ${fa(m.rate||0)})</span><span>${fa(gross)}</span></div>
   ${disc>0?`<div class="total-row"><span class="neg">Volume Discount (${disc}%)</span><span class="neg">− ${fa(discAmt)}</span></div>`:""}
@@ -836,7 +919,7 @@ function printMPO(m:any,settings:any){
   const w=window.open("","_blank","width=780,height=900");w.document.write(html);w.document.close();w.onload=()=>w.print();
 }
 
-const EMPO={agency:"",client:"",vendor:"",campaign:"",month:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30"};
+const EMPO={agency:"",client:"",vendor:"",campaign:"",month:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30",extraScheduleRows:[]};
 function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
@@ -891,21 +974,22 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     if(search&&!`${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
-  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.month)e.month="Required";setErrs(e);return!Object.keys(e).length;};
+  const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.month)e.month="Required";(form.extraScheduleRows||[]).forEach((row:any)=>{const hasAny=!!row.month||!!row.spots||!!row.rate||!!row.discount||!!row.agencyCommission||!!row.materialDuration;if(!hasAny)return;const key=`extra_${row.id}`;if(!row.spots||Number(row.spots)<=0)e[`${key}_spots`]="Required";if(!row.rate||Number(row.rate)<=0)e[`${key}_rate`]="Required";if(!row.month)e[`${key}_month`]="Required";});setErrs(e);return!Object.keys(e).length;};
   const openNew=()=>{
     if(!canEdit)return;
     currentMpoDraftId.current=null;setMpoDraftSavedAt(null);
     setForm({...EMPO,currency:dCcy});setEid(null);setErrs({});setShowF(true);
   };
-  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,month:m.start?.slice(0,7)||"",start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||""),materialDuration:String(m.materialDuration||"30")});setEid(m.id);setErrs({});setShowF(true);};
+  const openEdit=m=>{if(!canEdit)return;setForm({agency:m.agency||"",client:m.client,vendor:m.vendor,campaign:m.campaign,month:m.start?.slice(0,7)||"",start:m.start,end:m.end,status:m.status,currency:m.currency||"NGN",docs:m.docs||[],spots:String(m.spots||""),rate:String(m.rate||""),discount:String(m.discount||""),agencyCommission:String(m.agencyCommission||""),materialDuration:String(m.materialDuration||"30"),extraScheduleRows:(m.extraScheduleRows||[]).map((row:any,index:number)=>({...normalizeMpoScheduleRow(row,m,`extra-${index+1}`),spots:String(row.spots||""),rate:String(row.rate||""),discount:String(row.discount||""),agencyCommission:String(row.agencyCommission||""),materialDuration:String(row.materialDuration||m.materialDuration||"30")}))});setEid(m.id);setErrs({});setShowF(true);};
   const save=()=>{
     if(!val())return;
     if(currentMpoDraftId.current){removeDraft(MPO_DRAFTS_KEY,currentMpoDraftId.current);currentMpoDraftId.current=null;}
     setMpoDraftSavedAt(null);
-    const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
-    const gross=sp*rt,discAmt=gross*(disc/100),afterDisc=gross-discAmt,agencyComAmt=afterDisc*(ac/100),net=afterDisc-agencyComAmt,vat=net*(vr/100),total=net+vat;
-    const md=Number(form.materialDuration)||30;
-    const extra={spots:sp,rate:rt,discount:disc,agencyCommission:ac,gross,net,vat,total,amount:net,vatRate:vr,materialDuration:md};
+    const vr=Number(settings?.taxRate||7.5);
+    const primary=normalizeMpoScheduleRow({id:"primary",spots:form.spots,rate:form.rate,discount:form.discount,agencyCommission:form.agencyCommission,materialDuration:form.materialDuration,month:form.month,start:form.start,end:form.end},form,"primary");
+    const extraScheduleRows=(form.extraScheduleRows||[]).map((row:any,index:number)=>normalizeMpoScheduleRow(row,primary,`extra-${index+1}`)).filter((row:any)=>row.spots>0||row.rate>0||row.month);
+    const totals=calcMpoTotals([primary,...extraScheduleRows],vr);
+    const extra={spots:primary.spots,rate:primary.rate,discount:primary.discount,agencyCommission:primary.agencyCommission,gross:totals.gross,net:totals.net,vat:totals.vat,total:totals.total,amount:totals.net,vatRate:vr,materialDuration:primary.materialDuration,extraScheduleRows};
     if(eid){setMpos(p=>p.map(m=>m.id===eid?{...m,...form,...extra}:m));toast("MPO updated");addAudit("updated","MPO",eid,`Updated ${eid}`,"update");}
     else{const newId=nextId(mpos,"MPO");setMpos(p=>[...p,{id:newId,...form,...extra,exec:"pending",channel:"TV",docs:[]}]);toast("MPO created");addAudit("created","MPO",newId,`Created ${newId} for ${form.client}`,"create");}
     setShowF(false);
@@ -917,6 +1001,13 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const bulkExport=()=>{const rows=[["ID","Client","Vendor","Campaign","Amount","Currency","Status"],...mpos.filter(m=>selected.has(m.id)).map(m=>[m.id,m.client,m.vendor,m.campaign,m.amount,m.currency||"NGN",m.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="mpo_export.csv";a.click();toast(`Exported ${selected.size}`,"info");};
   const updateMpoDocs=(id,docs)=>setMpos(p=>p.map(m=>m.id===id?{...m,docs}:m));
   const mpoForDocs=docsFor?mpos.find(m=>m.id===docsFor):null;
+  const addMpoScheduleRow=()=>setForm(f=>({...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`mpo-sch-${Date.now()}`,spots:"",rate:f.rate||"",discount:f.discount||"",agencyCommission:f.agencyCommission||"",materialDuration:f.materialDuration||"30",month:f.month||"",start:f.start||"",end:f.end||""}]}));
+  const removeMpoScheduleRow=(id:string)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).filter((row:any)=>row.id!==id)}));
+  const updateMpoScheduleRow=(id:string,field:string,value:any)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map((row:any)=>{
+    if(row.id!==id)return row;
+    if(field==="month"){const bounds=getMonthBounds(value);return {...row,month:value,start:bounds.start,end:bounds.end};}
+    return {...row,[field]:value};
+  })}));
 
   // ── RO state ───────────────────────────────────────────────────────────────
   const [roSearch,setRoSearch]=useState("");
@@ -976,8 +1067,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
         const selAgency=agencyList.find(a=>a.name===form.agency);
         const brandList=selAgency?(selAgency.brands||[]).map((b:any)=>b.name):[...new Set((clients||[]).filter(c=>c.type==="Agency").flatMap(c=>(c.brands||[]).map((b:any)=>b.name)))].sort();
         const vendorList=(clients||[]).filter(c=>c.type==="Vendor").map(c=>c.name).sort();
-        const sp=Number(form.spots)||0,rt=Number(form.rate)||0,disc=Number(form.discount)||0,ac=Number(form.agencyCommission)||0,vr=Number(settings?.taxRate||7.5);
-        const gross=sp*rt,discAmt=gross*(disc/100),afterDisc=gross-discAmt,agencyComAmt=afterDisc*(ac/100),net=afterDisc-agencyComAmt,vat=net*(vr/100),total=net+vat;
+        const vr=Number(settings?.taxRate||7.5);
+        const previewRows=getMpoScheduleRows(form);
+        const previewTotals=calcMpoTotals(previewRows,vr);
+        const disc=0,ac=0,discAmt=previewTotals.discountAmount,agencyComAmt=previewTotals.agencyCommissionAmount,net=previewTotals.net,vat=previewTotals.vat,total=previewTotals.total;
         return(
         <Modal title={eid?"Edit MPO":"New MPO"} onClose={()=>setShowF(false)}>
           <div className="form-grid">
@@ -1017,9 +1110,41 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
             </FF>
             <span/>
           </div>
-          {gross>0&&(
+          <div style={{border:"1px solid var(--border-c)",borderRadius:10,padding:12,marginBottom:12,background:"var(--bg1)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:(form.extraScheduleRows||[]).length?10:0}}>
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--text)"}}>Additional schedules</div>
+                <div style={{fontSize:10,color:"var(--text3)",marginTop:2}}>Each added schedule has its own spots, rate, discounts, duration and month.</div>
+              </div>
+              <button type="button" className="btn btn-sm btn-primary" onClick={addMpoScheduleRow}>+ Add schedule</button>
+            </div>
+            {(form.extraScheduleRows||[]).map((row:any,index:number)=>{
+              const key=`extra_${row.id}`;
+              return(
+                <div key={row.id} style={{borderTop:index===0?"1px solid var(--border-c)":"0",paddingTop:index===0?10:0,marginTop:index===0?0:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <span style={{fontSize:11,fontWeight:800,color:"var(--brand)",textTransform:"uppercase",letterSpacing:".04em"}}>Schedule {index+2}</span>
+                    <button type="button" className="btn btn-sm btn-ghost" style={{color:"#A32D2D",padding:"2px 8px"}} onClick={()=>removeMpoScheduleRow(row.id)}>Remove</button>
+                  </div>
+                  <div className="form-grid">
+                    <FF id={`${key}_spots`} label="No. of Spots" required error={errs[`${key}_spots`]}><input id={`${key}_spots`} className={`form-input ${errs[`${key}_spots`]?"error":""}`} type="number" min="0" value={row.spots||""} onChange={e=>updateMpoScheduleRow(row.id,"spots",e.target.value)}/></FF>
+                    <FF id={`${key}_rate`} label={`Rate per spot (${form.currency||dCcy})`} required error={errs[`${key}_rate`]}><input id={`${key}_rate`} className={`form-input ${errs[`${key}_rate`]?"error":""}`} type="number" min="0" value={row.rate||""} onChange={e=>updateMpoScheduleRow(row.id,"rate",e.target.value)}/></FF>
+                  </div>
+                  <div className="form-grid">
+                    <FF id={`${key}_discount`} label="Volume Discount (%)"><input id={`${key}_discount`} className="form-input" type="number" min="0" max="100" value={row.discount||""} onChange={e=>updateMpoScheduleRow(row.id,"discount",e.target.value)}/></FF>
+                    <FF id={`${key}_agency`} label="Agency Commission (%)"><input id={`${key}_agency`} className="form-input" type="number" min="0" max="100" value={row.agencyCommission||""} onChange={e=>updateMpoScheduleRow(row.id,"agencyCommission",e.target.value)}/></FF>
+                  </div>
+                  <div className="form-grid">
+                    <FF id={`${key}_duration`} label="Material Duration (secs)"><input id={`${key}_duration`} className="form-input" type="number" min="1" value={row.materialDuration||"30"} onChange={e=>updateMpoScheduleRow(row.id,"materialDuration",e.target.value)}/></FF>
+                    <FF id={`${key}_month`} label="Campaign Month" required error={errs[`${key}_month`]}><input id={`${key}_month`} className={`form-input ${errs[`${key}_month`]?"error":""}`} type="month" value={row.month||""} onChange={e=>updateMpoScheduleRow(row.id,"month",e.target.value)}/></FF>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {previewTotals.gross>0&&(
             <div style={{background:"var(--bg3)",border:"1px solid var(--border-c)",borderRadius:10,padding:"12px 16px",marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:"var(--text2)"}}>Gross</span><span>{fmt(gross)}</span></div>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}><span style={{color:"var(--text2)"}}>Gross ({previewTotals.spots} spots)</span><span>{fmt(previewTotals.gross)}</span></div>
               {discAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#A32D2D"}}><span>Volume Discount ({disc}%)</span><span>−{fmt(discAmt)}</span></div>}
               {agencyComAmt>0&&<div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#854F0B"}}><span>Agency Commission ({ac}%)</span><span>−{fmt(agencyComAmt)}</span></div>}
               <div style={{display:"flex",justifyContent:"space-between",fontSize:13,borderTop:"1px solid var(--border-c)",paddingTop:6}}><span style={{color:"var(--text2)"}}>Net</span><span style={{fontWeight:600}}>{fmt(net)}</span></div>
@@ -1204,8 +1329,8 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                   <td style={{fontFamily:"monospace",fontSize:12,fontWeight:500}}>{shortId(m.id)}</td>
                   <td style={{fontSize:12,color:"var(--text2)"}}>{m.agency||"—"}</td>
                   <td>{m.client}</td><td>{m.campaign}</td>
-                  <td style={{fontWeight:500,textAlign:"center"}}>{m.spots||"—"}</td>
-                  <td style={{textAlign:"center",color:"var(--text3)",fontSize:11}}>{m.materialDuration||30}s</td>
+                  <td style={{fontWeight:500,textAlign:"center"}}>{calcMpoTotals(getMpoScheduleRows(m),m.vatRate||settings?.taxRate||0).spots||"—"}</td>
+                  <td style={{textAlign:"center",color:"var(--text3)",fontSize:11}}>{mpoScheduleLabel(m)}</td>
                   <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
                   <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(m.start)}</td>
                   <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
@@ -1700,6 +1825,7 @@ function printROCalendarLegacy(ro, settings={}){
 
   // ── Build standalone rows: primary + each extra row independently ─────────
   const buildPdfRow=(slot:string,prog:string,duration:string,rate:number,matTitle:string,entries:any[])=>{
+    const discountedRate=getRoDiscountedRate(rate,ro,whtRate);
     const daySpots=new Map<number,number>();
     entries.forEach((s:any)=>{
       const d=parseInt(s.date?.slice(8,10)||"0",10);
@@ -1707,12 +1833,14 @@ function printROCalendarLegacy(ro, settings={}){
     });
     const cells:Array<number|string>=Array.from({length:daysInMonth},(_,i)=>{const v=daySpots.get(i+1)||0;return v>0?v:"";});
     const rowTotal=[...daySpots.values()].reduce((a,v)=>a+v,0);
+    const totalValue=discountedRate*rowTotal;
     const dayCells=cells.map(c=>`<td class="dc">${c}</td>`).join("");
-    return {cells,rowTotal,html:`<tr><td class="tb">${slot}</td><td class="pg">${prog}</td><td class="du">${duration}</td><td class="rt">${fa(rate)}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${matTitle}</td></tr>`};
+    return {cells,rowTotal,totalValue,html:`<tr><td class="tb">${slot}</td><td class="pg">${prog}</td><td class="du">${duration}</td><td class="rt">${fa(discountedRate)}</td><td class="tv">${fa(totalValue)}</td>${dayCells}<td class="st">${rowTotal}</td><td class="mc">${matTitle}</td></tr>`};
   };
   const rows=getRoScheduleRows(ro).filter((row:any)=>(row.schedule||[]).some((entry:any)=>Number(entry.spots)>0)).map((row:any)=>buildPdfRow(row.timeSlot||"—",row.programme||"",displayRoMaterialDuration(row.materialDuration),readRoNumber(row.rate,0),row.materialTitle||"",row.schedule||[]));
 
   const grandSpots=rows.reduce((a,r)=>a+r.rowTotal,0);
+  const grandValue=rows.reduce((a,r)=>a+r.totalValue,0);
 
   // ── Totals row ────────────────────────────────────────────────────────────
   const totalDayCells=Array.from({length:daysInMonth},(_,i)=>{
@@ -1746,6 +1874,7 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
 .pg{text-align:left;padding:3px 5px;font-size:9px;min-width:80px;background:#fff}
 .du{text-align:left;padding:3px 5px;font-size:8px;min-width:74px;background:#fff}
 .rt{text-align:right;padding:3px 5px;font-size:8px;min-width:56px;background:#fff}
+.tv{text-align:right;padding:3px 5px;font-size:8px;min-width:68px;background:#fff;font-weight:700}
 .dc.spot{font-weight:800;color:#1a2d5a}
 .st{font-weight:800;font-size:10px;color:#1a2d5a;background:#dde6f7;min-width:34px}
 .mc{text-align:left;padding:3px 5px;font-size:8.5px;min-width:90px;background:#fff}
@@ -1785,6 +1914,7 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
       <th class="th-side" rowspan="3" style="vertical-align:middle">Programme</th>
       <th class="th-side" rowspan="3" style="vertical-align:middle">Duration</th>
       <th class="th-side" rowspan="3" style="vertical-align:middle;text-align:right">Rate</th>
+      <th class="th-side" rowspan="3" style="vertical-align:middle;text-align:right">Total Value</th>
       <th class="th-hdr" colspan="${daysInMonth}">S C H E D U L E</th>
       <th class="th-hdr" rowspan="3" style="vertical-align:middle;min-width:34px">NO OF<br/>SPOTS</th>
       <th class="th-hdr" rowspan="3" style="vertical-align:middle;text-align:left;padding-left:5px;min-width:90px">MATERIAL TITLE/<br/>SPECIFICATION</th>
@@ -1796,25 +1926,13 @@ th,td{border:1px solid #9aabcc;text-align:center;padding:2px 2px;font-size:8.5px
     ${rows.map(r=>r.html).join("")}
     <tr class="tr-tot">
       <td colspan="4" style="text-align:right;padding-right:6px;font-size:9px;font-weight:700">TOTAL</td>
+      <td class="tv">${fa(grandValue)}</td>
       ${totalDayCells}
       <td class="st">${grandSpots}</td>
       <td class="mc"></td>
     </tr>
   </tbody>
 </table>
-<div style="display:flex;justify-content:flex-end;margin-top:12px">
-<table class="cst">
-  <thead><tr><th colspan="2">COSTING SUMMARY</th></tr></thead>
-  <tbody>
-    <tr><td>Gross Total</td><td>${fa(totals.gross)}</td></tr>
-    <tr><td>Volume Discount (${totals.volumeDiscountPct}%)</td><td class="neg">- ${fa(totals.volumeDiscountAmount)}</td></tr>
-    <tr><td>Agency Commission (${totals.agencyCommissionPct}%)</td><td class="neg">- ${fa(totals.agencyCommissionAmount)}</td></tr>
-    <tr class="subtotal"><td>Net Total</td><td>${fa(totals.netTotal)}</td></tr>
-    <tr><td>WHT (${totals.whtPct}%)</td><td class="neg">- ${fa(totals.whtAmount)}</td></tr>
-    <tr class="payable"><td>Amount Payable</td><td>${fa(totals.amountPayable)}</td></tr>
-  </tbody>
-</table>
-</div>
 <div class="footer">Generated by ${settings.companyName||"MediaHub"} · ${new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"})}</div>
 </body></html>`;
   const w=window.open("","_blank","width=900,height=1200");w.document.write(html);w.document.close();w.onload=()=>w.print();
@@ -1825,7 +1943,6 @@ async function exportROExcel(ro, settings={}){
   const whtRate=Number((settings as any).whtRate??5);
   const XLS=await import("xlsx-js-style");
   const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const totals=calcRoTotals(ro,whtRate);
   const numFmt="#,##0.00";
   const monthKey=ro.campaignMonth||ro.start?.slice(0,7)||"";
   const [mYr,mMo]=(monthKey||"2026-01").split("-").map(Number);
@@ -1836,9 +1953,8 @@ async function exportROExcel(ro, settings={}){
     ?new Date(monthKey+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"})
     :"—";
   const campaignMonthUpper=campaignMonthLabel.toUpperCase();
-  const totalSpots=sumRoScheduleSpots(ro);
   const companyName=String((settings as any).companyName||"MediaHub").toUpperCase();
-  const NCOLS=4+daysInMonth+2;
+  const NCOLS=5+daysInMonth+2;
 
   const thin=(rgb="000000")=>({style:"thin",color:{rgb}});
   const med=(rgb="000000")=>({style:"medium",color:{rgb}});
@@ -1860,11 +1976,8 @@ async function exportROExcel(ro, settings={}){
   const monthS={font:{bold:true,sz:11,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFC000"}},border:makeBorder({top:true,bottom:true,left:true,right:true}),alignment:{horizontal:"center",vertical:"center"}};
   const scheduleHeaderFill={fgColor:{rgb:"11A7D8"}};
   const scheduleCellFill={fgColor:{rgb:"FFFFFF"}};
-  const costHeaderFill={fgColor:{rgb:"1F3E74"}};
   const metaLabelBase={font:{bold:true,sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"left",vertical:"center"}};
   const metaValueBase={font:{bold:true,sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"left",vertical:"center"}};
-  const costLabelBase={font:{bold:true,sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"left",vertical:"center"}};
-  const costValBase={font:{sz:10,color:{rgb:"000000"}},fill:{fgColor:{rgb:"FFFFFF"}},alignment:{horizontal:"right",vertical:"center"}};
 
   const row0=[txt(companyName,companyS),...blanks(NCOLS-1)];
   const row1=blanks(NCOLS);
@@ -1895,6 +2008,7 @@ async function exportROExcel(ro, settings={}){
     "PROGRAMME",
     "MATERIAL DURATION",
     "RATE",
+    "TOTAL VALUE",
     ...allDays,
     "NO OF SPOTS",
     "MATERIAL TITLE",
@@ -1926,7 +2040,7 @@ async function exportROExcel(ro, settings={}){
     programme:row.programme||"ROS",
     materialDuration:displayRoMaterialDuration(row.materialDuration),
     materialTitle:row.materialTitle||"",
-    rate:readRoNumber(row.rate,0),
+    rate:getRoDiscountedRate(row.rate,ro,whtRate),
     entries:row.schedule||[],
   }));
   const scheduleRowData=scheduleRows.map((row)=>{
@@ -1934,7 +2048,7 @@ async function exportROExcel(ro, settings={}){
     row.entries.filter(s=>Number(s.spots)>0)
       .forEach(s=>{const day=new Date(s.date+"T12:00:00").getDate();spotsMap.set(day,(spotsMap.get(day)||0)+Number(s.spots));});
     const rowTotal=[...spotsMap.values()].reduce((a,v)=>a+v,0);
-    return {...row,spotsMap,rowTotal};
+    return {...row,spotsMap,rowTotal,totalValue:row.rate*rowTotal};
   });
   const bodyStyle=(colIndex,align="center")=>({
     font:{sz:10,color:{rgb:"000000"}},
@@ -1948,7 +2062,8 @@ async function exportROExcel(ro, settings={}){
       txt(row.programme,bodyStyle(1)),
       txt(row.materialDuration,bodyStyle(2)),
       num(row.rate,{...bodyStyle(3),alignment:{horizontal:"right",vertical:"center"}}),
-      ...allDays.map((d,offset)=>row.spotsMap.has(d)?numi(row.spotsMap.get(d),bodyStyle(4+offset)):txt("",bodyStyle(4+offset))),
+      num(row.totalValue,{...bodyStyle(4),alignment:{horizontal:"right",vertical:"center"}}),
+      ...allDays.map((d,offset)=>row.spotsMap.has(d)?numi(row.spotsMap.get(d),bodyStyle(5+offset)):txt("",bodyStyle(5+offset))),
       numi(row.rowTotal,{...bodyStyle(NCOLS-2),font:{bold:true,sz:10,color:{rgb:"000000"}}}),
       txt(row.materialTitle,bodyStyle(NCOLS-1)),
     ];
@@ -1961,12 +2076,14 @@ async function exportROExcel(ro, settings={}){
   });
   const dayTotals=allDays.map(d=>scheduleRowData.reduce((sum,row)=>sum+(Number(row.spotsMap.get(d))||0),0));
   const scheduleGrandTotal=dayTotals.reduce((sum,v)=>sum+v,0);
+  const valueGrandTotal=scheduleRowData.reduce((sum,row)=>sum+(Number(row.totalValue)||0),0);
   const scheduleTotalRow=[
     txt("TOTAL",totalBodyStyle(0,"left")),
     txt("",totalBodyStyle(1)),
     txt("",totalBodyStyle(2)),
     txt("",totalBodyStyle(3)),
-    ...dayTotals.map((v,offset)=>v>0?numi(v,totalBodyStyle(4+offset)):txt("",totalBodyStyle(4+offset))),
+    num(valueGrandTotal,totalBodyStyle(4,"right")),
+    ...dayTotals.map((v,offset)=>v>0?numi(v,totalBodyStyle(5+offset)):txt("",totalBodyStyle(5+offset))),
     numi(scheduleGrandTotal,totalBodyStyle(NCOLS-2)),
     txt("",totalBodyStyle(NCOLS-1)),
   ];
@@ -1983,41 +2100,23 @@ async function exportROExcel(ro, settings={}){
     txt("",dayNameStyle(1,dataRows.length>0)),
     txt("",dayNameStyle(2,dataRows.length>0)),
     txt("",dayNameStyle(3,dataRows.length>0)),
-    ...allDates.map((d,offset)=>txt(DOW[d.getDay()],dayNameStyle(4+offset,dataRows.length>0))),
+    txt("",dayNameStyle(4,dataRows.length>0)),
+    ...allDates.map((d,offset)=>txt(DOW[d.getDay()],dayNameStyle(5+offset,dataRows.length>0))),
     txt("",dayNameStyle(NCOLS-2,dataRows.length>0)),
     txt("",dayNameStyle(NCOLS-1,dataRows.length>0)),
   ];
 
-  const costHeader=[txt("COSTING SUMMARY",{font:{bold:true,sz:11,color:{rgb:"FFFFFF"}},fill:costHeaderFill,border:makeBorder({top:true,bottom:true,left:true}),alignment:{horizontal:"left",vertical:"center"}}),txt("",{fill:costHeaderFill,border:makeBorder({top:true,bottom:true,right:true})}),...blanks(NCOLS-2)];
-  const costRows=[
-    [`Gross Total (${totalSpots} spots)`, totals.gross, costValBase],
-    [`Volume Discount (${totals.volumeDiscountPct}%)`, totals.volumeDiscountAmount>0?-totals.volumeDiscountAmount:0, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
-    [`Agency Commission (${totals.agencyCommissionPct}%)`, totals.agencyCommissionAmount>0?-totals.agencyCommissionAmount:0, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
-    ["Net Total", totals.netTotal, {...costValBase,font:{bold:true,sz:10,color:{rgb:"000000"}}}],
-    [`WHT (${totals.whtPct}%)`, -totals.whtAmount, {...costValBase,font:{sz:10,color:{rgb:"C00000"}}}],
-    ["AMOUNT PAYABLE", totals.amountPayable, {font:{bold:true,sz:14,color:{rgb:"1F5E2B"}},fill:{fgColor:{rgb:"E2F0D9"}},alignment:{horizontal:"right",vertical:"center"}}],
-  ].map(([label,value,baseStyle],index)=>{
-    const bottom=index===6;
-    return [
-      txt(label,{...costLabelBase,border:makeBorder({bottom,left:true})}),
-      num(value,{...baseStyle,border:makeBorder({bottom,right:true})}),
-      ...blanks(NCOLS-2),
-    ];
-  });
-
-  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,...scheduleTotalRows,blanks(NCOLS),costHeader,...costRows];
+  const sheetData=[row0,row1,row2,...metaRows,blanks(NCOLS),monthRow,hdr1,hdr2,...dataRows,...scheduleTotalRows];
   const ws=XLS.utils.aoa_to_sheet(sheetData);
   const metaStart=3;
   const calStart=metaStart+metaFields.length+1;
-  const costStart=calStart+3+dataRows.length+scheduleTotalRows.length+1;
   ws["!merges"]=[
     {s:{r:0,c:0},e:{r:0,c:4}},
     {s:{r:2,c:0},e:{r:2,c:1}},
     {s:{r:calStart,c:0},e:{r:calStart,c:NCOLS-1}},
-    {s:{r:costStart,c:0},e:{r:costStart,c:1}},
   ];
-  ws["!cols"]=[{wch:20},{wch:26},{wch:22},{wch:12},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
-  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),...scheduleTotalRows.map(()=>({hpt:20})),{hpt:12},{hpt:18},...costRows.map(()=>({hpt:18}))];
+  ws["!cols"]=[{wch:20},{wch:26},{wch:22},{wch:12},{wch:16},...Array(daysInMonth).fill({wch:4}),{wch:14},{wch:24}];
+  ws["!rows"]=[{hpt:22},{hpt:10},{hpt:18},...metaFields.map(()=>({hpt:18})),{hpt:12},{hpt:16},{hpt:18},{hpt:18},...dataRows.map(()=>({hpt:20})),...scheduleTotalRows.map(()=>({hpt:20}))];
 
   const wb=XLS.utils.book_new();
   XLS.utils.book_append_sheet(wb,ws,"Release Order");
@@ -2061,6 +2160,15 @@ function calcRoTotals(ro, whtRate=0){
   const whtAmount=netTotal*(whtPct/100);
   const amountPayable=netTotal-whtAmount;
   return {gross,volumeDiscountPct,agencyCommissionPct,volumeDiscountAmount,agencyCommissionAmount,netTotal,whtPct,whtAmount,amountPayable};
+}
+
+function getRoDiscountedRateFactor(ro:any,whtRate=0){
+  const pct=(value:any)=>Math.max(0,Math.min(100,Number(value)||0))/100;
+  return (1-pct(ro.volumeDiscount))*(1-pct(ro.agencyCommission))*(1-pct(whtRate));
+}
+
+function getRoDiscountedRate(rate:any,ro:any,whtRate=0){
+  return readRoNumber(rate,0)*getRoDiscountedRateFactor(ro,whtRate);
 }
 
 const RO_MATERIAL_DURATION_OPTIONS=[
@@ -4716,6 +4824,7 @@ const toMpo = r => r ? ({
   materialDuration: r.material_duration || 30,
   amount: r.amount, status: r.status, start: r.start_date, end: r.end_date,
   exec: r.exec_status, channel: r.channel, currency: r.currency,
+  extraScheduleRows: r.extra_schedule_rows || [],
   docs: r.docs || [], workspace_id: r.workspace_id,
 }) : null;
 const fromMpo = m => ({
@@ -4727,6 +4836,7 @@ const fromMpo = m => ({
   material_duration: m.materialDuration || 30,
   amount: m.amount, status: m.status, start_date: m.start, end_date: m.end,
   exec_status: m.exec, channel: m.channel, currency: m.currency || "NGN",
+  extra_schedule_rows: m.extraScheduleRows || [],
   docs: m.docs || [],
 });
 
