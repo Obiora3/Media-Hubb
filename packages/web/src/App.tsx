@@ -2259,6 +2259,19 @@ function getRoDiscountedRate(rate:any,ro:any,whtRate=0){
   return readRoNumber(rate,0)*getRoDiscountedRateFactor(ro,whtRate);
 }
 
+function getRoScheduleValue(ro:any,whtRate=0,dateFilter:any=()=>true){
+  const factor=getRoDiscountedRateFactor(ro,whtRate);
+  return getRoScheduleRows(ro).reduce((total:number,row:any)=>
+    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>{
+      const date=String(entry.date||"");
+      if(!date||!dateFilter(date)) return rowTotal;
+      const spots=readRoNumber(entry.spots,0);
+      if(spots<=0) return rowTotal;
+      const rate=readRoNumber(row.rate,readRoNumber(entry.rate,readRoNumber(ro.rate,0)));
+      return rowTotal+(spots*rate*factor);
+    },0),0);
+}
+
 const RO_MATERIAL_DURATION_OPTIONS=[
   '5" Secs',
   '10" Secs',
@@ -3263,7 +3276,7 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 }
 
 /* ═══ REVENUE TARGET PAGE ═══ */
-function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onSaveTarget,onDeleteTarget}:{mpos:any[],settings:any,setSettings:any,user:any,revTargetsData:any[],onSaveTarget:(adv:string,amt:number,yr:number)=>Promise<void>,onDeleteTarget:(adv:string,yr:number)=>Promise<void>}){
+function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData=[],onSaveTarget,onDeleteTarget}:{mpos:any[],ros?:any[],settings:any,setSettings:any,user:any,revTargetsData:any[],onSaveTarget:(adv:string,amt:number,yr:number)=>Promise<void>,onDeleteTarget:(adv:string,yr:number)=>Promise<void>}){
   const canEdit=user?.role==="admin"||user?.role==="manager";
   const [rtNewAdv,setRtNewAdv]=useState("");
   const [rtNewTarget,setRtNewTarget]=useState("");
@@ -3273,6 +3286,9 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
 
   const dCcy=settings.defaultCurrency||"NGN";
   const sym=CURRENCIES[dCcy]?.symbol||"₦";
+  const whtSetting=Number(settings?.whtRate??5);
+  const whtRate=Number.isFinite(whtSetting)?whtSetting:5;
+  const mpoById=useMemo(()=>new Map((mpos||[]).map((m:any)=>[m.id,m])),[mpos]);
   const now=new Date();
   const revYear:number=settings.revYear||now.getFullYear();
   // Build revTargets from the Supabase table rows for the selected year
@@ -3285,35 +3301,43 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
   const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
   const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
 
-  const yearMpos=mpos.filter(m=>m.start&&m.start.startsWith(String(revYear)));
+  const normName=(v:any)=>String(v||"").trim().toUpperCase();
+  const roAdvertiserNames=(ro:any)=>{
+    const linkedMpo=mpoById.get(ro.mpoId);
+    return [ro.client,ro.agency,linkedMpo?.client,linkedMpo?.agency].map(normName).filter(Boolean);
+  };
+  const dateInSelectedYear=(date:string)=>date.startsWith(`${revYear}-`);
+  const dateToCurrentMonth=(date:string)=>dateInSelectedYear(date)&&date.slice(0,7)<=currentMonthKey;
+  const dateInCurrentMonth=(date:string)=>date.slice(0,7)===currentMonthKey;
+  const dateInCurrentWeek=(date:string)=>{
+    const d=new Date(`${date}T12:00:00`);
+    return d>=wkStart&&d<=wkEnd;
+  };
+  const dateInQ1=(date:string)=>dateInSelectedYear(date)&&date.slice(5,7)<="03";
+  const sumRoValue=(sourceRos:any[],dateFilter:any)=>(sourceRos||[]).reduce((a:number,ro:any)=>
+    a+convertAmt(getRoScheduleValue(ro,whtRate,dateFilter),ro.currency||"NGN",dCcy),0);
 
   const totalTarget=Object.values(revTargets).reduce((a,v)=>a+Number(v||0),0);
-  const totalBooked=yearMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const totalBooked=sumRoValue(ros,dateInSelectedYear);
   const annualGap=totalBooked-totalTarget;
   const annualPct=totalTarget>0?((totalBooked/totalTarget)*100).toFixed(2):0;
   const monthProj=totalTarget>0?Math.round(totalTarget/12*monthsElapsed):0;
-  const bookedToMonth=yearMpos.filter(m=>m.start&&m.start.slice(0,7)<=currentMonthKey)
-    .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const bookedToMonth=sumRoValue(ros,dateToCurrentMonth);
   const monthlyGap=bookedToMonth-monthProj;
   const monthlyPct=monthProj>0?((bookedToMonth/monthProj)*100).toFixed(2):0;
-  const bookedWeek=yearMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
-    .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-  const bookedMonth=yearMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
-    .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-  const q1Mpos=yearMpos.filter(m=>m.start&&m.start.slice(5,7)<="03");
-  const q1Booked=q1Mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const bookedWeek=sumRoValue(ros,dateInCurrentWeek);
+  const bookedMonth=sumRoValue(ros,dateInCurrentMonth);
+  const q1Booked=sumRoValue(ros,dateInQ1);
   const q1Target=totalTarget>0?Math.round(totalTarget/4):0;
   const q1Gap=q1Booked-q1Target;
   const q1Pct=q1Target>0?((q1Booked/q1Target)*100).toFixed(2):0;
 
   const rows=Object.keys(revTargets).map(adv=>{
-    const advUp=adv.toUpperCase();
-    const advMpos=yearMpos.filter(m=>(m.client||"").toUpperCase()===advUp||(m.agency||"").toUpperCase()===advUp);
-    const booked=advMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-    const inMonth=advMpos.filter(m=>m.start&&m.start.slice(0,7)===currentMonthKey)
-      .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-    const inWeek=advMpos.filter(m=>{if(!m.start)return false;const d=new Date(m.start+"T12:00:00");return d>=wkStart&&d<=wkEnd;})
-      .reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+    const advUp=normName(adv);
+    const advRos=(ros||[]).filter((ro:any)=>roAdvertiserNames(ro).includes(advUp));
+    const booked=sumRoValue(advRos,dateInSelectedYear);
+    const inMonth=sumRoValue(advRos,dateInCurrentMonth);
+    const inWeek=sumRoValue(advRos,dateInCurrentWeek);
     const target=Number(revTargets[adv]||0);
     const achievedPct=target>0?((booked/target)*100).toFixed(2):"0.00";
     return {name:adv,target,booked,achievedPct,gap:booked-target,inMonth,inWeek};
@@ -3356,7 +3380,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
       sRow("Revenue To Current Month — PROJ",fm(monthProj)),
       sRow("Revenue To Current Month — Achieved",fm(bookedToMonth),`${monthlyPct}%`),
       sRow("Monthly Revenue Gap",`${monthlyGap>=0?"+":""}${fm(monthlyGap)}`),
-      sRow("Booked For The Week",fm(bookedWeek)),
+      sRow("Booked This Week",fm(bookedWeek)),
       sRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,fm(q1Target)),
       sRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,fm(q1Booked),`${q1Pct}%`),
       sRow("EOQ Q1 Gap",`${q1Gap>=0?"+":""}${fm(q1Gap)}`),
@@ -3370,8 +3394,8 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
       {v:"BOOKED SO FAR",t:"s",s:hdrDark},
       {v:"% ACHIEVED",t:"s",s:hdrDark},
       {v:"REVENUE GAP",t:"s",s:hdrDark},
-      {v:"BOOKED IN MONTH",t:"s",s:hdrDark},
-      {v:"BOOKED IN WEEK",t:"s",s:hdrDark},
+      {v:"BOOKED THIS MONTH",t:"s",s:hdrDark},
+      {v:"BOOKED THIS WEEK",t:"s",s:hdrDark},
     ];
 
     // ── Data rows ───────────────────────────────────────────────────────────
@@ -3474,7 +3498,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
         {metricRow("Total Revenue To Current Month — PROJ",<strong>{fm(monthProj)}</strong>)}
         {metricRow("Total Revenue To Current Month (Achieved)",<><strong>{fm(bookedToMonth)}</strong>{pctBadge(monthlyPct)}</>)}
         {metricRow("  — Monthly Revenue Gap",gapSpan(monthlyGap))}
-        {metricRow("Total Booked For The Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
+        {metricRow("Total Booked This Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
         {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,<strong>{fm(q1Target)}</strong>)}
         {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,<><strong>{fm(q1Booked)}</strong>{pctBadge(q1Pct)}</>)}
         {metricRow("  — EOQ Q1 Gap",gapSpan(q1Gap))}
@@ -3485,7 +3509,7 @@ function RevenueTargetPage({mpos,settings,setSettings,user,revTargetsData=[],onS
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
             <tr style={{background:"#2C3E50"}}>
-              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","% ACHIEVED","REVENUE GAP","BOOKED IN MONTH","BOOKED IN WEEK"],...(canEdit?[""]:[])] .map(h=>(
+              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","% ACHIEVED","REVENUE GAP","BOOKED THIS MONTH","BOOKED THIS WEEK"],...(canEdit?[""]:[])] .map(h=>(
                 <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"nowrap",position:"sticky",top:0,background:"#2C3E50",zIndex:2}}>{h}</th>
               ))}
             </tr>
@@ -5461,7 +5485,7 @@ function App(){
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
-          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
+          {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} ros={ros} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
           {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings}/>}
           {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
