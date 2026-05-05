@@ -1028,7 +1028,7 @@ function printMPO(m:any,settings:any){
 }
 
 const EMPO={agency:"",client:"",vendor:"",campaign:"",month:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30",extraScheduleRows:[]};
-function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment}){
+function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment,focusItem,onFocusConsumed}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
   const menuRef=useRef(null);
@@ -1079,7 +1079,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     if(tab==="completed"&&m.status!=="completed")return false;
     if(mpoAgencyFilter&&m.agency!==mpoAgencyFilter)return false;
     if(mpoMonthFilter&&(m.start||"").slice(0,7)!==mpoMonthFilter)return false;
-    if(search&&!`${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
+    if(search&&!`${m.id}${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
   const val=()=>{const e={};if(!form.client.trim())e.client="Required";if(!form.vendor.trim())e.vendor="Required";if(!form.campaign.trim())e.campaign="Required";if(!form.spots||Number(form.spots)<=0)e.spots="Required";if(!form.rate||Number(form.rate)<=0)e.rate="Required";if(!form.month)e.month="Required";(form.extraScheduleRows||[]).forEach((row:any)=>{const hasAny=!!row.month||!!row.spots||!!row.rate||!!row.discount||!!row.agencyCommission||!!row.materialDuration;if(!hasAny)return;const key=`extra_${row.id}`;if(!row.spots||Number(row.spots)<=0)e[`${key}_spots`]="Required";if(!row.rate||Number(row.rate)<=0)e[`${key}_rate`]="Required";if(!row.month)e[`${key}_month`]="Required";});setErrs(e);return!Object.keys(e).length;};
@@ -1183,6 +1183,26 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
   const resumeMpoDraft=(draft:any)=>{currentMpoDraftId.current=draft.id;setForm({...EMPO,...draft.form});setEid(null);setErrs({});setShowF(true);setDraftsMenuOpen(false);};
   const deleteRoDraft=(id:string)=>{removeDraft(RO_DRAFTS_KEY,id);setRoDrafts(getDrafts(RO_DRAFTS_KEY));};
   const deleteMpoDraft=(id:string)=>{removeDraft(MPO_DRAFTS_KEY,id);setMpoDrafts(getDrafts(MPO_DRAFTS_KEY));};
+
+  useEffect(()=>{
+    if(!focusItem?.id)return;
+    let consumed=false;
+    if(focusItem.type==="ro"){
+      const ro=(ros||[]).find(r=>r.id===focusItem.id);
+      setDocType("ro");
+      setRoStatusTab("all");setRoClientFilter("");setRoChannelFilter("");setRoMonthFilter("");setRoSearch("");
+      if(ro)setSelRo(ro);
+      consumed=true;
+    }
+    if(focusItem.type==="mpo"){
+      const mpo=(mpos||[]).find(m=>m.id===focusItem.id);
+      setDocType("mpo");
+      setTab("all");setMpoAgencyFilter("");setMpoMonthFilter("");setSearch(focusItem.id);
+      if(mpo&&canEdit)openEdit(mpo);
+      consumed=true;
+    }
+    if(consumed)setTimeout(()=>onFocusConsumed?.(),0);
+  },[focusItem?.ts,focusItem?.id,focusItem?.type,mpos.length,ros.length]);
 
   return(
     <div>
@@ -3619,14 +3639,29 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
 }
 
 /* ═══ REPORTS ═══ */
-function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings}){
-  const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState("");const [to,setTo]=useState("");
-  const [mbClient,setMbClient]=useState("");const [mbMpo,setMbMpo]=useState("");
-  const [mbMonth,setMbMonth]=useState("");const [mbAgency,setMbAgency]=useState("");
+const REPORT_MEDIA_BUY_FILTERS_KEY="mh_report_media_buy_filters";
+function readReportMediaBuyFilters(){
+  try{return JSON.parse(localStorage.getItem(REPORT_MEDIA_BUY_FILTERS_KEY)||"{}")||{};}catch{return{};}
+}
+function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings,onOpenScheduleItem}){
+  const filterSeed=useMemo(()=>readReportMediaBuyFilters(),[]);
+  const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
+  const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
+  const [mbMonth,setMbMonth]=useState(filterSeed.mbMonth||"");const [mbAgency,setMbAgency]=useState(filterSeed.mbAgency||"");
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const taxRate=Number(settings.taxRate)||7.5;
   const whtRate=Number(settings.whtRate)||5;
   const agencyName=settings.companyName||"MediaHub";
+  useEffect(()=>{
+    try{localStorage.setItem(REPORT_MEDIA_BUY_FILTERS_KEY,JSON.stringify({from,to,mbClient,mbMpo,mbMonth,mbAgency}));}catch{}
+  },[from,to,mbClient,mbMpo,mbMonth,mbAgency]);
+  const hasMediaBuyFilters=!!(from||to||mbClient||mbMpo||mbMonth||mbAgency);
+  const clearMediaBuyFilters=()=>{setFrom("");setTo("");setMbClient("");setMbMpo("");setMbMonth("");setMbAgency("");};
+  const reportIdLink=(label:string,onClick:any)=>(
+    <button type="button" onClick={onClick} style={{background:"transparent",border:0,padding:0,color:"var(--brand)",font:"inherit",fontFamily:"monospace",fontWeight:800,cursor:"pointer",textDecoration:"underline",textUnderlineOffset:3}}>
+      {label}
+    </button>
+  );
   const fM=mpos.filter(m=>(!from||m.start>=from)&&(!to||m.end<=to));
   const lR=receivables.map(r=>({...r,status:computeStatus(r)})).filter(r=>(!from||r.due>=from)&&(!to||r.due<=to));
   const lP=payables.map(p=>({...p,status:computeStatus(p)})).filter(p=>(!from||p.due>=from)&&(!to||p.due<=to));
@@ -3768,7 +3803,11 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
               <option value="">All Agencies</option>
               {[...new Set((mpos||[]).map(m=>m.agency).filter(Boolean))].sort().map(a=><option key={a} value={a}>{a}</option>)}
             </select>
-            {(mbMonth||mbAgency)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setMbMonth("");setMbAgency("");}}>Clear</button>}
+            <span style={{fontSize:12,color:"var(--text3)"}}>From:</span>
+            <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={from} onChange={e=>setFrom(e.target.value)}/>
+            <span style={{fontSize:12,color:"var(--text3)"}}>To:</span>
+            <input type="date" className="form-input" style={{width:"auto",fontSize:12,padding:"5px 8px"}} value={to} onChange={e=>setTo(e.target.value)}/>
+            {hasMediaBuyFilters&&<button className="btn btn-sm btn-ghost" onClick={clearMediaBuyFilters}>Clear filters</button>}
           </div>
         ):(
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -3998,7 +4037,7 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
               <option value="">All MPOs</option>
               {mbMpos.map(m=><option key={m}>{m}</option>)}
             </select>
-            {(mbClient||mbMpo)&&<button className="btn btn-sm btn-ghost" onClick={()=>{setMbClient("");setMbMpo("");}}>Clear filters</button>}
+            {hasMediaBuyFilters&&<button className="btn btn-sm btn-ghost" onClick={clearMediaBuyFilters}>Clear filters</button>}
             <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)"}}>{mbRows.length} RO{mbRows.length!==1?"s":""}</span>
           </div>
 
@@ -4020,8 +4059,8 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
                     <td style={{padding:"7px 10px"}}>{ro.client}</td>
                     <td style={{padding:"7px 10px"}}>{ro.campaign}</td>
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
-                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{shortId(ro.mpoId)||"—"}</td>
-                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.id}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.mpoId?reportIdLink(shortId(ro.mpoId),()=>onOpenScheduleItem?.("mpo",ro.mpoId)):"—"}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{reportIdLink(ro.id,()=>onOpenScheduleItem?.("ro",ro.id))}</td>
                     <td style={{padding:"7px 10px",fontSize:11}}>{[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).filter(Boolean))].join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
@@ -5193,6 +5232,7 @@ function App(){
   // ── UI state ────────────────────────────────────────────────────────────────
   const [wizardOpen,setWizardOpen]=useState(false);
   const [page,setPage]=useState("dashboard");
+  const [scheduleFocus,setScheduleFocus]=useState<any>(null);
   const [sOpen,setSOpen]=useState(false);
   const [aOpen,setAOpen]=useState(false);
   const [notifOpen,setNotifOpen]=useState(false);
@@ -5338,6 +5378,7 @@ function App(){
   const visibleNav=NAV.filter(n=>effectivePerms.includes(n.id));
   const sections=[...new Set(visibleNav.map(n=>n.section))];
   const nav=id=>{setPage(id);setSOpen(false);};
+  const openScheduleItem=(type:string,id:string)=>{if(!id)return;setScheduleFocus({type,id,ts:Date.now()});setPage("mpo");setSOpen(false);};
   const logout=()=>{signOut();setPage("dashboard");};
 
   const addComment=(entityId, comment)=>{
@@ -5481,13 +5522,13 @@ function App(){
             <AIPanel mpos={mpos} receivables={receivables} payables={payables} clients={clients} toast={toast} currency={settings.defaultCurrency||"NGN"}/>
           )}
           {page==="dashboard" &&<Dashboard mpos={mpos} ros={ros} clients={clients} receivables={lR} payables={lP} setPage={setPage} currency={settings.defaultCurrency||"NGN"} settings={settings} toast={toast} onOnboard={()=>setWizardOpen(true)} budgets={budgets} payables2={payables}/>}
-          {page==="mpo"       &&<MPOPage mpos={mpos} setMpos={setMpos} ros={ros} setRos={setRos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
+          {page==="mpo"       &&<MPOPage mpos={mpos} setMpos={setMpos} ros={ros} setRos={setRos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment} focusItem={scheduleFocus} onFocusConsumed={()=>setScheduleFocus(null)}/>}
           {page==="clients"   &&<ClientsPage clients={clients} setClients={setClients} toast={toast} user={currentUser} addAudit={addAudit} onOnboard={()=>setWizardOpen(true)}/>}
           {page==="calendar"  &&<CalendarPage mpos={mpos} ros={ros} settings={settings}/>}
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
           {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} ros={ros} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
-          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings}/>}
+          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings} onOpenScheduleItem={openScheduleItem}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
           {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
