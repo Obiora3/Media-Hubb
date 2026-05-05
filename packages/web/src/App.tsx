@@ -3858,6 +3858,7 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
             const netRate=totals.spots>0?totals.net/totals.spots:0;
             const discountPcts=[...new Set(rows.map((row:any)=>Number(row.discount)||0))].join(" / ");
             const agencyPcts=[...new Set(rows.map((row:any)=>Number(row.agencyCommission)||0))].join(" / ");
+            const materialDurations=[...new Set(rows.map((row:any)=>`${Number(row.materialDuration||30)}s`))].join(" / ");
             return(
               <div>
                 <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
@@ -3869,7 +3870,7 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
                 {previewRow("Vendor",mpo.vendor)}
                 {previewRow("Campaign",mpo.campaign)}
                 {previewRow("Period",`${mpo.start||"—"} → ${mpo.end||"—"}`)}
-                {previewRow("Schedule",mpoScheduleLabel(mpo))}
+                {previewRow("Material Duration",materialDurations)}
                 {previewRow("Total Spots",totals.spots)}
                 {previewRow("Base Rate / Spot",displayMoney(baseRate))}
                 {previewRow("Volume Discount",`${discountPcts||0}% (${displayMoney(totals.discountAmount)})`)}
@@ -3879,7 +3880,7 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
                 {previewRow("Gross Value",displayMoney(totals.gross))}
                 {previewRow("Net After Discounts",displayMoney(totals.net))}
                 {previewRow(`VAT (${mpo.vatRate||taxRate}%)`,displayMoney(totals.vat))}
-                {previewRow("Net Value",fmtCcy(mpo.amount,mpo.currency||"NGN",dCcy))}
+                {previewRow("Net Value",displayMoney(totals.total))}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,flexWrap:"wrap"}}>
                   <button className="btn btn-sm btn-ghost" onClick={()=>printMPO(mpo,settings||{})}>PDF</button>
                   <button className="btn btn-sm btn-primary" onClick={()=>{setReportPreview(null);onOpenScheduleItem?.("mpo",mpo.id,"edit");}}>Edit in Scheduling</button>
