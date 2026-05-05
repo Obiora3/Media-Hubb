@@ -77,11 +77,11 @@ function QuickStatusSelect({value,options,onChange,colorMap={},bgMap={},label=""
       onClick={e=>e.stopPropagation()}
       onChange={e=>onChange(e.target.value)}
       style={{
-        width:"auto",
-        minWidth:112,
-        height:28,
-        padding:"2px 24px 2px 8px",
-        fontSize:11,
+        width:104,
+        minWidth:0,
+        height:24,
+        padding:"1px 20px 1px 10px",
+        fontSize:10,
         fontWeight:800,
         textTransform:"uppercase",
         borderRadius:999,
