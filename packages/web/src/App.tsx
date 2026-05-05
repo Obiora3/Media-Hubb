@@ -63,6 +63,37 @@ const fmtCcy = (amount, fromCcy="NGN", toCcy="NGN") => {
 const BMAP={active:"badge-green",pending:"badge-amber",completed:"badge-blue",delayed:"badge-red",overdue:"badge-red",paid:"badge-green",partial:"badge-amber","on-track":"badge-green"};
 function SBadge({s}){return <span className={`badge ${BMAP[s]||"badge-gray"}`}>{s}</span>;}
 function WFBadge({s}){return <span className={`badge ${WF_COLORS[s]||"badge-gray"}`}>{WF_LABELS[s]||s}</span>;}
+const MPO_STATUS_OPTIONS=["pending","active","completed"];
+const MPO_STATUS_COLOR={pending:"#854F0B",active:"#3B6D11",completed:"#185FA5"};
+const MPO_STATUS_BG={pending:"#FAEEDA",active:"#EAF3DE",completed:"#E6F1FB"};
+function QuickStatusSelect({value,options,onChange,colorMap={},bgMap={},label=""}){
+  const current=value||options[0]||"";
+  return (
+    <select
+      className="form-input"
+      value={current}
+      aria-label={label||"Change status"}
+      title={label||"Change status"}
+      onClick={e=>e.stopPropagation()}
+      onChange={e=>onChange(e.target.value)}
+      style={{
+        width:"auto",
+        minWidth:112,
+        height:28,
+        padding:"2px 24px 2px 8px",
+        fontSize:11,
+        fontWeight:800,
+        textTransform:"uppercase",
+        borderRadius:999,
+        border:`1px solid ${colorMap[current]||"var(--border-c)"}`,
+        background:bgMap[current]||"var(--bg3)",
+        color:colorMap[current]||"var(--text2)",
+      }}
+    >
+      {options.map(s=><option key={s} value={s}>{s}</option>)}
+    </select>
+  );
+}
 
 function useToast(){
   const [ts,setTs]=useState([]);
@@ -1083,6 +1114,14 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     setShowF(false);
   };
   const del=id=>{if(!canEdit||!confirm("Delete?"))return;setMpos(p=>p.filter(m=>m.id!==id));addAudit("deleted","MPO",id,`Deleted ${id}`,"delete");toast("Deleted","error");};
+  const changeMpoStatus=(id,status)=>{
+    if(!canEdit)return;
+    const item=(mpos||[]).find(m=>m.id===id);
+    if(!item||item.status===status)return;
+    setMpos(p=>p.map(m=>m.id===id?{...m,status}:m));
+    addAudit("updated","MPO",id,`Changed ${id} status to ${status}`,"update");
+    toast(`MPO ${shortId(id)} status changed to ${status}`);
+  };
   const toggleSel=id=>setSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
   const toggleAll=()=>setSelected(s=>s.size===filtered.length?new Set():new Set(filtered.map(m=>m.id)));
   const applyBulk=()=>{if(!bulkStatus||!selected.size)return;setMpos(p=>p.map(m=>selected.has(m.id)?{...m,status:bulkStatus}:m));toast(`${selected.size} MPOs → ${bulkStatus}`);setSelected(new Set());setBulkStatus("");};
@@ -1140,6 +1179,15 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
     setRos(p=>p.filter(r=>r.id!==id));
     addAudit("deleted","RO",id,`Deleted ${id}`,"delete");
     toast("RO deleted","error");setSelRo(null);
+  };
+  const changeRoStatus=(id,status)=>{
+    if(!canEdit)return;
+    const item=(ros||[]).find(r=>r.id===id);
+    if(!item||item.status===status)return;
+    setRos(p=>p.map(r=>r.id===id?{...r,status}:r));
+    setSelRo(s=>s?.id===id?{...s,status}:s);
+    addAudit("updated","RO",id,`Changed ${id} status to ${status}`,"update");
+    toast(`RO ${id} status changed to ${status}`);
   };
   // ── Draft resume / delete (declared here so all state is already initialized) ──
   const resumeRoDraft=(draft:any)=>{setRoDraftToLoad(draft);setEditRoId(null);setShowRoForm(true);setDocType("ro");setDraftsMenuOpen(false);};
@@ -1421,7 +1469,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                   <td style={{textAlign:"center",color:"var(--text3)",fontSize:11}}>{mpoScheduleLabel(m)}</td>
                   <td style={{fontWeight:500}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td>
                   <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(m.start)}</td>
-                  <td><SBadge s={m.status}/></td><td><SBadge s={m.exec}/></td>
+                  <td>{canEdit
+                    ?<QuickStatusSelect value={m.status} options={MPO_STATUS_OPTIONS} colorMap={MPO_STATUS_COLOR} bgMap={MPO_STATUS_BG} label={`Change MPO ${m.id} status`} onChange={status=>changeMpoStatus(m.id,status)}/>
+                    :<SBadge s={m.status}/>}
+                  </td><td><SBadge s={m.exec}/></td>
                   <td><div className="action-row">
                     <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printMPO(m,settings||{})}>PDF</button>
                     <button className="btn btn-sm btn-ghost" title={`Comments (${(comments[m.id]||[]).length})`} onClick={()=>setCommentsFor(m.id)}>💬{(comments[m.id]||[]).length>0&&<span className="collab-badge">{(comments[m.id]||[]).length}</span>}</button>
@@ -1484,7 +1535,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
                       <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(r.campaignMonth||r.start)}</td>
                       <td style={{textAlign:"center",color:"var(--text3)"}}>{sumRoScheduleSpots(r)}</td>
                       <td style={{fontWeight:600}}>{sym}{roTotals.amountPayable.toLocaleString("en",{maximumFractionDigits:2})}</td>
-                      <td><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span></td>
+                      <td>{canEdit
+                        ?<QuickStatusSelect value={r.status} options={RO_STATUS_OPTIONS} colorMap={RO_STATUS_COLOR} bgMap={RO_STATUS_BG} label={`Change RO ${r.id} status`} onChange={status=>changeRoStatus(r.id,status)}/>
+                        :<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span>}
+                      </td>
                       <td><div className="action-row" onClick={e=>e.stopPropagation()}>
                         <button className="btn btn-sm" style={{padding:"2px 8px",fontSize:11}} onClick={()=>printROCalendarLegacy(r,settings||{})}>PDF</button>
                         <button className="btn btn-sm btn-ghost" style={{padding:"2px 8px",fontSize:11}} onClick={()=>exportROExcel(r,settings||{})}>XLS</button>
@@ -2980,6 +3034,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
 // ── RO status badge ───────────────────────────────────────────────────────────
 const RO_STATUS_COLOR={draft:"#888",sent:"#854F0B",confirmed:"#3B6D11",executed:"#185FA5"};
 const RO_STATUS_BG={draft:"#f0f0f0",sent:"#FAEEDA",confirmed:"#EAF3DE",executed:"#E6F1FB"};
+const RO_STATUS_OPTIONS=["draft","sent","confirmed","executed"];
 
 function CalendarPage({mpos,ros,settings}){
   const now=new Date();
