@@ -1191,7 +1191,10 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       const ro=(ros||[]).find(r=>r.id===focusItem.id);
       setDocType("ro");
       setRoStatusTab("all");setRoClientFilter("");setRoChannelFilter("");setRoMonthFilter("");setRoSearch("");
-      if(ro)setSelRo(ro);
+      if(ro){
+        if(focusItem.action==="edit"&&canEdit){setEditRoId(ro.id);setShowRoForm(true);}
+        else setSelRo(ro);
+      }
       consumed=true;
     }
     if(focusItem.type==="mpo"){
@@ -3648,6 +3651,7 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
   const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
   const [mbMonth,setMbMonth]=useState(filterSeed.mbMonth||"");const [mbAgency,setMbAgency]=useState(filterSeed.mbAgency||"");
+  const [reportPreview,setReportPreview]=useState<any>(null);
   const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const taxRate=Number(settings.taxRate)||7.5;
   const whtRate=Number(settings.whtRate)||5;
@@ -3661,6 +3665,16 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
     <button type="button" onClick={onClick} style={{background:"transparent",border:0,padding:0,color:"var(--brand)",font:"inherit",fontFamily:"monospace",fontWeight:800,cursor:"pointer",textDecoration:"underline",textUnderlineOffset:3}}>
       {label}
     </button>
+  );
+  const openReportPreview=(type:string,id:string)=>{
+    const item=type==="ro"?(ros||[]).find((r:any)=>r.id===id):(mpos||[]).find((m:any)=>m.id===id);
+    if(item)setReportPreview({type,item});
+  };
+  const previewRow=(label:string,value:any)=>(
+    <div style={{display:"flex",justifyContent:"space-between",gap:16,padding:"8px 0",borderBottom:"1px solid var(--border-c)",fontSize:13}}>
+      <span style={{color:"var(--text2)"}}>{label}</span>
+      <span style={{fontWeight:600,textAlign:"right"}}>{value||"—"}</span>
+    </div>
   );
   const fM=mpos.filter(m=>(!from||m.start>=from)&&(!to||m.end<=to));
   const lR=receivables.map(r=>({...r,status:computeStatus(r)})).filter(r=>(!from||r.due>=from)&&(!to||r.due<=to));
@@ -3794,6 +3808,61 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
 
   return(
     <div>
+      {reportPreview&&(
+        <Modal title={reportPreview.type==="ro"?`${reportPreview.item.id} — RO Overview`:`${reportPreview.item.id} — MPO Overview`} onClose={()=>setReportPreview(null)}>
+          {reportPreview.type==="ro"?(()=>{
+            const ro=reportPreview.item;
+            const mpo=mpos.find(m=>m.id===ro.mpoId);
+            const totals=calcRoTotals(ro,whtRate);
+            const ccySym=CURRENCIES[ro.currency||"NGN"]?.symbol||sym;
+            return(
+              <div>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:800,textTransform:"uppercase",background:RO_STATUS_BG[ro.status]||"#f0f0f0",color:RO_STATUS_COLOR[ro.status]||"#888"}}>{ro.status}</span>
+                  <span className="rate-tag">{ro.channel||"RO"}</span>
+                </div>
+                {previewRow("Client",ro.client)}
+                {previewRow("Vendor",ro.vendor)}
+                {previewRow("Campaign",ro.campaign)}
+                {previewRow("Linked MPO",ro.mpoId?shortId(ro.mpoId):"—")}
+                {previewRow("Period",`${ro.start||"—"} → ${ro.end||"—"}`)}
+                {previewRow("Schedule Month",campaignMonth(ro.campaignMonth||ro.start))}
+                {previewRow("Total Spots",sumRoScheduleSpots(ro))}
+                {previewRow("Amount Payable",`${ccySym}${totals.amountPayable.toLocaleString("en",{maximumFractionDigits:2})}`)}
+                {previewRow("Material / Duration",[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).filter(Boolean))].join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration))}
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,flexWrap:"wrap"}}>
+                  <button className="btn btn-sm btn-ghost" onClick={()=>printROCalendarLegacy(ro,settings||{})}>PDF</button>
+                  <button className="btn btn-sm btn-ghost" onClick={()=>exportROExcel(ro,settings||{})}>Excel</button>
+                  <button className="btn btn-sm btn-primary" onClick={()=>{setReportPreview(null);onOpenScheduleItem?.("ro",ro.id,"edit");}}>Edit in Scheduling</button>
+                </div>
+              </div>
+            );
+          })():(()=>{
+            const mpo=reportPreview.item;
+            const totals=calcMpoTotals(getMpoScheduleRows(mpo),mpo.vatRate||taxRate);
+            return(
+              <div>
+                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+                  <SBadge s={mpo.status}/>
+                  <span className="rate-tag">{mpo.channel||"MPO"}</span>
+                </div>
+                {previewRow("Agency",mpo.agency)}
+                {previewRow("Brand",mpo.client)}
+                {previewRow("Vendor",mpo.vendor)}
+                {previewRow("Campaign",mpo.campaign)}
+                {previewRow("Period",`${mpo.start||"—"} → ${mpo.end||"—"}`)}
+                {previewRow("Schedule",mpoScheduleLabel(mpo))}
+                {previewRow("Total Spots",totals.spots)}
+                {previewRow("Net Value",fmtCcy(mpo.amount,mpo.currency||"NGN",dCcy))}
+                <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,flexWrap:"wrap"}}>
+                  <button className="btn btn-sm btn-ghost" onClick={()=>printMPO(mpo,settings||{})}>PDF</button>
+                  <button className="btn btn-sm btn-primary" onClick={()=>{setReportPreview(null);onOpenScheduleItem?.("mpo",mpo.id,"edit");}}>Edit in Scheduling</button>
+                </div>
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         {tab==="media-buy"?(
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -4059,8 +4128,8 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
                     <td style={{padding:"7px 10px"}}>{ro.client}</td>
                     <td style={{padding:"7px 10px"}}>{ro.campaign}</td>
                     <td style={{padding:"7px 10px",whiteSpace:"nowrap"}}>{monthLabel}</td>
-                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.mpoId?reportIdLink(shortId(ro.mpoId),()=>onOpenScheduleItem?.("mpo",ro.mpoId)):"—"}</td>
-                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{reportIdLink(ro.id,()=>onOpenScheduleItem?.("ro",ro.id))}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.mpoId?reportIdLink(shortId(ro.mpoId),()=>openReportPreview("mpo",ro.mpoId)):"—"}</td>
+                    <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{reportIdLink(ro.id,()=>openReportPreview("ro",ro.id))}</td>
                     <td style={{padding:"7px 10px",fontSize:11}}>{[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).filter(Boolean))].join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
                     <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
                     <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:2})}</td>
@@ -5378,7 +5447,7 @@ function App(){
   const visibleNav=NAV.filter(n=>effectivePerms.includes(n.id));
   const sections=[...new Set(visibleNav.map(n=>n.section))];
   const nav=id=>{setPage(id);setSOpen(false);};
-  const openScheduleItem=(type:string,id:string)=>{if(!id)return;setScheduleFocus({type,id,ts:Date.now()});setPage("mpo");setSOpen(false);};
+  const openScheduleItem=(type:string,id:string,action="view")=>{if(!id)return;setScheduleFocus({type,id,action,ts:Date.now()});setPage("mpo");setSOpen(false);};
   const logout=()=>{signOut();setPage("dashboard");};
 
   const addComment=(entityId, comment)=>{
