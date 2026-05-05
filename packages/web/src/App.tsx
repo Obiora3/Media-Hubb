@@ -678,17 +678,6 @@ function SettingsContent({settings,setSettings,toast,user}){
       </div>
 
       <div className="settings-section">
-        <div className="settings-section-title">Analytics KPI Targets</div>
-        <div style={{fontSize:11,color:"var(--text3)",marginBottom:12}}>These targets appear on the Analytics page as progress indicators.</div>
-        <div className="form-grid">
-          <FF id="kpi-rev" label="Revenue Target (NGN)"><input id="kpi-rev" type="number" className="form-input" min="0" value={settings.revenueTarget||25000000} onChange={e=>set("revenueTarget",Number(e.target.value))}/></FF>
-          <FF id="kpi-col" label="Collection Rate Target (%)"><input id="kpi-col" type="number" className="form-input" min="0" max="100" value={settings.collectionTarget||90} onChange={e=>set("collectionTarget",Number(e.target.value))}/></FF>
-          <FF id="kpi-cam" label="Active Campaigns Target"><input id="kpi-cam" type="number" className="form-input" min="0" value={settings.campaignTarget||8} onChange={e=>set("campaignTarget",Number(e.target.value))}/></FF>
-          <FF id="kpi-cli" label="New Clients Target"><input id="kpi-cli" type="number" className="form-input" min="0" value={settings.newClientsTarget||4} onChange={e=>set("newClientsTarget",Number(e.target.value))}/></FF>
-        </div>
-      </div>
-
-      <div className="settings-section">
         <div className="settings-section-title">Access &amp; Invites</div>
         <div className="settings-row">
           <div>
@@ -4071,48 +4060,6 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
   );
 }
 
-/* ═══ ANALYTICS ═══ */
-function AnalyticsPage({mpos,receivables,payables,user,settings}){
-  return <RoleGuard user={user} require="analytics"><AnalyticsContent mpos={mpos} receivables={receivables} payables={payables} settings={settings}/></RoleGuard>;
-}
-function AnalyticsContent({mpos,receivables,payables,settings}){
-  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
-  const dCcy=settings.defaultCurrency||"NGN";const sym=CURRENCIES[dCcy]?.symbol||"₦";
-  const KPI={revenue:Number(settings.revenueTarget)||25000000,collection:Number(settings.collectionTarget)||90,campaigns:Number(settings.campaignTarget)||8,newClients:Number(settings.newClientsTarget)||4};
-  const actual={revenue:mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),collection:lR.length?Math.round(lR.reduce((a,r)=>a+r.paid,0)/lR.reduce((a,r)=>a+r.amount,0)*100):0,campaigns:mpos.filter(m=>m.status==="active").length,newClients:0};
-  const monthly=useMemo(()=>{const map={};(mpos||[]).forEach(m=>{if(!m.start)return;const k=m.start.slice(0,7);const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=Number(m.amount)||0;});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[mpos]);
-  const avg3=monthly.length>=3?monthly.slice(-3).reduce((a,m)=>a+m.value,0)/3:0;
-  const forecast=avg3>0?[{label:"Forecast +1",value:Math.round(avg3*1.08)},{label:"Forecast +2",value:Math.round(avg3*1.14)},{label:"Forecast +3",value:Math.round(avg3*1.20)}]:[];
-  const cShare=Object.values(mpos.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
-  const KPICard=({label,actual:a,target,unit})=>{const pct=Math.min(Math.round(a/target*100),100);const met=a>=target;return(
-    <div className="kpi-card"><div className="kpi-target-line" style={{background:met?"#3B6D11":"#D85A30"}}/><div style={{fontSize:11,color:"var(--text3)",marginBottom:4}}>{label}</div><div style={{fontSize:22,fontWeight:700,color:met?"#3B6D11":"var(--text)"}}>{unit==="₦"?fmtK(a,sym):a}{unit!=="₦"&&unit}</div><div style={{fontSize:11,color:"var(--text3)",marginBottom:8}}>Target: {unit==="₦"?fmtK(target,sym):target}{unit!=="₦"&&unit}</div><div className="progress-bar"><div className="progress-fill" style={{width:`${pct}%`,background:met?"#3B6D11":"var(--brand)"}}/></div><div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text3)",marginTop:4}}><span>{pct}%</span><span style={{color:met?"#3B6D11":"#854F0B"}}>{met?"✓ Met":"In progress"}</span></div></div>);};
-  return(
-    <div>
-      <div className="grid2" style={{marginBottom:16}}>
-        <KPICard label="Revenue Target" actual={actual.revenue} target={KPI.revenue} unit="₦"/>
-        <KPICard label="Collection Rate" actual={actual.collection} target={KPI.collection} unit="%"/>
-        <KPICard label="Active Campaigns" actual={actual.campaigns} target={KPI.campaigns} unit=""/>
-        <KPICard label="New Clients" actual={actual.newClients} target={KPI.newClients} unit=""/>
-      </div>
-      {monthly.length>0&&<div className="grid2">
-        <div className="card"><div className="card-header"><span className="card-title">Revenue & Forecast</span></div><BarChart data={[...monthly,...forecast]} height={155} colors={["#534AB7"]}/></div>
-        {forecast.length>0&&<div className="card"><div className="card-header"><span className="card-title">Revenue Forecast</span></div>
-          {forecast.map((f,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"var(--border)",fontSize:13}}><span style={{color:"var(--text2)"}}>{f.label}</span><div style={{textAlign:"right"}}><div style={{fontWeight:600}}>{fmtK(f.value,sym)}</div><div style={{fontSize:11,color:"#3B6D11"}}>projected</div></div></div>)}
-          <div style={{marginTop:16,padding:12,background:"var(--brand-light)",borderRadius:8}}><div style={{fontSize:11,color:"var(--brand)",fontWeight:600}}>3-Period Forecast Total</div><div style={{fontSize:20,fontWeight:700,color:"var(--brand)",marginTop:2}}>{fmtK(forecast.reduce((a,f)=>a+f.value,0),sym)}</div></div>
-        </div>}
-      </div>}
-      <div className="grid2">
-        <div className="card"><div className="card-header"><span className="card-title">Client Concentration</span></div><DonutChart data={cShare.slice(0,5).map((c,i)=>({label:c.name.split(" ")[0],value:c.amount,color:["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"][i]}))} size={148}/></div>
-        <div className="card"><div className="card-header"><span className="card-title">Channel Performance</span></div>
-          {(()=>{const ch=Object.values(mpos.reduce((acc,m)=>{const c=m.channel||"Other";if(!acc[c])acc[c]={ch:c,rev:0};acc[c].rev+=convertAmt(Number(m.amount)||0,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.rev-a.rev);const maxRev=ch[0]?.rev||1;return ch.length===0?<div style={{padding:"20px 0",textAlign:"center",fontSize:12,color:"var(--text3)"}}>No data yet</div>:ch.map(r=>(
-            <div key={r.ch} style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}><span style={{fontWeight:500}}>{r.ch}</span><span style={{color:"var(--text3)"}}>{fmtK(r.rev,sym)}</span></div><div className="progress-bar" style={{height:8}}><div className="progress-fill" style={{width:`${Math.round(r.rev/maxRev*100)}%`}}/></div></div>
-          ));})()}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ═══ REMINDERS ═══ */
 function RemindersPage({receivables,payables,mpos,user,toast}){return <RoleGuard user={user} require="reminders"><RemContent receivables={receivables} payables={payables} mpos={mpos} toast={toast}/></RoleGuard>;}
 function RemContent({receivables,payables,mpos,toast}){
@@ -4171,8 +4118,8 @@ function AuditContent({auditLog}){
 
 /* ═══ USERS ═══ */
 const ROLE_PERMISSIONS={
-  admin:   ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","users","audit","invoice-wf","settings","dataviz","feed","production","portal"],
-  manager: ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","analytics","reminders","audit","invoice-wf","feed"],
+  admin:   ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","reminders","users","audit","invoice-wf","settings","dataviz","feed","production","portal"],
+  manager: ["dashboard","mpo","clients","finance","budgets","revenue-target","reports","calendar","reminders","audit","invoice-wf","feed"],
   viewer:  ["dashboard","mpo","clients","revenue-target","calendar","feed"],
   client:  ["dashboard","revenue-target"],
 };
@@ -4960,14 +4907,13 @@ const NAV=[
   {id:"budgets",        label:"Budgets",         icon:"◐", section:"finance"},
   {id:"revenue-target", label:"Revenue Target",  icon:"◎", section:"finance"},
   {id:"reports",        label:"Reports",         icon:"▧", section:"finance"},
-  {id:"analytics",label:"Analytics",   icon:"◑", section:"finance"},
   {id:"reminders",label:"Reminders",   icon:"◷", section:"tools"},
   {id:"audit",    label:"Audit Log",   icon:"◫", section:"tools"},
   {id:"users",    label:"Users",       icon:"◉", section:"tools"},
   {id:"settings", label:"Settings",    icon:"⚙", section:"tools"},
 ];
 const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
-const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management","revenue-target":"Revenue Target",reports:"Reports",analytics:"Analytics",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
+const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management","revenue-target":"Revenue Target",reports:"Reports",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
 const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"audit",label:"Audit",icon:"◫"}];
 
 // ── Column transform helpers ─────────────────────────────────────────────────
@@ -5542,7 +5488,6 @@ function App(){
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
           {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} ros={ros} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
           {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings}/>}
-          {page==="analytics" &&<AnalyticsPage mpos={mpos} receivables={receivables} payables={payables} user={currentUser} settings={settings}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
           {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
