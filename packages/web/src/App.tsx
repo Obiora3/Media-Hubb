@@ -3815,6 +3815,10 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
             const mpo=mpos.find(m=>m.id===ro.mpoId);
             const totals=calcRoTotals(ro,whtRate);
             const ccySym=CURRENCIES[ro.currency||"NGN"]?.symbol||sym;
+            const totalSpots=sumRoScheduleSpots(ro);
+            const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:2})}`;
+            const baseRate=totalSpots>0?totals.gross/totalSpots:readRoNumber(ro.rate,0);
+            const payableRate=totalSpots>0?totals.amountPayable/totalSpots:getRoDiscountedRate(baseRate,ro,whtRate);
             return(
               <div>
                 <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
@@ -3827,8 +3831,15 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
                 {previewRow("Linked MPO",ro.mpoId?shortId(ro.mpoId):"—")}
                 {previewRow("Period",`${ro.start||"—"} → ${ro.end||"—"}`)}
                 {previewRow("Schedule Month",campaignMonth(ro.campaignMonth||ro.start))}
-                {previewRow("Total Spots",sumRoScheduleSpots(ro))}
-                {previewRow("Amount Payable",`${ccySym}${totals.amountPayable.toLocaleString("en",{maximumFractionDigits:2})}`)}
+                {previewRow("Total Spots",totalSpots)}
+                {previewRow("Base Rate / Spot",displayMoney(baseRate))}
+                {previewRow("Volume Discount",`${totals.volumeDiscountPct}% (${displayMoney(totals.volumeDiscountAmount)})`)}
+                {previewRow("Agency Commission",`${totals.agencyCommissionPct}% (${displayMoney(totals.agencyCommissionAmount)})`)}
+                {previewRow("WHT Applied",`${totals.whtPct}% (${displayMoney(totals.whtAmount)})`)}
+                {previewRow("Discounted Rate / Spot",displayMoney(payableRate))}
+                {previewRow("Gross Value",displayMoney(totals.gross))}
+                {previewRow("Net After Discounts",displayMoney(totals.netTotal))}
+                {previewRow("Amount Payable",displayMoney(totals.amountPayable))}
                 {previewRow("Material / Duration",[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).filter(Boolean))].join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration))}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,flexWrap:"wrap"}}>
                   <button className="btn btn-sm btn-ghost" onClick={()=>printROCalendarLegacy(ro,settings||{})}>PDF</button>
@@ -3839,7 +3850,14 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
             );
           })():(()=>{
             const mpo=reportPreview.item;
-            const totals=calcMpoTotals(getMpoScheduleRows(mpo),mpo.vatRate||taxRate);
+            const rows=getMpoScheduleRows(mpo);
+            const totals=calcMpoTotals(rows,mpo.vatRate||taxRate);
+            const ccySym=CURRENCIES[mpo.currency||"NGN"]?.symbol||sym;
+            const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:2})}`;
+            const baseRate=totals.spots>0?totals.gross/totals.spots:readRoNumber(mpo.rate,0);
+            const netRate=totals.spots>0?totals.net/totals.spots:0;
+            const discountPcts=[...new Set(rows.map((row:any)=>Number(row.discount)||0))].join(" / ");
+            const agencyPcts=[...new Set(rows.map((row:any)=>Number(row.agencyCommission)||0))].join(" / ");
             return(
               <div>
                 <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
@@ -3853,6 +3871,14 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
                 {previewRow("Period",`${mpo.start||"—"} → ${mpo.end||"—"}`)}
                 {previewRow("Schedule",mpoScheduleLabel(mpo))}
                 {previewRow("Total Spots",totals.spots)}
+                {previewRow("Base Rate / Spot",displayMoney(baseRate))}
+                {previewRow("Volume Discount",`${discountPcts||0}% (${displayMoney(totals.discountAmount)})`)}
+                {previewRow("Agency Commission",`${agencyPcts||0}% (${displayMoney(totals.agencyCommissionAmount)})`)}
+                {previewRow("WHT Applied","Not applied to MPO")}
+                {previewRow("Discounted Rate / Spot",displayMoney(netRate))}
+                {previewRow("Gross Value",displayMoney(totals.gross))}
+                {previewRow("Net After Discounts",displayMoney(totals.net))}
+                {previewRow(`VAT (${mpo.vatRate||taxRate}%)`,displayMoney(totals.vat))}
                 {previewRow("Net Value",fmtCcy(mpo.amount,mpo.currency||"NGN",dCcy))}
                 <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16,flexWrap:"wrap"}}>
                   <button className="btn btn-sm btn-ghost" onClick={()=>printMPO(mpo,settings||{})}>PDF</button>
