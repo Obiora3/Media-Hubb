@@ -174,16 +174,19 @@ function BarChart({data,height=170,colors=["#534AB7","#D85A30"]}){
   const isG=Array.isArray(data[0]?.values);
   const allV=isG?data.flatMap(d=>d.values):data.map(d=>d.value);
   const maxV=Math.max(...allV,1);
-  const W=500,H=height,pL=52,pB=26,pT=14,pR=4,pw=W-pL-pR,ph=H-pB-pT,gw=pw/data.length;
-  const bc=isG?data[0].values.length:1,bw=Math.min((gw-6)/bc,44);
+  const n=Math.max(data.length,1);
+  const W=Math.max(500,52+4+n*(isG?58:46)),H=height,pL=52,pB=data.length>7?48:28,pT=14,pR=8,pw=W-pL-pR,ph=H-pB-pT,gw=pw/n;
+  const bc=isG?data[0].values.length:1,bw=Math.max(8,Math.min((gw-8)/bc,44));
   const tks=Array.from({length:5},(_,i)=>({v:Math.round(maxV*i/4),y:pT+ph*(1-i/4)}));
   return(
-    <div style={{position:"relative"}}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height,overflow:"visible"}}>
+    <div style={{position:"relative",overflowX:"auto",overflowY:"visible",paddingBottom:2}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:W,height,overflow:"visible"}}>
         {tks.map((t,i)=><g key={i}><line x1={pL} y1={t.y} x2={W-pR} y2={t.y} stroke="var(--border-c)" strokeWidth=".5"/><text x={pL-6} y={t.y+3} textAnchor="end" fontSize={9} fill="var(--text3)">{fmtK(t.v)}</text></g>)}
         {data.map((d,gi)=>{
           const cx2=pL+gi*gw+gw/2,vals=isG?d.values:[d.value];
-          return <g key={gi}>{vals.map((v,bi)=>{const bh=mounted?(v/maxV)*ph:0,bx=cx2-(bc*bw+(bc-1)*2)/2+bi*(bw+2),by=pT+ph-bh;return <rect key={bi} x={bx} y={by} width={bw} height={bh} rx={3} fill={colors[bi%colors.length]} style={{transition:"height .5s,y .5s",cursor:"pointer"}} onMouseEnter={()=>setTip({gx:(bx+bw/2)/W,gy:by/H,txt:`${d.label}: ${fmtK(v)}`,col:colors[bi%colors.length]})} onMouseLeave={()=>setTip(null)}/>;})}<text x={cx2} y={H-6} textAnchor="middle" fontSize={9} fill="var(--text3)">{d.label}</text></g>;
+          const label=String(d.label||"");
+          const short=label.length>12?`${label.slice(0,11)}...`:label;
+          return <g key={gi}>{vals.map((v,bi)=>{const bh=mounted?(v/maxV)*ph:0,bx=cx2-(bc*bw+(bc-1)*2)/2+bi*(bw+2),by=pT+ph-bh;return <rect key={bi} x={bx} y={by} width={bw} height={bh} rx={3} fill={colors[bi%colors.length]} style={{transition:"height .5s,y .5s",cursor:"pointer"}} onMouseEnter={()=>setTip({gx:(bx+bw/2)/W,gy:by/H,txt:`${label}: ${fmtK(v)}`,col:colors[bi%colors.length]})} onMouseLeave={()=>setTip(null)}/>;})}<text x={cx2} y={H-10} textAnchor={data.length>7?"end":"middle"} transform={data.length>7?`rotate(-35 ${cx2} ${H-10})`:undefined} fontSize={9} fill="var(--text3)"><title>{label}</title>{short}</text></g>;
         })}
       </svg>
       {tip&&<div className="viz-tooltip" style={{left:tip.gx*100+"%",top:tip.gy*100+"%",borderLeft:`3px solid ${tip.col}`}}>{tip.txt}</div>}
@@ -3682,9 +3685,20 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
   const tB=lR.reduce((a,r)=>a+convertAmt(r.amount,r.currency||"NGN",dCcy),0);
   const tPd=lR.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
   const cPct=tB>0?Math.round(tPd/tB*100):0;
-  const cSpend=Object.values(fM.reduce((acc,m)=>{acc[m.client]=acc[m.client]||{name:m.client,amount:0};acc[m.client].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
+  const cSpend=Object.values(fM.reduce((acc,m)=>{const k=m.client||"Unassigned";acc[k]=acc[k]||{name:k,amount:0};acc[k].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
   const sDist=[{label:"Active",value:fM.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:fM.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:fM.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
   const rDonut=[{label:"Collected",value:tPd,color:"#3B6D11"},{label:"Outstanding",value:Math.max(0,tB-tPd),color:"#A32D2D"}].filter(d=>d.value>0);
+  const reportColors=["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30","#2F6F73"];
+  const reportMoney=(value:number)=>fmtK(Number(value)||0,sym);
+  const resolveClientAgency=(clientName:string,fallback:any="")=>{
+    const registeredAgency=(clients||[]).find((c:any)=>c.type==="Agency"&&(c.brands||[]).some((b:any)=>b.name===clientName));
+    return registeredAgency?.name||fallback||agencyName;
+  };
+  const reportRos=(ros||[]).filter((ro:any)=>(!from||ro.start>=from)&&(!to||ro.end<=to));
+  const getMpoReportValue=(m:any)=>{
+    const totals=calcMpoTotals(getMpoScheduleRows(m),m.vatRate||taxRate);
+    return convertAmt(totals.total>0?totals.total:(Number(m.amount)||0),m.currency||"NGN",dCcy);
+  };
 
   // ── Media Buy rows (one row per RO) ──────────────────────────────────────────
   const mbRows=useMemo(()=>{
@@ -3709,15 +3723,79 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
       const roAmtInclVat=netTotal*vatMult;
       const mpoAmtInclVat=mpo?mpo.amount*vatMult:0;
       const monthLabel=ro.campaignMonth?new Date(ro.campaignMonth+"-01T12:00:00").toLocaleDateString("en-NG",{month:"long",year:"numeric"}):"—";
-      // Resolve agency from registered agencies: find the agency whose brands list contains this RO's client
-      const registeredAgency=(clients||[]).find((c:any)=>c.type==="Agency"&&(c.brands||[]).some((b:any)=>b.name===ro.client));
-      const agencyForRo=registeredAgency?.name||mpo?.agency||agencyName;
+      const agencyForRo=resolveClientAgency(ro.client,mpo?.agency||agencyName);
       return {ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht:amountPayable,monthLabel,agencyForRo};
     }).filter(Boolean);
-  },[ros,mpos,clients,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate]);
+  },[ros,mpos,clients,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate,agencyName]);
 
   const mbClients=[...new Set((ros||[]).map(r=>r.client))].sort();
   const mbMpos=[...new Set((ros||[]).filter(r=>r.mpoId).map(r=>r.mpoId))].sort();
+  const clientReportRows=Object.values((()=>{
+    const acc:any={};
+    const rowFor=(name:any)=>{
+      const key=name||"Unassigned";
+      if(!acc[key]) acc[key]={name:key,mpoValue:0,roValue:0,mpoCount:0,roCount:0,mpoSpots:0,roSpots:0,billed:0,paid:0,outstanding:0,campaigns:new Set(),vendors:new Set(),agencies:new Set()};
+      return acc[key];
+    };
+    fM.forEach((m:any)=>{
+      const row=rowFor(m.client);
+      const schedules=getMpoScheduleRows(m);
+      const totals=calcMpoTotals(schedules,m.vatRate||taxRate);
+      row.mpoValue+=getMpoReportValue(m);
+      row.mpoCount+=1;
+      row.mpoSpots+=totals.spots;
+      if(m.campaign) row.campaigns.add(m.campaign);
+      if(m.vendor) row.vendors.add(m.vendor);
+      row.agencies.add(resolveClientAgency(m.client,m.agency));
+    });
+    reportRos.forEach((ro:any)=>{
+      const row=rowFor(ro.client);
+      const mpo=mpos.find((m:any)=>m.id===ro.mpoId);
+      row.roValue+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
+      row.roCount+=1;
+      row.roSpots+=sumRoScheduleSpots(ro);
+      if(ro.campaign) row.campaigns.add(ro.campaign);
+      if(ro.vendor) row.vendors.add(ro.vendor);
+      row.agencies.add(resolveClientAgency(ro.client,mpo?.agency));
+    });
+    lR.forEach((r:any)=>{
+      const row=rowFor(r.client);
+      row.billed+=convertAmt(r.amount,r.currency||"NGN",dCcy);
+      row.paid+=convertAmt(r.paid,r.currency||"NGN",dCcy);
+      row.outstanding+=convertAmt((Number(r.amount)||0)-(Number(r.paid)||0),r.currency||"NGN",dCcy);
+    });
+    return acc;
+  })()).map((row:any)=>({...row,campaigns:row.campaigns.size,vendors:row.vendors.size,agencies:[...row.agencies].filter(Boolean).join(", ")})).sort((a:any,b:any)=>b.mpoValue-a.mpoValue||b.roValue-a.roValue);
+  const agencyReportRows=Object.values((()=>{
+    const acc:any={};
+    const rowFor=(name:any)=>{
+      const key=name||agencyName||"(No Agency)";
+      if(!acc[key]) acc[key]={name:key,mpoValue:0,roValue:0,mpoCount:0,roCount:0,clients:new Set(),campaigns:new Set(),vendors:new Set(),spots:0};
+      return acc[key];
+    };
+    fM.forEach((m:any)=>{
+      const row=rowFor(resolveClientAgency(m.client,m.agency));
+      const schedules=getMpoScheduleRows(m);
+      const totals=calcMpoTotals(schedules,m.vatRate||taxRate);
+      row.mpoValue+=getMpoReportValue(m);
+      row.mpoCount+=1;
+      row.spots+=totals.spots;
+      if(m.client) row.clients.add(m.client);
+      if(m.campaign) row.campaigns.add(m.campaign);
+      if(m.vendor) row.vendors.add(m.vendor);
+    });
+    reportRos.forEach((ro:any)=>{
+      const mpo=mpos.find((m:any)=>m.id===ro.mpoId);
+      const row=rowFor(resolveClientAgency(ro.client,mpo?.agency));
+      row.roValue+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
+      row.roCount+=1;
+      row.spots+=sumRoScheduleSpots(ro);
+      if(ro.client) row.clients.add(ro.client);
+      if(ro.campaign) row.campaigns.add(ro.campaign);
+      if(ro.vendor) row.vendors.add(ro.vendor);
+    });
+    return acc;
+  })()).map((row:any)=>({...row,clients:row.clients.size,campaigns:row.campaigns.size,vendors:row.vendors.size})).sort((a:any,b:any)=>b.mpoValue-a.mpoValue||b.roValue-a.roValue);
 
   const exportExcel=async()=>{
     const XLS=await import("xlsx-js-style");
@@ -3798,13 +3876,20 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
       return;
     }
     // ── other tabs: plain CSV ─────────────────────────────────────────────────
-    const rows=[["Type","ID","Party","MPO","Amount","Currency","Paid","Balance","Due","Status"],...lR.map(r=>["Rec",r.id,r.client,r.mpo,r.amount,r.currency||"NGN",r.paid,r.amount-r.paid,r.due,r.status]),...lP.map(p=>["Pay",p.id,p.vendor,p.mpo,p.amount,p.currency||"NGN",p.paid,p.amount-p.paid,p.due,p.status])];
+    let rows:any[];
+    if(tab==="by-client"){
+      rows=[["Client","MPO Value","RO Value","MPOs","ROs","MPO Spots","RO Spots","Campaigns","Vendors","Agencies","Billed","Paid","Outstanding"],...clientReportRows.map((c:any)=>[c.name,c.mpoValue,c.roValue,c.mpoCount,c.roCount,c.mpoSpots,c.roSpots,c.campaigns,c.vendors,c.agencies,c.billed,c.paid,c.outstanding])];
+    }else if(tab==="by-agency"){
+      rows=[["Agency","MPO Value","RO Value","MPOs","ROs","Clients","Campaigns","Vendors","Spots"],...agencyReportRows.map((a:any)=>[a.name,a.mpoValue,a.roValue,a.mpoCount,a.roCount,a.clients,a.campaigns,a.vendors,a.spots])];
+    }else{
+      rows=[["Type","ID","Party","MPO","Amount","Currency","Paid","Balance","Due","Status"],...lR.map(r=>["Rec",r.id,r.client,r.mpo,r.amount,r.currency||"NGN",r.paid,r.amount-r.paid,r.due,r.status]),...lP.map(p=>["Pay",p.id,p.vendor,p.mpo,p.amount,p.currency||"NGN",p.paid,p.amount-p.paid,p.due,p.status])];
+    }
     const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="report.csv";a.click();
   };
 
-  const TABS=["media-buy","summary","by-client","by-channel","cash-flow"];
-  const TAB_LABELS={"media-buy":"Media Buy","summary":"Summary","by-client":"By Client","by-channel":"By Channel","cash-flow":"Cash Flow"};
+  const TABS=["media-buy","summary","by-client","by-agency","by-channel","cash-flow"];
+  const TAB_LABELS={"media-buy":"Media Buy","summary":"Summary","by-client":"By Client","by-agency":"By Agency","by-channel":"By Channel","cash-flow":"Cash Flow"};
 
   return(
     <div>
@@ -4110,8 +4195,99 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
           </div>
         );
       })()}
-      {tab==="by-client"&&(<div className="card"><div className="card-header"><span className="card-title">MPO Value by Client</span></div>{cSpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>:<BarChart data={cSpend.map(c=>({label:c.name.split(" ")[0],value:c.amount}))} height={180} colors={["#534AB7"]}/> }</div>)}
-      {tab==="by-channel"&&(<div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div><BarChart data={Object.values((mpos||[]).reduce((acc,m)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=Number(m.amount)||0;return acc;},{})).sort((a,b)=>b.value-a.value)} height={180} colors={["#534AB7","#3B6D11","#185FA5","#854F0B","#D85A30"]}/></div>)}
+      {tab==="by-client"&&(()=>{
+        const totalClientMpo=clientReportRows.reduce((a:any,c:any)=>a+c.mpoValue,0);
+        const totalClientRo=clientReportRows.reduce((a:any,c:any)=>a+c.roValue,0);
+        const totalClientOutstanding=clientReportRows.reduce((a:any,c:any)=>a+c.outstanding,0);
+        const topClient=clientReportRows[0];
+        const collectionPct=clientReportRows.reduce((a:any,c:any)=>a+c.billed,0)>0?Math.round(clientReportRows.reduce((a:any,c:any)=>a+c.paid,0)/clientReportRows.reduce((a:any,c:any)=>a+c.billed,0)*100):0;
+        const clientCards=[
+          {label:"Reported Clients",value:clientReportRows.length,sub:`${clientReportRows.reduce((a:any,c:any)=>a+c.roCount,0)} ROs`,color:"#534AB7"},
+          {label:"MPO Value",value:reportMoney(totalClientMpo),sub:`${clientReportRows.reduce((a:any,c:any)=>a+c.mpoCount,0)} MPOs`,color:"#185FA5"},
+          {label:"RO Value",value:reportMoney(totalClientRo),sub:`${clientReportRows.reduce((a:any,c:any)=>a+c.roSpots,0)} RO spots`,color:"#3B6D11"},
+          {label:"Top Client",value:topClient?.name||"-",sub:topClient?`${totalClientMpo>0?Math.round(topClient.mpoValue/totalClientMpo*100):0}% of MPO value`:"No client",color:"#854F0B"},
+          {label:"Collection Rate",value:`${collectionPct}%`,sub:`${reportMoney(totalClientOutstanding)} outstanding`,color:totalClientOutstanding>0?"#A32D2D":"#3B6D11"},
+        ];
+        const topClients=clientReportRows.slice(0,5);
+        const collectionWatch=clientReportRows.filter((c:any)=>c.outstanding>0).sort((a:any,b:any)=>b.outstanding-a.outstanding).slice(0,5);
+        return(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:10}}>
+              {clientCards.map((k:any)=><div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:5}}>{k.label}</div><div style={{fontSize:19,fontWeight:800,lineHeight:1.15,color:"var(--text)",overflowWrap:"anywhere"}}>{k.value}</div><div style={{fontSize:10,color:"var(--text3)",marginTop:5}}>{k.sub}</div></div>)}
+            </div>
+            <div className="card">
+              <div className="card-header"><span className="card-title">Client Value by Spend</span><span className="badge">{clientReportRows.length}</span></div>
+              {clientReportRows.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No client data</p>:<BarChart data={clientReportRows.slice(0,15).map((c:any)=>({label:c.name,value:c.mpoValue||c.roValue}))} height={245} colors={reportColors}/>}
+            </div>
+            <div className="grid2">
+              <div className="card">
+                <div className="card-header"><span className="card-title">Top Client Concentration</span></div>
+                {topClients.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>:topClients.map((c:any,i:number)=>{
+                  const share=totalClientMpo>0?Math.round(c.mpoValue/totalClientMpo*100):0;
+                  const col=reportColors[i%reportColors.length];
+                  return <div key={c.name} style={{padding:"9px 0",borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,marginBottom:5}}><span style={{fontWeight:700}}>{c.name}</span><span style={{color:"var(--text2)"}}>{reportMoney(c.mpoValue)}</span></div><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{flex:1,height:6,background:"var(--bg3)",borderRadius:4,overflow:"hidden"}}><div style={{width:`${share}%`,height:"100%",background:col}}/></div><span style={{fontSize:10,color:"var(--text3)",minWidth:32,textAlign:"right"}}>{share}%</span></div></div>;
+                })}
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Collection Watch</span></div>
+                {collectionWatch.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No outstanding balances</p>:collectionWatch.map((c:any)=><div key={c.name} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"9px 0",borderBottom:"1px solid var(--border-c)",fontSize:12}}><span style={{fontWeight:700}}>{c.name}</span><span style={{fontWeight:800,color:"#A32D2D"}}>{reportMoney(c.outstanding)}</span></div>)}
+              </div>
+            </div>
+            <div className="card" style={{padding:0,overflow:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1040}}>
+                <thead><tr>{["Client","MPO Value","RO Value","MPOs","ROs","MPO Spots","RO Spots","Campaigns","Vendors","Agencies","Billed","Paid","Outstanding"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"2px solid var(--border-c)",background:"var(--bg3)",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
+                <tbody>{clientReportRows.length===0?<tr><td colSpan={13} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No client data</td></tr>:clientReportRows.map((c:any,i:number)=><tr key={c.name} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}><td style={{padding:"8px 10px",fontWeight:800}}>{c.name}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#185FA5"}}>{reportMoney(c.mpoValue)}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11"}}>{reportMoney(c.roValue)}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.mpoCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.roCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.mpoSpots}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.roSpots}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.campaigns}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.vendors}</td><td style={{padding:"8px 10px",color:"var(--text2)"}}>{c.agencies||"-"}</td><td style={{padding:"8px 10px"}}>{reportMoney(c.billed)}</td><td style={{padding:"8px 10px",color:"#3B6D11",fontWeight:700}}>{reportMoney(c.paid)}</td><td style={{padding:"8px 10px",color:c.outstanding>0?"#A32D2D":"var(--text2)",fontWeight:800}}>{reportMoney(c.outstanding)}</td></tr>)}</tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+      {tab==="by-agency"&&(()=>{
+        const totalAgencyMpo=agencyReportRows.reduce((a:any,r:any)=>a+r.mpoValue,0);
+        const totalAgencyRo=agencyReportRows.reduce((a:any,r:any)=>a+r.roValue,0);
+        const topAgency=agencyReportRows[0];
+        const agencyCards=[
+          {label:"Agencies",value:agencyReportRows.length,sub:`${agencyReportRows.reduce((a:any,r:any)=>a+r.clients,0)} client links`,color:"#534AB7"},
+          {label:"MPO Value",value:reportMoney(totalAgencyMpo),sub:`${agencyReportRows.reduce((a:any,r:any)=>a+r.mpoCount,0)} MPOs`,color:"#185FA5"},
+          {label:"RO Value",value:reportMoney(totalAgencyRo),sub:`${agencyReportRows.reduce((a:any,r:any)=>a+r.roCount,0)} ROs`,color:"#3B6D11"},
+          {label:"Top Agency",value:topAgency?.name||"-",sub:topAgency?`${totalAgencyMpo>0?Math.round(topAgency.mpoValue/totalAgencyMpo*100):0}% of MPO value`:"No agency",color:"#854F0B"},
+          {label:"Booked Spots",value:agencyReportRows.reduce((a:any,r:any)=>a+r.spots,0),sub:"MPO and RO schedules",color:"#D85A30"},
+        ];
+        return(
+          <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:10}}>
+              {agencyCards.map((k:any)=><div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:5}}>{k.label}</div><div style={{fontSize:19,fontWeight:800,lineHeight:1.15,color:"var(--text)",overflowWrap:"anywhere"}}>{k.value}</div><div style={{fontSize:10,color:"var(--text3)",marginTop:5}}>{k.sub}</div></div>)}
+            </div>
+            <div className="card">
+              <div className="card-header"><span className="card-title">Agency Value by Spend</span><span className="badge">{agencyReportRows.length}</span></div>
+              {agencyReportRows.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No agency data</p>:<BarChart data={agencyReportRows.slice(0,15).map((a:any)=>({label:a.name,value:a.mpoValue||a.roValue}))} height={245} colors={reportColors}/>}
+            </div>
+            <div className="grid2">
+              <div className="card">
+                <div className="card-header"><span className="card-title">Agency Share</span></div>
+                {agencyReportRows.slice(0,6).map((a:any,i:number)=>{
+                  const share=totalAgencyMpo>0?Math.round(a.mpoValue/totalAgencyMpo*100):0;
+                  const col=reportColors[i%reportColors.length];
+                  return <div key={a.name} style={{padding:"9px 0",borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12,marginBottom:5}}><span style={{fontWeight:700}}>{a.name}</span><span style={{color:"var(--text2)"}}>{reportMoney(a.mpoValue)}</span></div><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{flex:1,height:6,background:"var(--bg3)",borderRadius:4,overflow:"hidden"}}><div style={{width:`${share}%`,height:"100%",background:col}}/></div><span style={{fontSize:10,color:"var(--text3)",minWidth:32,textAlign:"right"}}>{share}%</span></div></div>;
+                })}
+                {agencyReportRows.length===0&&<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>}
+              </div>
+              <div className="card">
+                <div className="card-header"><span className="card-title">Activity Mix</span></div>
+                {agencyReportRows.slice(0,6).map((a:any)=><div key={a.name} style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:10,padding:"9px 0",borderBottom:"1px solid var(--border-c)",fontSize:12,alignItems:"center"}}><span style={{fontWeight:700}}>{a.name}</span><span style={{color:"var(--text2)"}}>{a.clients} clients</span><span style={{fontWeight:800,color:"#3B6D11"}}>{a.spots} spots</span></div>)}
+                {agencyReportRows.length===0&&<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No activity</p>}
+              </div>
+            </div>
+            <div className="card" style={{padding:0,overflow:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:880}}>
+                <thead><tr>{["Agency","MPO Value","RO Value","MPOs","ROs","Clients","Campaigns","Vendors","Spots","Share"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"2px solid var(--border-c)",background:"var(--bg3)",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
+                <tbody>{agencyReportRows.length===0?<tr><td colSpan={10} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No agency data</td></tr>:agencyReportRows.map((a:any,i:number)=>{const share=totalAgencyMpo>0?Math.round(a.mpoValue/totalAgencyMpo*100):0;return <tr key={a.name} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}><td style={{padding:"8px 10px",fontWeight:800}}>{a.name}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#185FA5"}}>{reportMoney(a.mpoValue)}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11"}}>{reportMoney(a.roValue)}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.mpoCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.roCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.clients}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.campaigns}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.vendors}</td><td style={{padding:"8px 10px",textAlign:"center",fontWeight:700}}>{a.spots}</td><td style={{padding:"8px 10px",fontWeight:800}}>{share}%</td></tr>;})}</tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+      {tab==="by-channel"&&(()=>{const channelRows=Object.values(fM.reduce((acc:any,m:any)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=getMpoReportValue(m);return acc;},{})).sort((a:any,b:any)=>b.value-a.value);return <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div>{channelRows.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No channel data</p>:<BarChart data={channelRows} height={180} colors={reportColors}/>}</div>;})()}
       {tab==="cash-flow"&&(<div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Rec vs Pay</span></div><BarChart data={[{label:"Billed",values:[tB,0]},{label:"Collected",values:[tPd,0]},{label:"Payable",values:[0,lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0)]},{label:"Settled",values:[0,lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0)]}]} height={175} colors={["#534AB7","#D85A30"]}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Net Position ({sym})</span></div>
