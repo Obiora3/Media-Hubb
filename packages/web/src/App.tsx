@@ -1510,7 +1510,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
               {l:"Total ROs",v:(ros||[]).length},
               {l:"Confirmed",v:(ros||[]).filter(r=>r.status==="confirmed").length},
               {l:"Sent",v:(ros||[]).filter(r=>r.status==="sent").length},
-              {l:"Total Value",v:fmtK((ros||[]).reduce((a,r)=>a+calcRoTotals(r,settings?.whtRate||0).gross,0),CURRENCIES[dCcy]?.symbol||"₦")},
+              {l:"Total Value",v:fmtK((ros||[]).reduce((a,r)=>a+convertAmt(calcRoTotals(r,Number(settings?.whtRate??5)).amountPayable,r.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")},
             ].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
           </div>
           <div className="card">
