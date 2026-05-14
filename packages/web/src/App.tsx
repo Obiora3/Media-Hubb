@@ -3348,19 +3348,35 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
 /* ═══ REVENUE TARGET PAGE ═══ */
 function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData=[],onSaveTarget,onDeleteTarget}:{mpos:any[],ros?:any[],settings:any,setSettings:any,user:any,revTargetsData:any[],onSaveTarget:(adv:string,amt:number,yr:number)=>Promise<void>,onDeleteTarget:(adv:string,yr:number)=>Promise<void>}){
   const canEdit=user?.role==="admin"||user?.role==="manager";
+  const now=new Date();
+  const todayLocal=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+  const initialRevYear:number=settings.revYear||now.getFullYear();
   const [rtNewAdv,setRtNewAdv]=useState("");
   const [rtNewTarget,setRtNewTarget]=useState("");
   const [rtEditing,setRtEditing]=useState<string|null>(null);
   const [rtEditAmt,setRtEditAmt]=useState("");
   const [rtEditName,setRtEditName]=useState("");
+  const [rtPeriod,setRtPeriod]=useState("year");
+  const [rtPeriodMonth,setRtPeriodMonth]=useState(`${initialRevYear}-${String(now.getMonth()+1).padStart(2,"0")}`);
+  const [rtPeriodQuarter,setRtPeriodQuarter]=useState(`Q${Math.floor(now.getMonth()/3)+1}`);
+  const [rtPeriodWeekDate,setRtPeriodWeekDate]=useState(todayLocal);
+  const [rtPeriodFrom,setRtPeriodFrom]=useState(`${initialRevYear}-01-01`);
+  const [rtPeriodTo,setRtPeriodTo]=useState(`${initialRevYear}-12-31`);
+  const [rtExportWeeklySheets,setRtExportWeeklySheets]=useState(false);
 
   const dCcy=settings.defaultCurrency||"NGN";
   const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const whtSetting=Number(settings?.whtRate??5);
   const whtRate=Number.isFinite(whtSetting)?whtSetting:5;
   const mpoById=useMemo(()=>new Map((mpos||[]).map((m:any)=>[m.id,m])),[mpos]);
-  const now=new Date();
   const revYear:number=settings.revYear||now.getFullYear();
+  const yearStart=`${revYear}-01-01`;
+  const yearEnd=`${revYear}-12-31`;
+  const sameYear=(date:string)=>String(date||"").startsWith(`${revYear}-`);
+  const activeMonthKey=sameYear(rtPeriodMonth+"-01")?rtPeriodMonth:`${revYear}-${String(now.getFullYear()===revYear?now.getMonth()+1:1).padStart(2,"0")}`;
+  const activeWeekDate=rtPeriodWeekDate>=yearStart&&rtPeriodWeekDate<=yearEnd?rtPeriodWeekDate:(now.getFullYear()===revYear?todayLocal:yearStart);
+  const activeCustomFrom=rtPeriodFrom>=yearStart&&rtPeriodFrom<=yearEnd?rtPeriodFrom:yearStart;
+  const activeCustomTo=rtPeriodTo>=yearStart&&rtPeriodTo<=yearEnd?rtPeriodTo:yearEnd;
   // Build revTargets from the Supabase table rows for the selected year
   const revTargets:Record<string,number>=Object.fromEntries(
     revTargetsData.filter((r:any)=>r.rev_year===revYear).map((r:any)=>[r.advertiser,Number(r.target)])
@@ -3370,6 +3386,91 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
 
   const wkStart=new Date(now);wkStart.setDate(now.getDate()-now.getDay());wkStart.setHours(0,0,0,0);
   const wkEnd=new Date(wkStart);wkEnd.setDate(wkStart.getDate()+6);wkEnd.setHours(23,59,59,999);
+
+  const localDate=(date:string)=>new Date(`${date}T12:00:00`);
+  const toDateStr=(date:Date)=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+  const periodDays=(start:string,end:string)=>start&&end&&start<=end?Math.round((localDate(end).getTime()-localDate(start).getTime())/864e5)+1:0;
+  const yearDays=periodDays(yearStart,yearEnd);
+  const periodTarget=(annualTarget:number,period:any)=>yearDays>0?annualTarget*(period.days/yearDays):0;
+  const formatPeriodDate=(date:string)=>localDate(date).toLocaleDateString("en-NG",{month:"short",day:"numeric",year:"numeric"});
+  const formatShortPeriodDate=(date:string)=>localDate(date).toLocaleDateString("en-NG",{month:"short",day:"numeric"});
+  const formatRangeLabel=(start:string,end:string)=>start===end?formatPeriodDate(start):`${formatPeriodDate(start)} to ${formatPeriodDate(end)}`;
+  const getWeekBoundsForDate=(date:string)=>{
+    const base=localDate(date);
+    const start=new Date(base);start.setDate(base.getDate()-base.getDay());
+    const end=new Date(start);end.setDate(start.getDate()+6);
+    const rawStart=toDateStr(start),rawEnd=toDateStr(end);
+    return {start:rawStart<yearStart?yearStart:rawStart,end:rawEnd>yearEnd?yearEnd:rawEnd};
+  };
+  const buildPeriod=()=>{
+    if(rtPeriod==="ytd"){
+      const ytdEnd=revYear<now.getFullYear()?yearEnd:revYear>now.getFullYear()?yearStart:todayLocal;
+      return {key:"ytd",start:yearStart,end:ytdEnd,label:`YTD ${revYear}`};
+    }
+    if(rtPeriod==="quarter"){
+      const qNum=Math.max(1,Math.min(4,Number(String(rtPeriodQuarter).replace("Q",""))||1));
+      const startMonth=(qNum-1)*3+1;
+      const endMonth=startMonth+2;
+      const lastDay=new Date(revYear,endMonth,0).getDate();
+      return {key:"quarter",start:`${revYear}-${String(startMonth).padStart(2,"0")}-01`,end:`${revYear}-${String(endMonth).padStart(2,"0")}-${String(lastDay).padStart(2,"0")}`,label:`Q${qNum} ${revYear}`};
+    }
+    if(rtPeriod==="month"){
+      const bounds=getMonthBounds(activeMonthKey);
+      return {key:"month",start:bounds.start,end:bounds.end,label:localDate(`${activeMonthKey}-01`).toLocaleDateString("en-NG",{month:"long",year:"numeric"})};
+    }
+    if(rtPeriod==="week"){
+      const bounds=getWeekBoundsForDate(activeWeekDate);
+      return {key:"week",start:bounds.start,end:bounds.end,label:`Week of ${formatPeriodDate(activeWeekDate)}`};
+    }
+    if(rtPeriod==="custom"){
+      const start=activeCustomFrom<=activeCustomTo?activeCustomFrom:activeCustomTo;
+      const end=activeCustomFrom<=activeCustomTo?activeCustomTo:activeCustomFrom;
+      return {key:"custom",start,end,label:formatRangeLabel(start,end)};
+    }
+    return {key:"year",start:yearStart,end:yearEnd,label:`Jan-Dec ${revYear}`};
+  };
+  const selectedPeriodBase=buildPeriod();
+  const selectedPeriod={...selectedPeriodBase,days:periodDays(selectedPeriodBase.start,selectedPeriodBase.end)};
+  const dateInSelectedPeriod=(date:string)=>date>=selectedPeriod.start&&date<=selectedPeriod.end;
+  const clampPeriod=(start:string,end:string,period:any)=>({
+    start:start<period.start?period.start:start,
+    end:end>period.end?period.end:end,
+  });
+  const reportPeriodLabel=(period:any)=>period.start===period.end?formatShortPeriodDate(period.start):`${formatShortPeriodDate(period.start)}-${formatShortPeriodDate(period.end)}`;
+  const getReportMonthPeriod=(period:any)=>{
+    const anchor=(todayLocal>=period.start&&todayLocal<=period.end)?todayLocal:period.end;
+    const bounds=getMonthBounds(anchor.slice(0,7));
+    const clipped=clampPeriod(bounds.start,bounds.end,period);
+    return {...clipped,label:localDate(`${anchor.slice(0,7)}-01`).toLocaleDateString("en-NG",{month:"short",year:"numeric"})};
+  };
+  const getReportWeekPeriod=(period:any)=>{
+    const anchor=(todayLocal>=period.start&&todayLocal<=period.end)?todayLocal:period.end;
+    const bounds=getWeekBoundsForDate(anchor);
+    const clipped=clampPeriod(bounds.start,bounds.end,period);
+    return {...clipped,label:reportPeriodLabel(clipped)};
+  };
+  const reportMonthPeriod=getReportMonthPeriod(selectedPeriod);
+  const reportWeekPeriod=getReportWeekPeriod(selectedPeriod);
+  const dateInReportMonth=(date:string)=>date>=reportMonthPeriod.start&&date<=reportMonthPeriod.end;
+  const dateInReportWeek=(date:string)=>date>=reportWeekPeriod.start&&date<=reportWeekPeriod.end;
+  const bookedMonthHeader=`BOOKED THIS MONTH (${reportMonthPeriod.label.toUpperCase()})`;
+  const bookedWeekHeader=`BOOKED THIS WEEK (${reportWeekPeriod.label.toUpperCase()})`;
+  const buildWeeklyPeriods=(start:string,end:string)=>{
+    const periods:any[]=[];
+    if(!start||!end||start>end) return periods;
+    let cur=localDate(start);
+    const last=localDate(end);
+    while(cur<=last){
+      const periodStart=toDateStr(cur);
+      const weekEnd=new Date(cur);weekEnd.setDate(cur.getDate()+(6-cur.getDay()));
+      if(weekEnd>last) weekEnd.setTime(last.getTime());
+      const periodEnd=toDateStr(weekEnd);
+      periods.push({key:`week-${periods.length+1}`,start:periodStart,end:periodEnd,label:`Week ${periods.length+1} (${formatShortPeriodDate(periodStart)} - ${formatShortPeriodDate(periodEnd)})`,days:periodDays(periodStart,periodEnd)});
+      cur=new Date(weekEnd);cur.setDate(cur.getDate()+1);
+    }
+    return periods;
+  };
+  const selectedWeeklyPeriods=buildWeeklyPeriods(selectedPeriod.start,selectedPeriod.end);
 
   const normName=(v:any)=>String(v||"").trim().toUpperCase();
   const roAdvertiserNames=(ro:any)=>{
@@ -3391,32 +3492,44 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
   const totalBooked=sumRoValue(ros,dateInSelectedYear);
   const annualGap=totalBooked-totalTarget;
   const annualPct=totalTarget>0?((totalBooked/totalTarget)*100).toFixed(2):0;
+  const totalPeriodTarget=periodTarget(totalTarget,selectedPeriod);
+  const bookedInPeriod=sumRoValue(ros,dateInSelectedPeriod);
+  const periodGap=bookedInPeriod-totalPeriodTarget;
+  const periodPct=totalPeriodTarget>0?((bookedInPeriod/totalPeriodTarget)*100).toFixed(2):0;
   const monthProj=totalTarget>0?Math.round(totalTarget/12*monthsElapsed):0;
   const bookedToMonth=sumRoValue(ros,dateToCurrentMonth);
   const monthlyGap=bookedToMonth-monthProj;
   const monthlyPct=monthProj>0?((bookedToMonth/monthProj)*100).toFixed(2):0;
-  const bookedWeek=sumRoValue(ros,dateInCurrentWeek);
-  const bookedMonth=sumRoValue(ros,dateInCurrentMonth);
+  const bookedWeek=sumRoValue(ros,dateInReportWeek);
+  const bookedMonth=sumRoValue(ros,dateInReportMonth);
   const q1Booked=sumRoValue(ros,dateInQ1);
   const q1Target=totalTarget>0?Math.round(totalTarget/4):0;
   const q1Gap=q1Booked-q1Target;
   const q1Pct=q1Target>0?((q1Booked/q1Target)*100).toFixed(2):0;
 
-  const rows=Object.keys(revTargets).map(adv=>{
+  const buildRevenueRowsForPeriod=(period:any,monthPeriod:any=reportMonthPeriod,weekPeriod:any=reportWeekPeriod)=>Object.keys(revTargets).map(adv=>{
     const advUp=normName(adv);
     const advRos=(ros||[]).filter((ro:any)=>roAdvertiserNames(ro).includes(advUp));
+    const dateInPeriod=(date:string)=>date>=period.start&&date<=period.end;
+    const dateInMonthPeriod=(date:string)=>date>=monthPeriod.start&&date<=monthPeriod.end;
+    const dateInWeekPeriod=(date:string)=>date>=weekPeriod.start&&date<=weekPeriod.end;
     const booked=sumRoValue(advRos,dateInSelectedYear);
-    const inMonth=sumRoValue(advRos,dateInCurrentMonth);
-    const inWeek=sumRoValue(advRos,dateInCurrentWeek);
+    const inMonth=sumRoValue(advRos,dateInMonthPeriod);
+    const inWeek=sumRoValue(advRos,dateInWeekPeriod);
+    const periodBooked=sumRoValue(advRos,dateInPeriod);
     const target=Number(revTargets[adv]||0);
+    const periodTargetAmt=periodTarget(target,period);
     const achievedPct=target>0?((booked/target)*100).toFixed(2):"0.00";
-    return {name:adv,target,booked,achievedPct,gap:booked-target,inMonth,inWeek};
+    const periodAchievedPct=periodTargetAmt>0?((periodBooked/periodTargetAmt)*100).toFixed(2):"0.00";
+    return {name:adv,target,periodTarget:periodTargetAmt,booked,achievedPct,gap:booked-target,periodBooked,periodAchievedPct,periodGap:periodBooked-periodTargetAmt,inMonth,inWeek};
   });
+  const rows=buildRevenueRowsForPeriod(selectedPeriod);
 
   const saveTarget=(name:string,amt:number)=>onSaveTarget(name,amt,revYear);
   const deleteTarget=(name:string)=>onDeleteTarget(name,revYear);
 
   const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:2});
+  const signedFm=(v:number)=>`${v>=0?"+":"-"}${fm(Math.abs(v))}`;
 
   const exportExcel=async()=>{
     const XLS=await import("xlsx-js-style");
@@ -3427,77 +3540,107 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
     const numCell=(v:number,extra={})=>({v,t:"n",z:numFmt,s:{border,alignment:{horizontal:"right"},...extra}});
     const txt=(v:string,s={})=>({v,t:"s",s:{border,...s}});
     const pct=(v:any)=>({v:`${v}%`,t:"s",s:{border,alignment:{horizontal:"right"}}});
+    {
+      const exportCompanyName=settings.companyName||"MediaHub";
+      const exportWb=XLS.utils.book_new();
+      const sheetSpacer=[Array(7).fill({v:"",t:"s",s:{}})];
+      const emptyMoneyCell={v:"-",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}};
+      const moneyOrDash=(v:number)=>v>0?numCell(v):emptyMoneyCell;
+      const gapCell=(v:number)=>({v:signedFm(v),t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true,color:{rgb:v>=0?"1F5C1F":"A32D2D"}}}});
+      const exportTotalStyle={font:{bold:true,sz:10,color:{rgb:"F5C97A"}},fill:{fgColor:{rgb:"2C3E50"}},border,alignment:{horizontal:"right"}};
+      const safeSheetName=(name:string)=>String(name||"Sheet").replace(/[\\/?*\[\]:]/g," ").slice(0,31)||"Sheet";
+      const appendSheet=(ws:any,name:string)=>{
+        const base=safeSheetName(name);
+        let finalName=base,idx=2;
+        while(exportWb.SheetNames.includes(finalName)){
+          const suffix=` ${idx++}`;
+          finalName=base.slice(0,31-suffix.length)+suffix;
+        }
+        XLS.utils.book_append_sheet(exportWb,ws,finalName);
+      };
+      const sRowExport=(label:string,val:string,extra?:string)=>[
+        {v:label,t:"s",s:{border,font:{sz:10}}},
+        {v:"",t:"s",s:{border}},
+        {v:val,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true}}},
+        {v:extra||"",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"666666"}}}},
+        {v:"",t:"s",s:{border}},
+        {v:"",t:"s",s:{border}},
+        {v:"",t:"s",s:{border}},
+      ];
+      const appendRevenueSheet=(period:any,sheetName:string)=>{
+        const sheetPeriod={...period,days:period.days||periodDays(period.start,period.end)};
+        const sheetMonthPeriod=getReportMonthPeriod(sheetPeriod);
+        const sheetWeekPeriod=getReportWeekPeriod(sheetPeriod);
+        const sheetRows=buildRevenueRowsForPeriod(sheetPeriod,sheetMonthPeriod,sheetWeekPeriod);
+        const sheetBooked=sumRoValue(ros,(date:string)=>date>=sheetPeriod.start&&date<=sheetPeriod.end);
+        const sheetTarget=periodTarget(totalTarget,sheetPeriod);
+        const sheetGap=sheetBooked-sheetTarget;
+        const sheetPct=sheetTarget>0?((sheetBooked/sheetTarget)*100).toFixed(2):0;
+        const sheetBookedMonth=sumRoValue(ros,(date:string)=>date>=sheetMonthPeriod.start&&date<=sheetMonthPeriod.end);
+        const sheetBookedWeek=sumRoValue(ros,(date:string)=>date>=sheetWeekPeriod.start&&date<=sheetWeekPeriod.end);
+        const sheetMonthHeader=`BOOKED THIS MONTH (${sheetMonthPeriod.label.toUpperCase()})`;
+        const sheetWeekHeader=`BOOKED THIS WEEK (${sheetWeekPeriod.label.toUpperCase()})`;
+        const titleRow=[{v:`${exportCompanyName} - REVENUE TARGET REPORT ${revYear}`,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{}})];
+        const summaryHdr=[{v:"REVENUE SUMMARY",t:"s",s:{font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{fill:{fgColor:{rgb:"1F3864"}},border}})];
+        const summaryRows=[
+          sRowExport("Report Period",sheetPeriod.label),
+          sRowExport("Period Dates",formatRangeLabel(sheetPeriod.start,sheetPeriod.end),`${sheetPeriod.days} days`),
+          sRowExport(`Period Revenue Target (${sym})`,fm(sheetTarget)),
+          sRowExport("Period Revenue Achieved",fm(sheetBooked),`${sheetPct}%`),
+          sRowExport("Period Revenue Gap",signedFm(sheetGap)),
+          sRowExport(`Total Annual Revenue Target (${sym})`,fm(totalTarget)),
+          sRowExport("Total Annual Revenue Achieved",fm(totalBooked),`${annualPct}%`),
+          sRowExport("Annual Revenue Gap",signedFm(annualGap)),
+        ];
+        const tableHdr=[
+          {v:"ADVERTISERS",t:"s",s:hdrLeft},
+          {v:"ANNUAL TARGET",t:"s",s:hdrDark},
+          {v:"BOOKED SO FAR",t:"s",s:hdrDark},
+          {v:"% ACHIEVED",t:"s",s:hdrDark},
+          {v:"REVENUE GAP",t:"s",s:hdrDark},
+          {v:sheetMonthHeader,t:"s",s:hdrDark},
+          {v:sheetWeekHeader,t:"s",s:hdrDark},
+        ];
+        const dataRows=sheetRows.map(r=>[
+          txt(r.name,{font:{bold:true}}),
+          numCell(r.target),
+          moneyOrDash(r.booked),
+          pct(r.achievedPct),
+          gapCell(r.gap),
+          moneyOrDash(r.inMonth),
+          moneyOrDash(r.inWeek),
+        ]);
+        const totalRow=[
+          {v:"TOTALS",t:"s",s:{...exportTotalStyle,alignment:{horizontal:"left"}}},
+          {v:totalTarget,t:"n",z:numFmt,s:exportTotalStyle},
+          {v:totalBooked,t:"n",z:numFmt,s:exportTotalStyle},
+          {v:`${annualPct}%`,t:"s",s:exportTotalStyle},
+          {v:signedFm(annualGap),t:"s",s:{...exportTotalStyle,font:{bold:true,sz:10,color:{rgb:annualGap>=0?"90EE90":"FF9999"}}}},
+          {v:sheetBookedMonth,t:"n",z:numFmt,s:exportTotalStyle},
+          {v:sheetBookedWeek,t:"n",z:numFmt,s:exportTotalStyle},
+        ];
+        const sheetData=[titleRow,...sheetSpacer,summaryHdr,...summaryRows,...sheetSpacer,tableHdr,...dataRows,totalRow];
+        const ws=XLS.utils.aoa_to_sheet(sheetData);
+        ws["!cols"]=[{wch:36},{wch:18},{wch:18},{wch:18},{wch:16},{wch:20},{wch:18}];
+        ws["!rows"]=[{hpt:24}];
+        appendSheet(ws,sheetName);
+      };
+
+      appendRevenueSheet(selectedPeriod,"Revenue Target");
+      if(rtExportWeeklySheets) selectedWeeklyPeriods.forEach((period:any,index:number)=>appendRevenueSheet(period,`Week ${index+1} ${formatShortPeriodDate(period.start)}-${formatShortPeriodDate(period.end)}`));
+      const filePeriod=safeSheetName(selectedPeriod.label).replace(/\s+/g,"-").toLowerCase();
+      XLS.writeFile(exportWb,`revenue-target-${revYear}-${filePeriod}.xlsx`);
+    }
 
     // ── Title ───────────────────────────────────────────────────────────────
-    const companyName=settings.companyName||"MediaHub";
-    const titleRow=[{v:`${companyName} — REVENUE TARGET REPORT ${revYear}`,t:"s",s:{font:{bold:true,sz:14,color:{rgb:"1A2D5A"}},alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{}})];
 
     // ── Summary section ─────────────────────────────────────────────────────
-    const summaryHdr=[{v:"REVENUE SUMMARY",t:"s",s:{font:{bold:true,sz:10,color:{rgb:"FFFFFF"}},fill:{fgColor:{rgb:"1F3864"}},border,alignment:{horizontal:"left"}}},...Array(6).fill({v:"",t:"s",s:{fill:{fgColor:{rgb:"1F3864"}},border}})];
-    const sRow=(label:string,val:string,extra?:string)=>[
-      {v:label,t:"s",s:{border,font:{sz:10}}},
-      {v:"",t:"s",s:{border}},
-      {v:val,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true}}},
-      {v:extra||"",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"666666"}}}},
-      {v:"",t:"s",s:{border}},
-      {v:"",t:"s",s:{border}},
-      {v:"",t:"s",s:{border}},
-    ];
-    const summaryRows=[
-      sRow(`Total Annual Revenue Target (${sym})`,fm(totalTarget)),
-      sRow(`Total Annual Revenue Achieved`,fm(totalBooked),`${annualPct}%`),
-      sRow("Annual Revenue Gap",`${annualGap>=0?"+":""}${fm(annualGap)}`),
-      sRow("Revenue To Current Month — PROJ",fm(monthProj)),
-      sRow("Revenue To Current Month — Achieved",fm(bookedToMonth),`${monthlyPct}%`),
-      sRow("Monthly Revenue Gap",`${monthlyGap>=0?"+":""}${fm(monthlyGap)}`),
-      sRow("Booked This Week",fm(bookedWeek)),
-      sRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,fm(q1Target)),
-      sRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,fm(q1Booked),`${q1Pct}%`),
-      sRow("EOQ Q1 Gap",`${q1Gap>=0?"+":""}${fm(q1Gap)}`),
-    ];
 
     // ── Table header ────────────────────────────────────────────────────────
-    const spacer=[Array(7).fill({v:"",t:"s",s:{}})];
-    const tableHdr=[
-      {v:"ADVERTISERS",t:"s",s:hdrLeft},
-      {v:"ANNUAL TARGET",t:"s",s:hdrDark},
-      {v:"BOOKED SO FAR",t:"s",s:hdrDark},
-      {v:"% ACHIEVED",t:"s",s:hdrDark},
-      {v:"REVENUE GAP",t:"s",s:hdrDark},
-      {v:"BOOKED THIS MONTH",t:"s",s:hdrDark},
-      {v:"BOOKED THIS WEEK",t:"s",s:hdrDark},
-    ];
 
     // ── Data rows ───────────────────────────────────────────────────────────
-    const dataRows=rows.map(r=>[
-      txt(r.name,{font:{bold:true}}),
-      numCell(r.target),
-      r.booked>0?numCell(r.booked):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
-      pct(r.achievedPct),
-      {v:`${r.gap>=0?"+":""}${fm(r.gap)}`,t:"s",s:{border,alignment:{horizontal:"right"},font:{bold:true,color:{rgb:r.gap>=0?"1F5C1F":"A32D2D"}}}},
-      r.inMonth>0?numCell(r.inMonth):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
-      r.inWeek>0?numCell(r.inWeek):{v:"—",t:"s",s:{border,alignment:{horizontal:"right"},font:{color:{rgb:"999999"}}}},
-    ]);
 
     // ── Totals row ──────────────────────────────────────────────────────────
-    const totStyle={font:{bold:true,sz:10,color:{rgb:"F5C97A"}},fill:{fgColor:{rgb:"2C3E50"}},border,alignment:{horizontal:"right"}};
-    const totRow=[
-      {v:"TOTALS",t:"s",s:{...totStyle,alignment:{horizontal:"left"}}},
-      {v:totalTarget,t:"n",z:numFmt,s:totStyle},
-      {v:totalBooked,t:"n",z:numFmt,s:totStyle},
-      {v:`${annualPct}%`,t:"s",s:totStyle},
-      {v:`${annualGap>=0?"+":""}${fm(annualGap)}`,t:"s",s:{...totStyle,font:{bold:true,sz:10,color:{rgb:annualGap>=0?"90EE90":"FF9999"}}}},
-      {v:bookedMonth,t:"n",z:numFmt,s:totStyle},
-      {v:bookedWeek,t:"n",z:numFmt,s:totStyle},
-    ];
-
-    const sheetData=[titleRow,...spacer,summaryHdr,...summaryRows,...spacer,tableHdr,...dataRows,totRow];
-    const ws=XLS.utils.aoa_to_sheet(sheetData);
-    ws["!cols"]=[{wch:36},{wch:18},{wch:18},{wch:14},{wch:20},{wch:18},{wch:18}];
-    ws["!rows"]=[{hpt:24}];
-    const wb=XLS.utils.book_new();
-    XLS.utils.book_append_sheet(wb,ws,"Revenue Target");
-    XLS.writeFile(wb,`revenue-target-${revYear}.xlsx`);
   };
   const gapSpan=(v:number)=><span style={{color:v>=0?"#3B6D11":"#A32D2D",fontWeight:600}}>{v>=0?"+":"-"}{fm(Math.abs(v))}</span>;
   const pctBadge=(p:any)=><span style={{fontSize:11,color:"var(--text3)",marginLeft:8}}>{p}%</span>;
@@ -3515,7 +3658,13 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
       <div className="card" style={{padding:"14px 16px"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:600}}>Revenue Targets — {revYear}</div>
-          <button className="btn btn-primary btn-sm" onClick={exportExcel}>Export Excel</button>
+          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+            <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"var(--text2)",whiteSpace:"nowrap"}}>
+              <input type="checkbox" checked={rtExportWeeklySheets} onChange={e=>setRtExportWeeklySheets(e.target.checked)}/>
+              Weekly sheets
+            </label>
+            <button className="btn btn-primary btn-sm" onClick={exportExcel}>Export Excel</button>
+          </div>
         </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"flex-end"}}>
           <div>
@@ -3523,6 +3672,47 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
             <input type="number" className="form-input" style={{width:90}} value={revYear}
               onChange={e=>canEdit&&setSettings((s:any)=>({...s,revYear:Number(e.target.value)}))} min={2020} max={2040} readOnly={!canEdit}/>
           </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Period</div>
+            <select className="form-input" style={{width:140}} value={rtPeriod} onChange={e=>setRtPeriod(e.target.value)}>
+              <option value="year">Full year</option>
+              <option value="ytd">Year to date</option>
+              <option value="quarter">Quarter</option>
+              <option value="month">Month</option>
+              <option value="week">Week</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </div>
+          {rtPeriod==="quarter"&&(
+            <div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Quarter</div>
+              <select className="form-input" style={{width:90}} value={rtPeriodQuarter} onChange={e=>setRtPeriodQuarter(e.target.value)}>
+                {["Q1","Q2","Q3","Q4"].map(q=><option key={q} value={q}>{q}</option>)}
+              </select>
+            </div>
+          )}
+          {rtPeriod==="month"&&(
+            <div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Month</div>
+              <input type="month" className="form-input" style={{width:150}} value={activeMonthKey} min={`${revYear}-01`} max={`${revYear}-12`} onChange={e=>setRtPeriodMonth(e.target.value)}/>
+            </div>
+          )}
+          {rtPeriod==="week"&&(
+            <div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Week Date</div>
+              <input type="date" className="form-input" style={{width:150}} value={activeWeekDate} min={yearStart} max={yearEnd} onChange={e=>setRtPeriodWeekDate(e.target.value)}/>
+            </div>
+          )}
+          {rtPeriod==="custom"&&(<>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>From</div>
+              <input type="date" className="form-input" style={{width:150}} value={activeCustomFrom} min={yearStart} max={yearEnd} onChange={e=>setRtPeriodFrom(e.target.value)}/>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>To</div>
+              <input type="date" className="form-input" style={{width:150}} value={activeCustomTo} min={yearStart} max={yearEnd} onChange={e=>setRtPeriodTo(e.target.value)}/>
+            </div>
+          </>)}
           {canEdit&&(<>
           <div style={{flex:1,minWidth:180}}>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:4}}>Advertiser / Agency</div>
@@ -3545,10 +3735,10 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
       {/* Callout cards */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,minWidth:0}}>
         {([
-          {label:`${revYear} Revenue Target`,value:fm(totalTarget),sub:null,bg:"#FFF8E1",border:"#F5C97A",color:"#854F0B",bar:null},
-          {label:"Revenue Achieved",value:fm(totalBooked),sub:`JAN–DEC ${revYear}`,bg:"#E6F1FB",border:"#185FA5",color:"#185FA5",bar:null},
-          {label:"% Achieved",value:`${annualPct}%`,sub:null,bg:Number(annualPct)>=100?"#EAF3DE":"#F5F0FF",border:Number(annualPct)>=100?"#3B6D11":"#534AB7",color:Number(annualPct)>=100?"#3B6D11":"#534AB7",bar:Math.min(Number(annualPct),100)},
-          {label:"Revenue Gap",value:`${annualGap>=0?"+":""}${fm(annualGap)}`,sub:null,bg:annualGap>=0?"#EAF3DE":"#FCEBEB",border:annualGap>=0?"#3B6D11":"#A32D2D",color:annualGap>=0?"#3B6D11":"#A32D2D",bar:null},
+          {label:`${revYear} Annual Target`,value:fm(totalTarget),sub:"Full year",bg:"#FFF8E1",border:"#F5C97A",color:"#854F0B",bar:null},
+          {label:"Period Target",value:fm(totalPeriodTarget),sub:selectedPeriod.label,bg:"#E6F1FB",border:"#185FA5",color:"#185FA5",bar:null},
+          {label:"Booked in Period",value:fm(bookedInPeriod),sub:formatRangeLabel(selectedPeriod.start,selectedPeriod.end),bg:"#F5F0FF",border:"#534AB7",color:"#534AB7",bar:Math.min(Number(periodPct),100)},
+          {label:"Period Gap",value:signedFm(periodGap),sub:`${periodPct}% achieved`,bg:periodGap>=0?"#EAF3DE":"#FCEBEB",border:periodGap>=0?"#3B6D11":"#A32D2D",color:periodGap>=0?"#3B6D11":"#A32D2D",bar:null},
         ] as any[]).map((c,i)=>(
           <div key={i} className="card" style={{padding:"14px 16px",background:c.bg,borderLeft:`4px solid ${c.border}`,minWidth:0,overflow:"hidden"}}>
             <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:c.color,marginBottom:6,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.label}</div>
@@ -3561,17 +3751,22 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
 
       {/* Summary KPIs */}
       <div className="card" style={{padding:"14px 16px"}}>
-        <div style={{fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"var(--text3)",marginBottom:12}}>Revenue Summary — {revYear}</div>
+        <div style={{fontWeight:700,fontSize:11,textTransform:"uppercase",letterSpacing:".08em",color:"var(--text3)",marginBottom:12}}>Revenue Summary — {selectedPeriod.label}</div>
+        {metricRow("Selected Period",<strong>{formatRangeLabel(selectedPeriod.start,selectedPeriod.end)}</strong>)}
+        {metricRow(`Period Revenue Target (${sym})`,<strong>{fm(totalPeriodTarget)}</strong>)}
+        {metricRow("Period Revenue Achieved",<><strong style={{color:periodGap>=0?"#3B6D11":"#185FA5"}}>{fm(bookedInPeriod)}</strong>{pctBadge(periodPct)}</>)}
+        {metricRow("  - Period Revenue Gap",gapSpan(periodGap))}
         {metricRow(`Total Annual Revenue Target (${sym})`,<strong>{fm(totalTarget)}</strong>)}
         {metricRow(`Total Annual Revenue Achieved (JAN–DEC ${revYear})`,<><strong style={{color:annualGap>=0?"#3B6D11":"#185FA5"}}>{fm(totalBooked)}</strong>{pctBadge(annualPct)}</>)}
-        {metricRow("  — Annual Revenue Gap",gapSpan(annualGap))}
+        {metricRow("  - Annual Revenue Gap",gapSpan(annualGap))}
         {metricRow("Total Revenue To Current Month — PROJ",<strong>{fm(monthProj)}</strong>)}
         {metricRow("Total Revenue To Current Month (Achieved)",<><strong>{fm(bookedToMonth)}</strong>{pctBadge(monthlyPct)}</>)}
-        {metricRow("  — Monthly Revenue Gap",gapSpan(monthlyGap))}
-        {metricRow("Total Booked This Week",<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
+        {metricRow("  - Monthly Revenue Gap",gapSpan(monthlyGap))}
+        {metricRow(`Total Booked This Month (${reportMonthPeriod.label})`,<strong style={{color:"#534AB7"}}>{fm(bookedMonth)}</strong>)}
+        {metricRow(`Total Booked This Week (${reportWeekPeriod.label})`,<strong style={{color:"#534AB7"}}>{fm(bookedWeek)}</strong>)}
         {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Target`,<strong>{fm(q1Target)}</strong>)}
         {metricRow(`EOQ Q1 Jan–Mar ${revYear} — Achieved`,<><strong>{fm(q1Booked)}</strong>{pctBadge(q1Pct)}</>)}
-        {metricRow("  — EOQ Q1 Gap",gapSpan(q1Gap))}
+        {metricRow("  - EOQ Q1 Gap",gapSpan(q1Gap))}
       </div>
 
       {/* Advertiser breakdown table */}
@@ -3579,8 +3774,8 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
             <tr style={{background:"#2C3E50"}}>
-              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","% ACHIEVED","REVENUE GAP","BOOKED THIS MONTH","BOOKED THIS WEEK"],...(canEdit?[""]:[])] .map(h=>(
-                <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"nowrap",position:"sticky",top:0,background:"#2C3E50",zIndex:2}}>{h}</th>
+              {[...["ADVERTISERS","ANNUAL TARGET","BOOKED SO FAR","% ACHIEVED","REVENUE GAP",bookedMonthHeader,bookedWeekHeader],...(canEdit?[""]:[])] .map(h=>(
+                <th key={h} style={{padding:"10px 12px",textAlign:h==="ADVERTISERS"?"left":"right",fontSize:10,fontWeight:700,letterSpacing:".06em",color:"#F5C97A",whiteSpace:"normal",lineHeight:1.2,position:"sticky",top:0,background:"#2C3E50",zIndex:2,minWidth:h.length>18?150:undefined}}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -3600,7 +3795,7 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
                 </td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.booked>0?"#185FA5":"var(--text3)",fontWeight:r.booked>0?600:400}}>{r.booked>0?fm(r.booked):"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:700,color:Number(r.achievedPct)>=100?"#3B6D11":r.booked>0?"#534AB7":"var(--text3)"}}>{r.target>0?`${r.achievedPct}%`:"—"}</td>
-                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600,color:r.gap>=0?"#3B6D11":"#A32D2D"}}>{r.booked>0||r.target>0?<>{r.gap>=0?"+":""}{fm(r.gap)}</>:"—"}</td>
+                <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",fontWeight:600,color:r.gap>=0?"#3B6D11":"#A32D2D"}}>{r.booked>0||r.target>0?signedFm(r.gap):"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inMonth>0?"#534AB7":"var(--text3)",fontWeight:r.inMonth>0?600:400}}>{r.inMonth>0?fm(r.inMonth):"—"}</td>
                 <td style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid var(--border-c)",color:r.inWeek>0?"#3B6D11":"var(--text3)",fontWeight:r.inWeek>0?700:400}}>{r.inWeek>0?fm(r.inWeek):"—"}</td>
                 {canEdit&&<td style={{padding:"8px 12px",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>
@@ -3631,7 +3826,7 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalTarget)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(totalBooked)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{annualPct}%</td>
-                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:annualGap>=0?"#90EE90":"#FF9999"}}>{annualGap>=0?"+":""}{fm(annualGap)}</td>
+                <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:annualGap>=0?"#90EE90":"#FF9999"}}>{signedFm(annualGap)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedMonth)}</td>
                 <td style={{padding:"10px 12px",textAlign:"right",fontWeight:800,color:"#F5C97A"}}>{fm(bookedWeek)}</td>
                 {canEdit&&<td/>}
