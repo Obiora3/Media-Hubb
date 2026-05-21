@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react"
+import React, { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react"
 import { useAuth } from "@/hooks/useAuth"
 import { useSupabaseTable } from "@/hooks/useSupabaseTable"
 import { AuthScreen } from "@/components/auth/AuthScreen"
