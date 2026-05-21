@@ -5904,13 +5904,8 @@ function App(){
       <div className={`sidebar-overlay ${sOpen?"open":""}`} onClick={()=>setSOpen(false)} style={{display:sOpen?"block":"none"}}/>
 
       <aside className={`sidebar ${sOpen?"open":""}`} aria-label="Navigation">
-        <div className="sidebar-logo" style={{cursor:"pointer"}} onClick={()=>setAgencyOpen(true)} title="Switch workspace">
-          <div className="logo-mark" style={{background:workspace.color}}>{workspace.abbr}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div className="logo-text" style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>MediaHub</div>
-            <div style={{fontSize:9,color:"var(--text3)",marginTop:1}}>Click to switch workspace</div>
-          </div>
-          <span style={{fontSize:10,color:"var(--text3)"}}>⇅</span>
+        <div className="sidebar-logo">
+          <div className="logo-text">MediaHub</div>
         </div>
         <nav className="sidebar-nav">
           {sections.map(sec=>(
