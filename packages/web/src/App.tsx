@@ -3115,8 +3115,14 @@ const CalendarPage = React.memo(function CalendarPage({mpos,ros,settings}){
   const [mode,setMode]=useState("month");
   const [sel,setSel]=useState(null);
   const [selRo,setSelRo]=useState(null);
+  const [selectedMonths,setSelectedMonths]=useState<Set<string>>(new Set());
+  const [filterOpen,setFilterOpen]=useState(false);
+  const [filterYear,setFilterYear]=useState(now.getFullYear());
   const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const MONTHS_SHORT=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const DAYS=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const toggleMonth=(mk:string)=>setSelectedMonths(prev=>{const n=new Set(prev);n.has(mk)?n.delete(mk):n.add(mk);return n;});
+  const clearMonths=()=>setSelectedMonths(new Set());
 
   const fd=new Date(vy,vm,1).getDay(),dim=new Date(vy,vm+1,0).getDate(),pmd=new Date(vy,vm,0).getDate();
   const cells=[];
@@ -3129,19 +3135,25 @@ const CalendarPage = React.memo(function CalendarPage({mpos,ros,settings}){
     ...((ros||[]).filter(r=>r.start&&r.end&&r.start<=date&&r.end>=date).map(r=>({...r,_type:"ro"}))),
   ];
 
-  const ts2=`${vy}-${String(vm+1).padStart(2,"0")}-01`,te2=new Date(vy,vm+1,0).toISOString().slice(0,10);
+  // ── Timeline range — multi-month aware ──────────────────────────────────
+  const sortedSel=[...selectedMonths].sort();
+  const ts2=sortedSel.length>0?`${sortedSel[0]}-01`:`${vy}-${String(vm+1).padStart(2,"0")}-01`;
+  const lastSelMo=sortedSel.length>0?sortedSel[sortedSel.length-1]:`${vy}-${String(vm+1).padStart(2,"0")}`;
+  const [_ley,_lem]=lastSelMo.split("-").map(Number);
+  const te2=`${_ley}-${String(_lem).padStart(2,"0")}-${String(new Date(_ley,_lem,0).getDate()).padStart(2,"0")}`;
+  const totalRangeDays=Math.max(1,(new Date(te2).getTime()-new Date(ts2).getTime())/864e5+1);
   const tmItems=[
     ...(mpos||[]).filter(m=>m.end>=ts2&&m.start<=te2).map(m=>({...m,_type:"mpo"})),
     ...(ros||[]).filter(r=>r.start&&r.end&&r.end>=ts2&&r.start<=te2).map(r=>({...r,_type:"ro"})),
   ];
-  const dayPct=d=>Math.max(0,Math.min(100,(new Date(d)-new Date(ts2))/864e5/dim*100));
+  const dayPct=d=>Math.max(0,Math.min(100,(new Date(d).getTime()-new Date(ts2).getTime())/864e5/totalRangeDays*100));
   const bLeft=m=>dayPct(m.start>ts2?m.start:ts2)+"%";
-  const bWidth=m=>{const s=m.start<ts2?ts2:m.start,e=m.end>te2?te2:m.end,days=(new Date(e)-new Date(s))/864e5+1;return Math.max(1,days/dim*100)+"%";};
+  const bWidth=m=>{const s=m.start<ts2?ts2:m.start,e=m.end>te2?te2:m.end,days=(new Date(e).getTime()-new Date(s).getTime())/864e5+1;return Math.max(0.5,days/totalRangeDays*100)+"%";};
   const prev=()=>{if(vm===0){setVm(11);setVy(y=>y-1);}else setVm(m=>m-1);};
   const next=()=>{if(vm===11){setVm(0);setVy(y=>y+1);}else setVm(m=>m+1);};
 
   return(
-    <div>
+    <div onClick={()=>filterOpen&&setFilterOpen(false)}>
       {sel&&(
         <Modal title="Details" onClose={()=>setSel(null)}>
           {[["ID",sel.id],["Client",sel.client],["Campaign",sel.campaign],["Vendor",sel.vendor],["Amount",sel._type==="mpo"?fmt(sel.amount)+" "+(sel.currency||"NGN"):"—"],["Period",`${sel.start} → ${sel.end}`],["Status",sel.status],["Channel",sel.channel||"—"]].map(([k,v])=>(
@@ -3158,14 +3170,59 @@ const CalendarPage = React.memo(function CalendarPage({mpos,ros,settings}){
 
       {/* ── Main Calendar Card ── */}
       <div className="card">
-        <div className="card-header">
-          <div style={{display:"flex",alignItems:"center",gap:12,flex:1}}>
+        <div className="card-header" style={{flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,flex:1,minWidth:200}}>
             <button className="btn btn-sm" onClick={prev}>‹</button>
             <span style={{fontWeight:600,fontSize:15,flex:1,textAlign:"center"}}>{MONTHS[vm]} {vy}</span>
             <button className="btn btn-sm" onClick={next}>›</button>
             <button className="btn btn-sm btn-ghost" onClick={()=>{setVy(now.getFullYear());setVm(now.getMonth());}}>Today</button>
           </div>
-          <div className="tabs" style={{marginBottom:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {/* Multi-month filter chips */}
+            {sortedSel.length>0&&sortedSel.map(mk=>{
+              const [y,m]=mk.split("-").map(Number);
+              return(
+                <span key={mk} style={{display:"inline-flex",alignItems:"center",gap:4,background:"var(--brand)",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:600}}>
+                  {MONTHS_SHORT[m-1]} {y}
+                  <button type="button" onClick={()=>toggleMonth(mk)} style={{background:"none",border:"none",color:"#fff",cursor:"pointer",fontSize:13,lineHeight:1,padding:0,marginLeft:2}}>×</button>
+                </span>
+              );
+            })}
+            {sortedSel.length>0&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={clearMonths}>Clear all</button>}
+            {/* Month picker toggle */}
+            <div style={{position:"relative"}}>
+              <button className={`btn btn-sm ${filterOpen?"btn-primary":""}`} onClick={()=>setFilterOpen(o=>!o)}>
+                {sortedSel.length>0?`${sortedSel.length} month${sortedSel.length>1?"s":""} selected`:"Filter months"} ▾
+              </button>
+              {filterOpen&&(
+                <div style={{position:"absolute",right:0,top:"calc(100% + 6px)",zIndex:200,background:"var(--bg1)",border:"1px solid var(--border-c)",borderRadius:14,boxShadow:"0 8px 32px rgba(0,0,0,.18)",padding:14,width:280}} onClick={e=>e.stopPropagation()}>
+                  {/* Year nav */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                    <button className="btn btn-sm btn-ghost" onClick={()=>setFilterYear(y=>y-1)}>‹</button>
+                    <span style={{fontWeight:700,fontSize:13}}>{filterYear}</span>
+                    <button className="btn btn-sm btn-ghost" onClick={()=>setFilterYear(y=>y+1)}>›</button>
+                  </div>
+                  {/* Month grid */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                    {MONTHS_SHORT.map((mo,i)=>{
+                      const mk=`${filterYear}-${String(i+1).padStart(2,"0")}`;
+                      const active=selectedMonths.has(mk);
+                      return(
+                        <button key={mo} type="button" onClick={()=>toggleMonth(mk)}
+                          style={{padding:"6px 4px",borderRadius:8,border:active?"2px solid var(--brand)":"1.5px solid var(--border-c)",background:active?"var(--brand)":"var(--bg2)",color:active?"#fff":"var(--text)",fontWeight:active?700:400,fontSize:12,cursor:"pointer",transition:"all .12s"}}>
+                          {mo}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}>
+                    <button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setFilterOpen(false);}}>Done</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="tabs" style={{marginBottom:0,width:"100%"}}>
             <button className={`tab ${mode==="month"?"active":""}`} onClick={()=>setMode("month")}>Month</button>
             <button className={`tab ${mode==="timeline"?"active":""}`} onClick={()=>setMode("timeline")}>Timeline</button>
           </div>
@@ -3207,7 +3264,7 @@ const CalendarPage = React.memo(function CalendarPage({mpos,ros,settings}){
           <div>
             <div style={{display:"flex",marginBottom:8,paddingLeft:132}}>{[1,8,15,22,29].filter(d=>d<=dim).map(d=><div key={d} style={{flex:1,fontSize:9,color:"var(--text3)",borderLeft:"0.5px solid var(--border-c)",paddingLeft:3}}>{d}</div>)}</div>
             {tmItems.length===0
-              ?<div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>No campaigns or ROs this month</div>
+              ?<div style={{textAlign:"center",padding:32,color:"var(--text3)"}}>{sortedSel.length>1?"No campaigns or ROs in selected months":"No campaigns or ROs this month"}</div>
               :tmItems.map(m=>{
                 const bg=m._type==="ro"?(RO_STATUS_COLOR[m.status]||"#3B6D11"):(CH_COLORS[m.channel]||"#534AB7");
                 const label=m._type==="ro"?`[RO] ${m.campaign.substring(0,16)}`:m.campaign.substring(0,18);
