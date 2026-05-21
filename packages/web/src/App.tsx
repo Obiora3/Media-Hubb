@@ -1055,6 +1055,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(EMPO);const [errs,setErrs]=useState({});
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
+  const [mpoRangeTo,setMpoRangeTo]=useState("");
   const [docsFor,setDocsFor]=useState(null);
   const [commentsFor,setCommentsFor]=useState(null);
   // ── Draft queues ──────────────────────────────────────────────────────────
@@ -1256,9 +1257,26 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
           </div>
           <div className="form-grid">
             <FF id="mpo-month" label="Campaign Month" required error={errs.month}>
-              <input id="mpo-month" className={`form-input ${errs.month?"error":""}`} type="month" value={form.month} onChange={e=>{const {start,end}=getMonthBounds(e.target.value);setForm(f=>({...f,month:e.target.value,start,end}));}}/>
+              <input id="mpo-month" className={`form-input ${errs.month?"error":""}`} type="month" value={form.month} onChange={e=>{const {start,end}=getMonthBounds(e.target.value);setForm(f=>({...f,month:e.target.value,start,end}));setMpoRangeTo("");}}/>
             </FF>
-            <span/>
+            <FF id="mpo-month-to" label="Add months up to (optional)">
+              <div style={{display:"flex",gap:6}}>
+                <input id="mpo-month-to" className="form-input" type="month" value={mpoRangeTo} min={form.month||undefined} onChange={e=>setMpoRangeTo(e.target.value)} style={{flex:1}}/>
+                <button type="button" className="btn btn-sm btn-primary" disabled={!form.month||!mpoRangeTo||mpoRangeTo<=form.month} onClick={()=>{
+                  const [sy,sm]=form.month.split("-").map(Number);
+                  const [ey,em]=mpoRangeTo.split("-").map(Number);
+                  const newRows:any[]=[];let y=sy,m=sm+1;
+                  while(y<ey||(y===ey&&m<=em)){
+                    const mk=`${y}-${String(m).padStart(2,"0")}`;
+                    const {start,end}=getMonthBounds(mk);
+                    newRows.push({id:`mpo-sch-${Date.now()}-${y}${m}`,spots:form.spots||"",rate:form.rate||"",discount:form.discount||"",agencyCommission:form.agencyCommission||"",materialDuration:form.materialDuration||"30",month:mk,start,end});
+                    m++;if(m>12){m=1;y++;}
+                  }
+                  setForm(f=>({...f,extraScheduleRows:[...(f.extraScheduleRows||[]),...newRows]}));
+                  setMpoRangeTo("");
+                }}>+ Add</button>
+              </div>
+            </FF>
           </div>
           <div style={{border:"1px solid var(--border-c)",borderRadius:10,padding:12,marginBottom:12,background:"var(--bg1)"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:(form.extraScheduleRows||[]).length?10:0}}>
@@ -2592,6 +2610,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   const [form,setForm]=useState(seed);
   const [errs,setErrs]=useState({});
   const [step,setStep]=useState(draftInitial?.step||1);
+  const [roRangeTo,setRoRangeTo]=useState("");
   // ── RO Draft persistence (queue) ─────────────────────────────────────────
   const roDraftIdRef=useRef<string|null>(draftInitial?.id||null);
   const [draftSavedAt,setDraftSavedAt]=useState<Date|null>(null);
@@ -2652,11 +2671,20 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
     const s=[...f.schedule];s[i]={...s[i],[k]:k==="spots"?Number(v)||0:v};return{...f,schedule:s};
   });
 
-  const addExtraScheduleRow=()=>setForm(f=>{
-    const {start,end}=f.start&&f.end?{start:f.start,end:f.end}:{start:"",end:""};
+  const addExtraScheduleRow=(targetMonth?:string)=>setForm(f=>{
+    const monthKey=targetMonth||f.campaignMonth||"";
+    const {start,end}=monthKey?getMonthBounds(monthKey):(f.start&&f.end?{start:f.start,end:f.end}:{start:"",end:""});
     const days=start&&end?buildScheduleDays(start,end,[],Number(f.rate)||0):[];
-    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,timeSlot:"",programme:"",materialDuration:f.materialDuration||"",materialTitle:f.materialTitle||"",rate:Number(f.rate)||0,schedule:days}]};
+    return{...f,extraScheduleRows:[...(f.extraScheduleRows||[]),{id:`row-${Date.now()}`,campaignMonth:monthKey,timeSlot:"",programme:"",materialDuration:f.materialDuration||"",materialTitle:f.materialTitle||"",rate:Number(f.rate)||0,schedule:days}]};
   });
+  const setExtraRowMonth=(rowId:string,monthKey:string)=>setForm(f=>({
+    ...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>{
+      if(r.id!==rowId)return r;
+      const {start,end}=getMonthBounds(monthKey);
+      const days=buildScheduleDays(start,end,[],Number(r.rate)||0);
+      return{...r,campaignMonth:monthKey,schedule:days};
+    })
+  }));
 
   const removeExtraScheduleRow=(id)=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).filter(r=>r.id!==id)}));
 
@@ -2915,10 +2943,27 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
           {(form.extraScheduleRows||[]).map((row,rowIdx)=>{
             const rowSpots=row.schedule.reduce((a,s)=>a+Number(s.spots||0),0);
             const rowActiveDays=row.schedule.filter(s=>Number(s.spots)>0).length;
+            // Per-row month info — uses row.campaignMonth if set, falls back to primary
+            const rowMonthKey=row.campaignMonth||form.campaignMonth||"";
+            const rowMonthInfo=(()=>{
+              if(!rowMonthKey)return null;
+              const [ry,rm]=rowMonthKey.split("-").map(Number);
+              if(!ry||!rm)return null;
+              const firstDay=new Date(ry,rm-1,1).getDay();
+              const dim=new Date(ry,rm,0).getDate();
+              const leading=Array.from({length:firstDay},(_,i)=>({key:`blank-s-${i}`,empty:true}));
+              const dates=Array.from({length:dim},(_,i)=>{const d=i+1;const date=`${ry}-${String(rm).padStart(2,"0")}-${String(d).padStart(2,"0")}`;return{key:date,date,day:d};});
+              const trailCount=(7-((leading.length+dates.length)%7))%7;
+              const trailing=Array.from({length:trailCount},(_,i)=>({key:`blank-e-${i}`,empty:true}));
+              return{label:new Date(`${rowMonthKey}-01T12:00:00`).toLocaleDateString("en-NG",{month:"long",year:"numeric"}),cells:[...leading,...dates,...trailing]};
+            })();
             return(
               <div key={row.id} style={{marginTop:16,border:"1.5px dashed var(--brand)",borderRadius:12,padding:14,position:"relative"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"var(--brand)"}}>Schedule Row {rowIdx+2}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"var(--brand)"}}>Schedule Row {rowIdx+2}</div>
+                    <input type="month" className="form-input" style={{fontSize:12,padding:"2px 8px",width:"auto"}} value={row.campaignMonth||""} onChange={e=>setExtraRowMonth(row.id,e.target.value)} title="Campaign month for this row"/>
+                  </div>
                   <button type="button" className="btn btn-sm btn-ghost" style={{color:"#A32D2D",fontSize:11}} onClick={()=>removeExtraScheduleRow(row.id)}>✕ Remove Row</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 16px",marginBottom:12}}>
@@ -2941,10 +2986,10 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
                     <input id={`extra-mattitle-${row.id}`} className="form-input" placeholder="e.g. Thematic, Product Launch" value={row.materialTitle||""} onChange={e=>updateExtraRowField(row.id,"materialTitle",e.target.value)}/>
                   </FF>
                 </div>
-                {monthInfo&&row.schedule.length>0&&(
+                {rowMonthInfo&&row.schedule.length>0&&(
                   <div>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                      <div style={{fontSize:11,color:"var(--text3)"}}>{rowActiveDays} day{rowActiveDays!==1?"s":""} · {rowSpots} spot{rowSpots!==1?"s":""}</div>
+                      <div style={{fontSize:11,color:"var(--text3)"}}><b>{rowMonthInfo.label}</b> · {rowActiveDays} day{rowActiveDays!==1?"s":""} · {rowSpots} spot{rowSpots!==1?"s":""}</div>
                       <div style={{display:"flex",gap:6}}>
                         <button type="button" className="btn btn-sm" style={{fontSize:11}} onClick={()=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==row.id?r:{...r,schedule:r.schedule.map(s=>({...s,spots:1}))})}))}>Select All</button>
                         <button type="button" className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setForm(f=>({...f,extraScheduleRows:(f.extraScheduleRows||[]).map(r=>r.id!==row.id?r:{...r,schedule:r.schedule.map(s=>({...s,spots:0}))})}))}>Clear</button>
@@ -2957,7 +3002,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
                         ))}
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(7,minmax(0,1fr))",gap:3}}>
-                        {monthInfo.cells.map((cell)=>{
+                        {rowMonthInfo.cells.map((cell)=>{
                           if(cell.empty) return <div key={cell.key}/>;
                           const entry=row.schedule.find(s=>s.date===cell.date);
                           const spots=Number(entry?.spots)||0;
@@ -2985,11 +3030,27 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
             );
           })}
 
-          {/* Add Another Schedule Row button */}
+          {/* Add Another Schedule Row / month range adder */}
           {form.campaignMonth&&(
-            <button type="button" className="btn btn-ghost" style={{marginTop:12,width:"100%",borderStyle:"dashed",fontSize:12,color:"var(--brand)",borderColor:"var(--brand)"}} onClick={addExtraScheduleRow}>
-              + Add Another Schedule Row
-            </button>
+            <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:8}}>
+              <button type="button" className="btn btn-ghost" style={{width:"100%",borderStyle:"dashed",fontSize:12,color:"var(--brand)",borderColor:"var(--brand)"}} onClick={()=>addExtraScheduleRow()}>
+                + Add Another Schedule Row
+              </button>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{fontSize:11,color:"var(--text3)",whiteSpace:"nowrap"}}>Add months through:</span>
+                <input type="month" className="form-input" style={{flex:1,fontSize:12,padding:"4px 8px"}} value={roRangeTo} min={form.campaignMonth} onChange={e=>setRoRangeTo(e.target.value)} placeholder="end month"/>
+                <button type="button" className="btn btn-sm btn-primary" disabled={!roRangeTo||roRangeTo<=form.campaignMonth} onClick={()=>{
+                  const [sy,sm]=form.campaignMonth.split("-").map(Number);
+                  const [ey,em]=roRangeTo.split("-").map(Number);
+                  let y=sy,m=sm+1;
+                  while(y<ey||(y===ey&&m<=em)){
+                    addExtraScheduleRow(`${y}-${String(m).padStart(2,"0")}`);
+                    m++;if(m>12){m=1;y++;}
+                  }
+                  setRoRangeTo("");
+                }}>Generate</button>
+              </div>
+            </div>
           )}
         </div>
       )}
