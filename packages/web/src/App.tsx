@@ -3895,7 +3895,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
             start_date:`${year}-${monthNum}-01`,
             end_date:`${year}-${monthNum}-${String(lastDay).padStart(2,"0")}`,
             status:"completed",channel:"TV",currency:"NGN",
-            exec_status:"executed",docs:[],extra_schedule_rows:[],
+            exec_status:"completed",docs:[],extra_schedule_rows:[],
             gross:total,net:total,vat:0,total,vat_rate:0,
           });
         });
