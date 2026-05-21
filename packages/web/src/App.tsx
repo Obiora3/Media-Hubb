@@ -3901,15 +3901,52 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
         });
       });
       if(dbRows.length===0){toast("No valid register rows found in the selected file","error");return;}
-      // Single batch insert — far faster and safer than 500 individual calls
+      // Insert MPOs in chunks, collecting returned rows so we can link ROs
       const CHUNK=100;
-      let inserted=0;
+      const insertedMpos:any[]=[];
       for(let i=0;i<dbRows.length;i+=CHUNK){
-        const {error}=await supabase.from("mpos").insert(dbRows.slice(i,i+CHUNK));
+        const {data,error}=await supabase.from("mpos").insert(dbRows.slice(i,i+CHUNK)).select();
         if(error)throw new Error(error.message);
-        inserted+=Math.min(CHUNK,dbRows.length-i);
+        if(data)insertedMpos.push(...data);
       }
-      toast(`Imported ${inserted} MPOs from Starlife Register (2023–2025)`);
+      // Build one RO per MPO — spread spots evenly across month days
+      const roSeqMap:Record<string,number>={};
+      const roRows=insertedMpos.map(mpo=>{
+        const yr=String(mpo.start_date||"").slice(0,4);
+        const mo=String(mpo.start_date||"").slice(5,7);
+        const yy=yr.slice(2);
+        const prefix=(mpo.client||"GEN").replace(/\s+/g,"").slice(0,3).toUpperCase();
+        const key=`${prefix}${yy}${mo}`;
+        roSeqMap[key]=(roSeqMap[key]||0)+1;
+        const roId=`RO-${prefix}-${yy}${mo}-${String(roSeqMap[key]).padStart(3,"0")}`;
+        const daysInMonth=new Date(parseInt(yr),parseInt(mo),0).getDate();
+        const spotsPerDay=Math.floor((mpo.spots||0)/daysInMonth);
+        const rem=(mpo.spots||0)%daysInMonth;
+        const schedule=Array.from({length:daysInMonth},(_,d)=>({
+          date:`${yr}-${mo}-${String(d+1).padStart(2,"0")}`,
+          spots:spotsPerDay+(d===daysInMonth-1?rem:0),
+          rate:mpo.rate||0,timeSlot:"",programme:"",
+          materialDuration:String(mpo.material_duration||"30"),materialTitle:"",
+        })).filter(e=>e.spots>0);
+        return{
+          id:roId,workspace_id:workspaceId,mpo_id:mpo.id,
+          client:mpo.client,vendor:mpo.vendor,campaign:mpo.campaign,
+          channel:mpo.channel||"TV",
+          start_date:mpo.start_date,end_date:mpo.end_date,
+          status:"executed",currency:mpo.currency||"NGN",
+          rate:mpo.rate||0,time_slot:"",programme:"",
+          material_duration:String(mpo.material_duration||"30"),material_title:"",
+          campaign_month:`${yr}-${mo}`,
+          volume_discount:mpo.volume_discount||0,agency_commission:0,
+          schedule,extra_schedule_rows:[],docs:[],
+        };
+      });
+      // Insert ROs in chunks
+      for(let i=0;i<roRows.length;i+=CHUNK){
+        const {error}=await supabase.from("ros").insert(roRows.slice(i,i+CHUNK));
+        if(error)throw new Error(`RO insert failed: ${error.message}`);
+      }
+      toast(`Imported ${insertedMpos.length} MPOs + ${roRows.length} ROs from Starlife Register (2023–2025)`);
       onRefreshMpos?.();
     }catch(err:any){
       toast(`Import failed: ${err?.message||"Unknown error"}`,"error");
