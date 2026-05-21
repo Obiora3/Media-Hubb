@@ -541,9 +541,9 @@ function ProfileModal({user,onClose,toast}){
   );
 }
 
-function SettingsPage({settings,setSettings,user,toast}){
+const SettingsPage = React.memo(function SettingsPage({settings,setSettings,user,toast}){
   return <RoleGuard user={user} require="settings"><SettingsContent settings={settings} setSettings={setSettings} toast={toast} user={user}/></RoleGuard>;
-}
+});
 function SettingsContent({settings,setSettings,toast,user}){
   const set=(k,v)=>setSettings(s=>({...s,[k]:v}));
   const [saving,setSaving]=useState(false);
@@ -725,7 +725,7 @@ const DEFAULT_SETTINGS={
 };
 
 /* ═══ DASHBOARD ═══ */
-function Dashboard({mpos,ros,clients,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
+const Dashboard = React.memo(function Dashboard({mpos,ros,clients,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
   const lP=payables.map(p=>({...p,status:computeStatus(p)}));
   const dCcy=settings.defaultCurrency||"NGN";
@@ -874,7 +874,7 @@ function Dashboard({mpos,ros,clients,receivables,payables,setPage,settings,toast
       </div>
     </div>
   );
-}
+});
 
 /* ═══ SCHEDULING PAGE (MPO + RO) ═══ */
 const RO_DRAFTS_KEY="mh_drafts_ro";
@@ -1030,7 +1030,7 @@ function printMPO(m:any,settings:any){
 }
 
 const EMPO={agency:"",client:"",vendor:"",campaign:"",month:"",start:"",end:"",status:"pending",currency:"NGN",docs:[],spots:"",rate:"",discount:"",agencyCommission:"",materialDuration:"30",extraScheduleRows:[]};
-function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment,focusItem,onFocusConsumed}){
+const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,comments,onAddComment,focusItem,onFocusConsumed}){
   const [docType,setDocType]=useState("ro"); // "ro" | "mpo"
   const [createMenu,setCreateMenu]=useState(false);
   const menuRef=useRef(null);
@@ -1568,7 +1568,7 @@ function MPOPage({mpos,setMpos,ros,setRos,clients,toast,user,addAudit,settings,c
       )}
     </div>
   );
-}
+});
 
 /* ═══ AGENCY REGISTRATION FORM ═══ */
 const EMPTY_BRAND={name:"",industry:"",contact:"",email:""};
@@ -1727,7 +1727,7 @@ function AgencyForm({initial,onSave,onClose}){
 
 /* ═══ CLIENTS ═══ */
 const ECLI={name:"",type:"Client",industry:"",contact:"",email:""};
-function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
+const ClientsPage = React.memo(function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
   const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(ECLI);const [errs,setErrs]=useState({});
@@ -1922,7 +1922,7 @@ function ClientsPage({clients,setClients,toast,user,addAudit,onOnboard}){
       </div>
     </div>
   );
-}
+});
 
 /* ═══ CALENDAR ═══ */
 
@@ -3048,7 +3048,7 @@ const RO_STATUS_COLOR={draft:"#888",sent:"#854F0B",confirmed:"#3B6D11",executed:
 const RO_STATUS_BG={draft:"#f0f0f0",sent:"#FAEEDA",confirmed:"#EAF3DE",executed:"#E6F1FB"};
 const RO_STATUS_OPTIONS=["draft","sent","confirmed","executed"];
 
-function CalendarPage({mpos,ros,settings}){
+const CalendarPage = React.memo(function CalendarPage({mpos,ros,settings}){
   const now=new Date();
   const [vy,setVy]=useState(now.getFullYear());const [vm,setVm]=useState(now.getMonth());
   const [mode,setMode]=useState("month");
@@ -3171,7 +3171,7 @@ function CalendarPage({mpos,ros,settings}){
       </div>
     </div>
   );
-}
+});
 
 /* ═══ FINANCE ═══ */
 function printInvoice(inv,settings={}){
@@ -3186,7 +3186,7 @@ function printInvoice(inv,settings={}){
 
 const EINV={client:"",mpo:"",amount:"",due:"",currency:"NGN",docs:[]};
 const EPAY={vendor:"",mpo:"",amount:"",due:"",description:"",currency:"NGN"};
-function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clients,toast,user,addAudit,settings,comments,onAddComment}){
+const FinancePage = React.memo(function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clients,toast,user,addAudit,settings,comments,onAddComment}){
   const [mainTab,setMainTab]=useState("receivables");
   const [recTab,setRecTab]=useState("all");const [payTab,setPayTab]=useState("all");
   const [logId,setLogId]=useState(null);const [logMode,setLogMode]=useState("rec");const [logAmt,setLogAmt]=useState("");
@@ -3340,10 +3340,10 @@ function FinancePage({receivables,setReceivables,payables,setPayables,mpos,clien
       {selected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{selected.size}</span><span>selected</span><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={()=>{const src=mainTab==="receivables"?lR:lP;const rows=[["ID","Party","Amount","Currency","Due","Status"],...src.filter(r=>selected.has(r.id)).map(r=>[r.id,r.client||r.vendor,r.amount,r.currency||"NGN",r.due,r.status])];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="finance.csv";a.click();toast("Exported","info");setSelected(new Set());}}>Export CSV</button><button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setSelected(new Set())}>✕</button></div>)}
     </div>
   );
-}
+});
 
 /* ═══ REVENUE TARGET PAGE ═══ */
-function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData=[],onSaveTarget,onDeleteTarget}:{mpos:any[],ros?:any[],settings:any,setSettings:any,user:any,revTargetsData:any[],onSaveTarget:(adv:string,amt:number,yr:number)=>Promise<void>,onDeleteTarget:(adv:string,yr:number)=>Promise<void>}){
+const RevenueTargetPage = React.memo(function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData=[],onSaveTarget,onDeleteTarget}:{mpos:any[],ros?:any[],settings:any,setSettings:any,user:any,revTargetsData:any[],onSaveTarget:(adv:string,amt:number,yr:number)=>Promise<void>,onDeleteTarget:(adv:string,yr:number)=>Promise<void>}){
   const canEdit=user?.role==="admin"||user?.role==="manager";
   const now=new Date();
   const todayLocal=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
@@ -3834,14 +3834,14 @@ function RevenueTargetPage({mpos,ros=[],settings,setSettings,user,revTargetsData
       </div>
     </div>
   );
-}
+});
 
 /* ═══ REPORTS ═══ */
 const REPORT_MEDIA_BUY_FILTERS_KEY="mh_report_media_buy_filters";
 function readReportMediaBuyFilters(){
   try{return JSON.parse(localStorage.getItem(REPORT_MEDIA_BUY_FILTERS_KEY)||"{}")||{};}catch{return{};}
 }
-function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings,onOpenScheduleItem}){
+const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings,onOpenScheduleItem}){
   const filterSeed=useMemo(()=>readReportMediaBuyFilters(),[]);
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
   const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
@@ -4561,10 +4561,10 @@ function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings
       )}
     </div>
   );
-}
+});
 
 /* ═══ REMINDERS ═══ */
-function RemindersPage({receivables,payables,mpos,user,toast}){return <RoleGuard user={user} require="reminders"><RemContent receivables={receivables} payables={payables} mpos={mpos} toast={toast}/></RoleGuard>;}
+const RemindersPage = React.memo(function RemindersPage({receivables,payables,mpos,user,toast}){return <RoleGuard user={user} require="reminders"><RemContent receivables={receivables} payables={payables} mpos={mpos} toast={toast}/></RoleGuard>;});
 function RemContent({receivables,payables,mpos,toast}){
   const [sent,setSent]=useState({});
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
@@ -4593,7 +4593,7 @@ function RemContent({receivables,payables,mpos,toast}){
 }
 
 /* ═══ AUDIT ═══ */
-function AuditPage({auditLog,user}){return <RoleGuard user={user} require="audit"><AuditContent auditLog={auditLog}/></RoleGuard>;}
+const AuditPage = React.memo(function AuditPage({auditLog,user}){return <RoleGuard user={user} require="audit"><AuditContent auditLog={auditLog}/></RoleGuard>;});
 function AuditContent({auditLog}){
   const [filter,setFilter]=useState("all");
   const tags=["all","create","workflow","payment","reminder","delete","update"];
@@ -4627,7 +4627,7 @@ const ROLE_PERMISSIONS={
   client:  ["dashboard","revenue-target"],
 };
 
-function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser} toast={toast}/></RoleGuard>;}
+const UsersPage = React.memo(function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser} toast={toast}/></RoleGuard>;});
 function UsersContent({currentUser,toast}){
   const rc={admin:"badge-purple",manager:"badge-blue",viewer:"badge-gray",client:"badge-gray"};
   const [profiles,setProfiles]=useState([]);
@@ -5097,7 +5097,7 @@ function BudgetCard({budget, mpos, payables}) {
   );
 }
 
-function BudgetsPage({budgets,setBudgets,mpos,payables,toast,user,addAudit}) {
+const BudgetsPage = React.memo(function BudgetsPage({budgets,setBudgets,mpos,payables,toast,user,addAudit}) {
   const [showForm,setShowForm]=useState(false);
   const [form,setForm]=useState({mpoId:"",budget:"",alertPct:80});
   const [errs,setErrs]=useState({});
@@ -5206,7 +5206,7 @@ function BudgetsPage({budgets,setBudgets,mpos,payables,toast,user,addAudit}) {
       </div>
     </div>
   );
-}
+});
 
 /* ══════════════════════════════════════════════════
    S7-2: CLIENT ONBOARDING WIZARD
@@ -5219,7 +5219,7 @@ const WIZARD_STEPS = [
   {id:"done",    label:"Launch"},
 ];
 
-function OnboardingWizard({onClose, onComplete, clients, mpos, settings, currentUser}) {
+const OnboardingWizard = React.memo(function OnboardingWizard({onClose, onComplete, clients, mpos, settings, currentUser}) {
   const [step,setStep]=useState(0);
   const [launched,setLaunched]=useState(false);
   const dCcy = settings.defaultCurrency||"NGN";
@@ -5399,7 +5399,7 @@ function OnboardingWizard({onClose, onComplete, clients, mpos, settings, current
       </div>
     </div>
   );
-}
+});
 
 const NAV=[
   {id:"dashboard",label:"Dashboard",   icon:"■", section:"overview"},
@@ -5553,36 +5553,50 @@ function getRoScheduleRepairPatch(dbRow:any, ro:any){
   return Object.keys(patch).length?patch:null;
 }
 
-// ── makeArraySetter ───────────────────────────────────────────────────────────
-// Returns a React-compatible setter (accepts value or prev=>next) that also
-// dispatches Supabase mutations by diffing old vs new array.
-function makeArraySetter(getLocal, insertFn, updateFn, removeFn, fromRow, workspaceId) {
+// ── Shallow-changed helper ────────────────────────────────────────────────────
+// Compares primitive fields with ===; only serialises nested arrays/objects.
+// Much faster than full JSON.stringify(a) !== JSON.stringify(b) on large arrays.
+function shallowChanged(a: any, b: any): boolean {
+  if (a === b) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return true;
+  for (const k of aKeys) {
+    const av = a[k], bv = b[k];
+    if (Array.isArray(av) || (av !== null && typeof av === "object")) {
+      if (JSON.stringify(av) !== JSON.stringify(bv)) return true;
+    } else if (av !== bv) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── makeDirectSetter ──────────────────────────────────────────────────────────
+// Returns a setter (accepts value or prev=>next) that diffs against the ref's
+// current snapshot and dispatches the minimal Supabase mutations.
+// Using a ref instead of a state-setter means UI state lives in useSupabaseTable
+// (single source of truth) — no redundant local useState mirrors.
+function makeDirectSetter(dataRef: { current: any[] }, insertFn, updateFn, removeFn, fromRow, workspaceId) {
   return function(updater) {
-    getLocal(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      // Detect added items
-      const prevIds = new Set(prev.map(x => x.id));
-      const nextIds = new Set(next.map(x => x.id));
-      next.forEach(item => {
-        if (!prevIds.has(item.id)) {
-          // new item — insert (never pass local non-UUID IDs; let Supabase auto-generate)
-          const row = fromRow(item);
-          if (workspaceId) row.workspace_id = workspaceId;
-          insertFn(row).catch(e => console.error("Supabase insert failed", e));
-        } else {
-          // existing — check if changed
-          const old = prev.find(x => x.id === item.id);
-          if (old && JSON.stringify(old) !== JSON.stringify(item)) {
-            updateFn(item.id, fromRow(item)).catch(e => console.error("Supabase update failed", e));
-          }
-        }
-      });
-      prev.forEach(item => {
-        if (!nextIds.has(item.id)) {
-          removeFn(item.id).catch(e => console.error("Supabase remove failed", e));
-        }
-      });
-      return next;
+    const prev = dataRef.current;
+    const next = typeof updater === "function" ? updater(prev) : updater;
+    const prevMap = new Map(prev.map(x => [x.id, x]));
+    const nextIds = new Set(next.map(x => x.id));
+    next.forEach(item => {
+      const old = prevMap.get(item.id);
+      if (!old) {
+        const row = fromRow(item);
+        if (workspaceId) row.workspace_id = workspaceId;
+        insertFn(row).catch(e => console.error("Supabase insert failed", e));
+      } else if (shallowChanged(old, item)) {
+        updateFn(item.id, fromRow(item)).catch(e => console.error("Supabase update failed", e));
+      }
+    });
+    prev.forEach(item => {
+      if (!nextIds.has(item.id)) {
+        removeFn(item.id).catch(e => console.error("Supabase remove failed", e));
+      }
     });
   };
 }
@@ -5598,6 +5612,7 @@ function App(){
   } : null;
 
   // ── Supabase tables ─────────────────────────────────────────────────────────
+  const roRepairDoneRef = useRef(false);
   const mposTable       = useSupabaseTable("mpos",            workspaceId);
   const clientsTable    = useSupabaseTable("clients",         workspaceId);
   const invoicesTable   = useSupabaseTable("invoices",        workspaceId);
@@ -5608,28 +5623,31 @@ function App(){
   const rosTable        = useSupabaseTable("ros",             workspaceId);
   const revTargetsTable = useSupabaseTable("revenue_targets", workspaceId);
 
-  // ── Local state (optimistic, seeded from DB) ────────────────────────────────
-  const [mpos,        _setMpos]        = useState([]);
-  const [clients,     _setClients]     = useState([]);
-  const [receivables, _setReceivables] = useState([]);
-  const [payables,    _setPayables]    = useState([]);
-  const [budgets,     _setBudgets]     = useState([]);
-  const [auditLog,    _setAuditLog]    = useState([]);
+  // ── Derived entity arrays (single source of truth: the table hook's data) ────
+  // No redundant useState mirrors — useMemo transforms DB rows directly.
+  const mpos        = useMemo(()=>(mposTable.data       ||[]).map(toMpo).filter(Boolean),    [mposTable.data]);
+  const clients     = useMemo(()=>(clientsTable.data    ||[]).map(toClient).filter(Boolean),  [clientsTable.data]);
+  const receivables = useMemo(()=>(invoicesTable.data   ||[]).map(toInvoice).filter(Boolean), [invoicesTable.data]);
+  const payables    = useMemo(()=>(payablesTable.data   ||[]).map(toPayable).filter(Boolean), [payablesTable.data]);
+  const budgets     = useMemo(()=>(budgetsTable.data    ||[]).map(toBudget).filter(Boolean),  [budgetsTable.data]);
+  const auditLog    = useMemo(()=>(auditTable.data      ||[]).map(toAudit).filter(Boolean),   [auditTable.data]);
+  const ros         = useMemo(()=>(rosTable.data        ||[]).map(toRo).filter(Boolean),      [rosTable.data]);
+  // Notifications keep local state so read/unread is tracked client-side
   const [notifications, _setNotifications] = useState([]);
-  const [ros,         _setRos]         = useState([]);
+  useEffect(()=>{ if(notifTable.data) _setNotifications(notifTable.data); },[notifTable.data]);
 
-  // Seed local state from DB whenever DB rows change
-  useEffect(()=>{ if(mposTable.data)      _setMpos(mposTable.data.map(toMpo).filter(Boolean));           },[mposTable.data]);
-  useEffect(()=>{ if(clientsTable.data)   _setClients(clientsTable.data.map(toClient).filter(Boolean));  },[clientsTable.data]);
-  useEffect(()=>{ if(invoicesTable.data)  _setReceivables(invoicesTable.data.map(toInvoice).filter(Boolean)); },[invoicesTable.data]);
-  useEffect(()=>{ if(payablesTable.data)  _setPayables(payablesTable.data.map(toPayable).filter(Boolean));    },[payablesTable.data]);
-  useEffect(()=>{ if(budgetsTable.data)   _setBudgets(budgetsTable.data.map(toBudget).filter(Boolean));       },[budgetsTable.data]);
-  useEffect(()=>{ if(auditTable.data)     _setAuditLog(auditTable.data.map(toAudit).filter(Boolean));         },[auditTable.data]);
-  useEffect(()=>{ if(notifTable.data)     _setNotifications(notifTable.data);                             },[notifTable.data]);
+  // ── Refs: always-current snapshot for use inside setters (no stale closure risk) ──
+  const mposRef        = useRef<any[]>([]); mposRef.current        = mpos;
+  const clientsRef     = useRef<any[]>([]); clientsRef.current     = clients;
+  const receivablesRef = useRef<any[]>([]); receivablesRef.current = receivables;
+  const payablesRef    = useRef<any[]>([]); payablesRef.current    = payables;
+  const budgetsRef     = useRef<any[]>([]); budgetsRef.current     = budgets;
+  const rosRef         = useRef<any[]>([]); rosRef.current         = ros;
+
+  // RO schedule repair — runs once after initial load (ref guard prevents feedback loop)
   useEffect(()=>{
-    if(!rosTable.data) return;
-    const mapped=rosTable.data.map(toRo).filter(Boolean);
-    _setRos(mapped);
+    if(!rosTable.data||roRepairDoneRef.current) return;
+    roRepairDoneRef.current=true;
     rosTable.data.forEach(row=>{
       const ro=toRo(row);
       if(!ro) return;
@@ -5638,32 +5656,13 @@ function App(){
     });
   },[rosTable.data]);
 
-  // ── Compatibility setters (work like usePersisted setters) ──────────────────
-  const setMpos        = makeArraySetter(_setMpos,        mposTable.insert,     mposTable.update,     mposTable.remove,     fromMpo,     workspaceId);
-  const setClients     = makeArraySetter(_setClients,     clientsTable.insert,  clientsTable.update,  clientsTable.remove,  fromClient,  workspaceId);
-  const setReceivables = makeArraySetter(_setReceivables, invoicesTable.insert, invoicesTable.update, invoicesTable.remove, fromInvoice, workspaceId);
-  const setPayables    = makeArraySetter(_setPayables,    payablesTable.insert, payablesTable.update, payablesTable.remove, fromPayable, workspaceId);
-  const setBudgets     = makeArraySetter(_setBudgets,     budgetsTable.insert,  budgetsTable.update,  budgetsTable.remove,  fromBudget,  workspaceId);
-  const setRos         = makeArraySetter(_setRos,         rosTable.insert,      rosTable.update,      rosTable.remove,      fromRo,      workspaceId);
-  const setAuditLog    = (updater) => {
-    _setAuditLog(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      const prevIds = new Set(prev.map(x=>x.id));
-      next.forEach(item => {
-        if(!prevIds.has(item.id)){
-          const row = {
-            user_id: item.userId || null, user_name: item.userName,
-            user_color: item.userColor, initials: item.initials,
-            action: item.action, entity: item.entity, entity_id: item.entityId,
-            detail: item.detail, tag: item.tag, ts: item.ts,
-            workspace_id: workspaceId,
-          };
-          auditTable.insert(row).catch(e=>console.error("audit insert failed",e));
-        }
-      });
-      return next;
-    });
-  };
+  // ── Entity setters — write directly to Supabase; UI updates via useMemo ──────
+  const setMpos        = makeDirectSetter(mposRef,        mposTable.insert,     mposTable.update,     mposTable.remove,     fromMpo,     workspaceId);
+  const setClients     = makeDirectSetter(clientsRef,     clientsTable.insert,  clientsTable.update,  clientsTable.remove,  fromClient,  workspaceId);
+  const setReceivables = makeDirectSetter(receivablesRef, invoicesTable.insert, invoicesTable.update, invoicesTable.remove, fromInvoice, workspaceId);
+  const setPayables    = makeDirectSetter(payablesRef,    payablesTable.insert, payablesTable.update, payablesTable.remove, fromPayable, workspaceId);
+  const setBudgets     = makeDirectSetter(budgetsRef,     budgetsTable.insert,  budgetsTable.update,  budgetsTable.remove,  fromBudget,  workspaceId);
+  const setRos         = makeDirectSetter(rosRef,         rosTable.insert,      rosTable.update,      rosTable.remove,      fromRo,      workspaceId);
   const setNotifications = (updater) => {
     _setNotifications(prev => typeof updater === "function" ? updater(prev) : updater);
   };
@@ -5789,16 +5788,37 @@ function App(){
     document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);
   },[]);
 
-  // Build and refresh notifications from live data
+  // ── Memoized derived state (computed before early returns so hooks stay stable) ──
+  const lR = useMemo(()=>receivables.map(r=>({...r,status:computeStatus(r)})),[receivables]);
+  const lP = useMemo(()=>payables.map(p=>({...p,status:computeStatus(p)})),[payables]);
+  const alerts = useMemo(()=>[
+    ...lR.filter(r=>r.status==="overdue").map(r=>({c:"#A32D2D",t:`Invoice ${r.id} overdue — ${r.client}`})),
+    ...lP.filter(p=>p.status==="overdue").map(p=>({c:"#D85A30",t:`Payable ${p.id} overdue — ${p.vendor}`})),
+    ...mpos.filter(m=>m.exec==="delayed").map(m=>({c:"#854F0B",t:`MPO ${m.id} delayed`})),
+  ],[lR,lP,mpos]);
+  // Merge stored permissions with role defaults so newly added permissions
+  // apply automatically without needing a profile update in Supabase.
+  const effectivePerms = useMemo(()=>currentUser
+    ? [...new Set([...(currentUser.permissions||[]),...(ROLE_PERMISSIONS[currentUser.role]||[])])]
+    : [],[currentUser]);
+  const visibleNav = useMemo(()=>NAV.filter(n=>effectivePerms.includes(n.id)),[effectivePerms]);
+  const sections = useMemo(()=>[...new Set(visibleNav.map(n=>n.section))],[visibleNav]);
+  const addAudit = useCallback((action,entity,entityId,detail,tag)=>{
+    if(!currentUser) return;
+    const entry={user_id:currentUser.id,user_name:currentUser.name,user_color:currentUser.color,initials:currentUser.initials,action,entity,entity_id:entityId,detail,tag,ts:tsNow(),workspace_id:workspaceId};
+    auditTable.insert(entry).catch(e=>console.error("audit insert failed",e));
+  },[currentUser,workspaceId,auditTable.insert]);
+
+  // Build and refresh notifications from live data (uses memoized lR/lP to avoid redundant status computation)
   useEffect(()=>{
-    const fresh=buildNotifications(receivables,payables,mpos);
+    const fresh=buildNotifications(lR,lP,mpos);
     setNotifications(prev=>{
       const existingIds=new Set(prev.map(n=>n.id));
       const merged=[...prev];
       fresh.forEach(n=>{if(!existingIds.has(n.id))merged.unshift(n);});
       return merged.slice(0,50);
     });
-  },[receivables,payables,mpos]);
+  },[lR,lP,mpos]);
 
   // ── Auth gates ──────────────────────────────────────────────────────────────
   if(authLoading) return(
@@ -5823,24 +5843,11 @@ function App(){
   );
   if(currentUser.role==="client") return <ClientPortal user={currentUser} receivables={receivables} mpos={mpos} onLogout={signOut}/>;
 
-  const addAudit=(action,entity,entityId,detail,tag)=>{
-    const entry={id:`a${Date.now()}`,userId:currentUser.id,userName:currentUser.name,userColor:currentUser.color,initials:currentUser.initials,action,entity,entityId,detail,ts:tsNow(),tag};
-    setAuditLog(l=>[entry,...l].slice(0,200));
-  };
-
-  const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
-  const lP=payables.map(p=>({...p,status:computeStatus(p)}));
   const unreadCount=notifications.filter(n=>!n.read).length;
-  const alerts=[...lR.filter(r=>r.status==="overdue").map(r=>({c:"#A32D2D",t:`Invoice ${r.id} overdue — ${r.client}`})),...lP.filter(p=>p.status==="overdue").map(p=>({c:"#D85A30",t:`Payable ${p.id} overdue — ${p.vendor}`})),...mpos.filter(m=>m.exec==="delayed").map(m=>({c:"#854F0B",t:`MPO ${m.id} delayed`}))];
 
   const readNotif=id=>setNotifications(p=>p.map(n=>n.id===id?{...n,read:true}:n));
   const readAllNotifs=()=>setNotifications(p=>p.map(n=>({...n,read:true})));
 
-  // Merge stored permissions with role defaults so newly added permissions
-  // apply automatically without needing a profile update in Supabase.
-  const effectivePerms=[...new Set([...(currentUser.permissions||[]),...(ROLE_PERMISSIONS[currentUser.role]||[])])];
-  const visibleNav=NAV.filter(n=>effectivePerms.includes(n.id));
-  const sections=[...new Set(visibleNav.map(n=>n.section))];
   const nav=id=>{setPage(id);setSOpen(false);};
   const openScheduleItem=(type:string,id:string,action="view")=>{if(!id)return;setScheduleFocus({type,id,action,ts:Date.now()});setPage("mpo");setSOpen(false);};
   const logout=()=>{signOut();setPage("dashboard");};

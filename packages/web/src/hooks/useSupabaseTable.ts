@@ -89,7 +89,12 @@ export function useSupabaseTable<T extends Row>(
         },
         (payload: RealtimePostgresChangesPayload<T>) => {
           if (payload.eventType === "INSERT") {
-            setData((d) => [payload.new as T, ...d]);
+            // Deduplicate: Realtime may fire after an optimistic insert already added the row
+            setData((d) =>
+              d.some((r) => r.id === (payload.new as T).id)
+                ? d.map((r) => (r.id === (payload.new as T).id ? (payload.new as T) : r))
+                : [payload.new as T, ...d]
+            );
           } else if (payload.eventType === "UPDATE") {
             setData((d) =>
               d.map((r) => (r.id === (payload.new as T).id ? (payload.new as T) : r))
@@ -109,15 +114,24 @@ export function useSupabaseTable<T extends Row>(
   // ── Mutations ─────────────────────────────────────────────────────────────
   const insert = useCallback(
     async (row: Omit<T, "id" | "created_at">): Promise<T | null> => {
+      // Optimistic: add a placeholder row immediately so the UI doesn't wait for the round-trip
+      const tempId = `__temp__${Date.now()}`;
+      const optimistic = { ...row, id: tempId, created_at: new Date().toISOString() } as unknown as T;
+      setData((d) => [optimistic, ...d]);
+
       const { data: inserted, error: err } = await supabase
         .from(table)
         .insert({ ...row, workspace_id: workspaceId })
         .select()
         .single();
 
-      if (err) { setError(err.message); return null; }
-      // Realtime will add it, but add optimistically for speed
-      setData((d) => [inserted as T, ...d]);
+      if (err) {
+        setData((d) => d.filter((r) => r.id !== tempId));
+        setError(err.message);
+        return null;
+      }
+      // Swap placeholder for the real DB row (Realtime dedup handles the rest)
+      setData((d) => d.map((r) => (r.id === tempId ? (inserted as T) : r)));
       return inserted as T;
     },
     [table, workspaceId]
@@ -125,6 +139,9 @@ export function useSupabaseTable<T extends Row>(
 
   const update = useCallback(
     async (id: string, changes: Partial<T>): Promise<T | null> => {
+      // Apply the change immediately — UI responds without waiting for the network
+      setData((d) => d.map((r) => (r.id === id ? { ...r, ...changes } as T : r)));
+
       const { data: updated, error: err } = await supabase
         .from(table)
         .update(changes as Record<string, unknown>)
@@ -132,7 +149,13 @@ export function useSupabaseTable<T extends Row>(
         .select()
         .single();
 
-      if (err) { setError(err.message); return null; }
+      if (err) {
+        setError(err.message);
+        // Trigger a refresh to restore the correct server state
+        setRev((r) => r + 1);
+        return null;
+      }
+      // Reconcile with the server's authoritative version (may differ from optimistic)
       setData((d) => d.map((r) => (r.id === id ? (updated as T) : r)));
       return updated as T;
     },
@@ -141,9 +164,14 @@ export function useSupabaseTable<T extends Row>(
 
   const remove = useCallback(
     async (id: string): Promise<boolean> => {
-      const { error: err } = await supabase.from(table).delete().eq("id", id);
-      if (err) { setError(err.message); return false; }
+      // Optimistic remove
       setData((d) => d.filter((r) => r.id !== id));
+      const { error: err } = await supabase.from(table).delete().eq("id", id);
+      if (err) {
+        setError(err.message);
+        setRev((r) => r + 1); // restore on failure
+        return false;
+      }
       return true;
     },
     [table]
