@@ -3843,7 +3843,7 @@ function readReportMediaBuyFilters(){
 }
 const IMPORT_MONTHS:Record<string,string>={January:"01",February:"02",March:"03",April:"04",May:"05",June:"06",July:"07",August:"08",September:"09",October:"10",November:"11",December:"12"};
 
-const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings,onOpenScheduleItem,setMpos,toast}){
+const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings,onOpenScheduleItem,workspaceId,onRefreshMpos,toast}){
   const filterSeed=useMemo(()=>readReportMediaBuyFilters(),[]);
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
   const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
@@ -3854,17 +3854,19 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
 
   const handleImportRegister=async(e:React.ChangeEvent<HTMLInputElement>)=>{
     const file=e.target.files?.[0];
-    if(!file){return;}
+    if(!file)return;
     e.target.value="";
+    if(!workspaceId){toast("No workspace — please reload and try again","error");return;}
+    // Warn if Starlife records already exist
+    const existingStarlife=(mpos||[]).filter((m:any)=>m.vendor==="Starlife").length;
+    if(existingStarlife>0&&!confirm(`${existingStarlife} Starlife records already exist. Import again and create duplicates?`))return;
     setImporting(true);
     try{
       const XLS=await import("xlsx-js-style");
       const buf=await file.arrayBuffer();
       const wb=(XLS as any).read(buf,{type:"array"});
       const TARGET_SHEETS=["2023 REGISTER","2024 REGISTER","2025 REGISTER"];
-      const maxExisting=(mpos||[]).reduce((mx:number,m:any)=>{const n=parseInt((m.id||"").replace("MPO-",""),10);return isNaN(n)?mx:Math.max(mx,n);},0);
-      let counter=0;
-      const newMpos:any[]=[];
+      const dbRows:any[]=[];
       TARGET_SHEETS.forEach(sheetName=>{
         const year=sheetName.slice(0,4);
         const ws=wb.Sheets[sheetName];
@@ -3882,26 +3884,33 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           if(!agency||!brand||!IMPORT_MONTHS[monthName]||!spots||!total||isNaN(spots)||agency.toLowerCase()==="agency")return;
           const monthNum=IMPORT_MONTHS[monthName];
           const lastDay=new Date(parseInt(year),parseInt(monthNum),0).getDate();
-          const start=`${year}-${monthNum}-01`;
-          const end=`${year}-${monthNum}-${String(lastDay).padStart(2,"0")}`;
           const discountPct=rate>0?Math.round((1-rateNet/rate)*10000)/100:0;
           const durNum=(String(duration).match(/(\d+)/)||["","30"])[1];
-          counter++;
-          newMpos.push({
-            id:`MPO-${String(maxExisting+counter).padStart(3,"0")}`,
+          dbRows.push({
+            workspace_id:workspaceId,
             client:brand,agency,vendor:"Starlife",
             campaign:`${brand} - ${monthName} ${year}`,
-            spots,rate,discount:discountPct,agencyCommission:0,
-            amount:total,materialDuration:durNum,
-            start,end,status:"completed",channel:"TV",currency:"NGN",
-            exec:"executed",docs:[],extraScheduleRows:[],
-            gross:total,net:total,vat:0,total,vatRate:0,
+            spots,rate,volume_discount:discountPct,agency_commission:0,
+            amount:total,material_duration:durNum,
+            start_date:`${year}-${monthNum}-01`,
+            end_date:`${year}-${monthNum}-${String(lastDay).padStart(2,"0")}`,
+            status:"completed",channel:"TV",currency:"NGN",
+            exec_status:"executed",docs:[],extra_schedule_rows:[],
+            gross:total,net:total,vat:0,total,vat_rate:0,
           });
         });
       });
-      if(newMpos.length===0){toast("No valid register rows found in the selected file","error");return;}
-      setMpos((p:any[])=>[...p,...newMpos]);
-      toast(`Imported ${newMpos.length} MPOs from Starlife Register (2023–2025)`);
+      if(dbRows.length===0){toast("No valid register rows found in the selected file","error");return;}
+      // Single batch insert — far faster and safer than 500 individual calls
+      const CHUNK=100;
+      let inserted=0;
+      for(let i=0;i<dbRows.length;i+=CHUNK){
+        const {error}=await supabase.from("mpos").insert(dbRows.slice(i,i+CHUNK));
+        if(error)throw new Error(error.message);
+        inserted+=Math.min(CHUNK,dbRows.length-i);
+      }
+      toast(`Imported ${inserted} MPOs from Starlife Register (2023–2025)`);
+      onRefreshMpos?.();
     }catch(err:any){
       toast(`Import failed: ${err?.message||"Unknown error"}`,"error");
     }finally{
@@ -6164,7 +6173,7 @@ function App(){
           {page==="finance"   &&<FinancePage receivables={receivables} setReceivables={setReceivables} payables={payables} setPayables={setPayables} mpos={mpos} clients={clients} toast={toast} user={currentUser} addAudit={addAudit} settings={settings} comments={comments} onAddComment={addComment}/>}
           {page==="budgets"         &&<BudgetsPage budgets={budgets} setBudgets={setBudgets} mpos={mpos} payables={payables} toast={toast} user={currentUser} addAudit={addAudit}/>}
           {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} ros={ros} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
-          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings} onOpenScheduleItem={openScheduleItem} setMpos={setMpos} toast={toast}/>}
+          {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings} onOpenScheduleItem={openScheduleItem} workspaceId={workspaceId} onRefreshMpos={mposTable.refresh} toast={toast}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
           {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
           {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
