@@ -5905,6 +5905,7 @@ function App(){
 
       <aside className={`sidebar ${sOpen?"open":""}`} aria-label="Navigation">
         <div className="sidebar-logo">
+          <div className="logo-mark" style={{background:"#3B6D11"}}>MH</div>
           <div className="logo-text">MediaHub</div>
         </div>
         <nav className="sidebar-nav">
