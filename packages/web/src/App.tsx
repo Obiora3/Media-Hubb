@@ -175,18 +175,28 @@ function BarChart({data,height=170,colors=["#534AB7","#D85A30"]}){
   const allV=isG?data.flatMap(d=>d.values):data.map(d=>d.value);
   const maxV=Math.max(...allV,1);
   const n=Math.max(data.length,1);
-  const W=Math.max(500,52+4+n*(isG?58:46)),H=height,pL=52,pB=data.length>7?48:28,pT=14,pR=8,pw=W-pL-pR,ph=H-pB-pT,gw=pw/n;
+  const rotated=data.length>7;
+  // pL accounts for Y-axis label width; pB accounts for rotated X-axis label depth
+  const pL=64,pB=rotated?52:28,pT=14,pR=8;
+  const W=Math.max(500,pL+4+n*(isG?58:46)),H=height;
+  const pw=W-pL-pR,ph=H-pB-pT,gw=pw/n;
   const bc=isG?data[0].values.length:1,bw=Math.max(8,Math.min((gw-8)/bc,44));
   const tks=Array.from({length:5},(_,i)=>({v:Math.round(maxV*i/4),y:pT+ph*(1-i/4)}));
+  // Rotated labels extend below the SVG by ≈ text_width × sin(30°). We pad the
+  // container so that overflow:visible content is never clipped by the card.
+  const extraPad=rotated?48:4;
   return(
-    <div style={{position:"relative",overflowX:"auto",overflowY:"visible",paddingBottom:2}}>
+    <div style={{position:"relative",overflowX:"auto",overflowY:"visible",paddingBottom:extraPad}}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",minWidth:W,height,overflow:"visible"}}>
         {tks.map((t,i)=><g key={i}><line x1={pL} y1={t.y} x2={W-pR} y2={t.y} stroke="var(--border-c)" strokeWidth=".5"/><text x={pL-6} y={t.y+3} textAnchor="end" fontSize={9} fill="var(--text3)">{fmtK(t.v)}</text></g>)}
         {data.map((d,gi)=>{
           const cx2=pL+gi*gw+gw/2,vals=isG?d.values:[d.value];
           const label=String(d.label||"");
-          const short=label.length>12?`${label.slice(0,11)}...`:label;
-          return <g key={gi}>{vals.map((v,bi)=>{const bh=mounted?(v/maxV)*ph:0,bx=cx2-(bc*bw+(bc-1)*2)/2+bi*(bw+2),by=pT+ph-bh;return <rect key={bi} x={bx} y={by} width={bw} height={bh} rx={3} fill={colors[bi%colors.length]} style={{transition:"height .5s,y .5s",cursor:"pointer"}} onMouseEnter={()=>setTip({gx:(bx+bw/2)/W,gy:by/H,txt:`${label}: ${fmtK(v)}`,col:colors[bi%colors.length]})} onMouseLeave={()=>setTip(null)}/>;})}<text x={cx2} y={H-10} textAnchor={data.length>7?"end":"middle"} transform={data.length>7?`rotate(-35 ${cx2} ${H-10})`:undefined} fontSize={9} fill="var(--text3)"><title>{label}</title>{short}</text></g>;
+          // For rotated labels show up to 14 chars (rotation gives more horizontal room)
+          const short=rotated?(label.length>14?`${label.slice(0,13)}…`:label):(label.length>12?`${label.slice(0,11)}…`:label);
+          // Anchor at middle so label is centered over its bar; -30° keeps text closer
+          // to horizontal, reducing the vertical drop that causes bottom clipping
+          return <g key={gi}>{vals.map((v,bi)=>{const bh=mounted?(v/maxV)*ph:0,bx=cx2-(bc*bw+(bc-1)*2)/2+bi*(bw+2),by=pT+ph-bh;return <rect key={bi} x={bx} y={by} width={bw} height={bh} rx={3} fill={colors[bi%colors.length]} style={{transition:"height .5s,y .5s",cursor:"pointer"}} onMouseEnter={()=>setTip({gx:(bx+bw/2)/W,gy:by/H,txt:`${label}: ${fmtK(v)}`,col:colors[bi%colors.length]})} onMouseLeave={()=>setTip(null)}/>;})}<text x={cx2} y={H-pB+12} textAnchor={rotated?"end":"middle"} transform={rotated?`rotate(-30 ${cx2} ${H-pB+12})`:undefined} fontSize={9} fill="var(--text3)"><title>{label}</title>{short}</text></g>;
         })}
       </svg>
       {tip&&<div className="viz-tooltip" style={{left:tip.gx*100+"%",top:tip.gy*100+"%",borderLeft:`3px solid ${tip.col}`}}>{tip.txt}</div>}
@@ -747,7 +757,14 @@ const Dashboard = React.memo(function Dashboard({mpos,ros,clients,receivables,pa
     return spent>b.budget;
   }).length;
   const donutData=[{label:"Draft",value:(ros||[]).filter((ro:any)=>ro.status==="draft").length,color:"#8A8A8A"},{label:"Sent",value:(ros||[]).filter((ro:any)=>ro.status==="sent").length,color:"#854F0B"},{label:"Confirmed",value:(ros||[]).filter((ro:any)=>ro.status==="confirmed").length,color:"#3B6D11"},{label:"Executed",value:(ros||[]).filter((ro:any)=>ro.status==="executed").length,color:"#185FA5"}].filter(d=>d.value>0);
-  const monthly=useMemo(()=>{const map={};(ros||[]).forEach((ro:any)=>{const k=ro.campaignMonth||ro.start?.slice(0,7);if(!k)return;const lbl=new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});if(!map[k])map[k]={label:lbl,value:0};map[k].value+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);});return Object.entries(map).sort(([a],[b])=>a.localeCompare(b)).map(([,v])=>v);},[ros,dCcy,whtRate]);
+  const monthly=useMemo(()=>{
+    const last12=Array.from({length:12},(_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-(11-i));return d.toISOString().slice(0,7);});
+    const mlbl=(k:string)=>new Date(k+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});
+    return last12.map(k=>{
+      const rr=(ros||[]).filter((ro:any)=>(ro.campaignMonth||ro.start?.slice(0,7))===k);
+      return{label:mlbl(k),value:rr.reduce((a:number,ro:any)=>a+convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy),0)};
+    });
+  },[ros,dCcy,whtRate]);
   const topClientSpend=useMemo(()=>Object.values((ros||[]).reduce((acc:any,ro:any)=>{
     const name=ro.client||"Unassigned";
     acc[name]=acc[name]||{name,amount:0,orders:0,spots:0};
@@ -1051,7 +1068,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
   // ── MPO state ──────────────────────────────────────────────────────────────
   const [tab,setTab]=useState("all");const [search,setSearch]=useState("");
   const [mpoAgencyFilter,setMpoAgencyFilter]=useState("");
-  const [mpoMonthFilter,setMpoMonthFilter]=useState("");
+  const [mpoMonthFilters,setMpoMonthFilters]=useState<Set<string>>(new Set());const [mpoMonthPickerOpen,setMpoMonthPickerOpen]=useState(false);
   const [showF,setShowF]=useState(false);const [eid,setEid]=useState(null);
   const [form,setForm]=useState(EMPO);const [errs,setErrs]=useState({});
   const [selected,setSelected]=useState(new Set());const [bulkStatus,setBulkStatus]=useState("");
@@ -1081,7 +1098,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
     if(tab==="pending"&&m.status!=="pending")return false;
     if(tab==="completed"&&m.status!=="completed")return false;
     if(mpoAgencyFilter&&m.agency!==mpoAgencyFilter)return false;
-    if(mpoMonthFilter&&(m.start||"").slice(0,7)!==mpoMonthFilter)return false;
+    if(mpoMonthFilters.size>0&&!mpoMonthFilters.has((m.start||"").slice(0,7)))return false;
     if(search&&!`${m.id}${m.client}${m.campaign}${m.vendor}${m.agency}`.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
   });
@@ -1133,7 +1150,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
   const [roStatusTab,setRoStatusTab]=useState("all");
   const [roClientFilter,setRoClientFilter]=useState("");
   const [roChannelFilter,setRoChannelFilter]=useState("");
-  const [roMonthFilter,setRoMonthFilter]=useState("");
+  const [roMonthFilters,setRoMonthFilters]=useState<Set<string>>(new Set());const [roMonthPickerOpen,setRoMonthPickerOpen]=useState(false);
   const [showRoForm,setShowRoForm]=useState(false);
   const [editRoId,setEditRoId]=useState(null);
   const [selRo,setSelRo]=useState(null);
@@ -1146,7 +1163,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
     if(roStatusTab!=="all"&&r.status!==roStatusTab)return false;
     if(roClientFilter&&r.client!==roClientFilter)return false;
     if(roChannelFilter&&r.channel!==roChannelFilter)return false;
-    if(roMonthFilter&&r.campaignMonth!==roMonthFilter)return false;
+    if(roMonthFilters.size>0&&!roMonthFilters.has(r.campaignMonth||""))return false;
     if(roSearch&&!`${r.client}${r.campaign}${r.vendor}`.toLowerCase().includes(roSearch.toLowerCase()))return false;
     return true;
   });
@@ -1480,11 +1497,26 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
                   <option value="">All Agencies</option>
                   {mpoAgencies.map(a=><option key={a} value={a}>{a}</option>)}
                 </select>
-                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={mpoMonthFilter} onChange={e=>setMpoMonthFilter(e.target.value)}>
-                  <option value="">All Months</option>
-                  {mpoMonths.map(m=><option key={m} value={m}>{new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"numeric"})}</option>)}
-                </select>
-                {(mpoAgencyFilter||mpoMonthFilter)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setMpoAgencyFilter("");setMpoMonthFilter("");}}>✕ Clear</button>}
+                {mpoMonthPickerOpen&&<div style={{position:"fixed",inset:0,zIndex:199}} onClick={()=>setMpoMonthPickerOpen(false)}/>}
+                <div style={{position:"relative",zIndex:mpoMonthPickerOpen?200:1}}>
+                  <button className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,background:mpoMonthFilters.size>0?"var(--brand-light)":"",border:mpoMonthFilters.size>0?"1px solid var(--brand)":""}} onClick={()=>setMpoMonthPickerOpen(v=>!v)}>
+                    {mpoMonthFilters.size===0?"All Months":`${mpoMonthFilters.size} month${mpoMonthFilters.size!==1?"s":""} ✓`}<span style={{fontSize:9,marginLeft:2}}>▾</span>
+                  </button>
+                  {mpoMonthPickerOpen&&(
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:200,background:"var(--bg2,#1e2033)",border:"1px solid var(--border)",borderRadius:8,padding:8,minWidth:220,boxShadow:"0 4px 20px rgba(0,0,0,.5)"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+                        {mpoMonths.map(m=>{const sel=mpoMonthFilters.has(m);return(
+                          <button key={m} style={{padding:"4px 6px",fontSize:11,borderRadius:6,border:`1px solid ${sel?"var(--brand)":"var(--border)"}`,background:sel?"var(--brand)":"transparent",color:sel?"#fff":"var(--text2)",cursor:"pointer"}}
+                            onClick={e=>{e.stopPropagation();const n=new Set(mpoMonthFilters);sel?n.delete(m):n.add(m);setMpoMonthFilters(n);}}>
+                            {new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"})}
+                          </button>
+                        );})}
+                      </div>
+                      {mpoMonthFilters.size>0&&<button style={{marginTop:6,width:"100%",fontSize:11,color:"var(--text3)",background:"none",border:"none",cursor:"pointer",textAlign:"left"}} onClick={e=>{e.stopPropagation();setMpoMonthFilters(new Set());}}>✕ Clear months</button>}
+                    </div>
+                  )}
+                </div>
+                {(mpoAgencyFilter||mpoMonthFilters.size>0)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setMpoAgencyFilter("");setMpoMonthFilters(new Set());setMpoMonthPickerOpen(false);}}>✕ Clear all</button>}
                 <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={search} onChange={e=>setSearch(e.target.value)}/></div>
               </div>
             </div>
@@ -1542,11 +1574,26 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
                   <option value="">All Channels</option>
                   {roChannels.map(c=><option key={c} value={c}>{c}</option>)}
                 </select>
-                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px"}} value={roMonthFilter} onChange={e=>setRoMonthFilter(e.target.value)}>
-                  <option value="">All Months</option>
-                  {roMonths.map(m=><option key={m} value={m}>{new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"numeric"})}</option>)}
-                </select>
-                {(roClientFilter||roChannelFilter||roMonthFilter)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setRoClientFilter("");setRoChannelFilter("");setRoMonthFilter("");}}>✕ Clear</button>}
+                {roMonthPickerOpen&&<div style={{position:"fixed",inset:0,zIndex:199}} onClick={()=>setRoMonthPickerOpen(false)}/>}
+                <div style={{position:"relative",zIndex:roMonthPickerOpen?200:1}}>
+                  <button className="form-input" style={{width:"auto",fontSize:12,padding:"4px 8px",cursor:"pointer",display:"flex",alignItems:"center",gap:4,background:roMonthFilters.size>0?"var(--brand-light)":"",border:roMonthFilters.size>0?"1px solid var(--brand)":""}} onClick={()=>setRoMonthPickerOpen(v=>!v)}>
+                    {roMonthFilters.size===0?"All Months":`${roMonthFilters.size} month${roMonthFilters.size!==1?"s":""} ✓`}<span style={{fontSize:9,marginLeft:2}}>▾</span>
+                  </button>
+                  {roMonthPickerOpen&&(
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:200,background:"var(--bg2,#1e2033)",border:"1px solid var(--border)",borderRadius:8,padding:8,minWidth:220,boxShadow:"0 4px 20px rgba(0,0,0,.5)"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:4}}>
+                        {roMonths.map(m=>{const sel=roMonthFilters.has(m);return(
+                          <button key={m} style={{padding:"4px 6px",fontSize:11,borderRadius:6,border:`1px solid ${sel?"var(--brand)":"var(--border)"}`,background:sel?"var(--brand)":"transparent",color:sel?"#fff":"var(--text2)",cursor:"pointer"}}
+                            onClick={e=>{e.stopPropagation();const n=new Set(roMonthFilters);sel?n.delete(m):n.add(m);setRoMonthFilters(n);}}>
+                            {new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short",year:"2-digit"})}
+                          </button>
+                        );})}
+                      </div>
+                      {roMonthFilters.size>0&&<button style={{marginTop:6,width:"100%",fontSize:11,color:"var(--text3)",background:"none",border:"none",cursor:"pointer",textAlign:"left"}} onClick={e=>{e.stopPropagation();setRoMonthFilters(new Set());}}>✕ Clear months</button>}
+                    </div>
+                  )}
+                </div>
+                {(roClientFilter||roChannelFilter||roMonthFilters.size>0)&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>{setRoClientFilter("");setRoChannelFilter("");setRoMonthFilters(new Set());setRoMonthPickerOpen(false);}}>✕ Clear all</button>}
                 <div className="search-bar"><span style={{color:"var(--text3)"}}>⌕</span><input placeholder="Search…" value={roSearch} onChange={e=>setRoSearch(e.target.value)}/></div>
               </div>
             </div>
@@ -3964,10 +4011,13 @@ const IMPORT_MONTHS:Record<string,string>={January:"01",February:"02",March:"03"
 const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,ros,clients,settings,setSettings,onOpenScheduleItem,workspaceId,onRefreshMpos,toast}){
   const filterSeed=useMemo(()=>readReportMediaBuyFilters(),[]);
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
+  const [trendWindow,setTrendWindow]=useState<string>("");
   const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
   const [mbMonth,setMbMonth]=useState(filterSeed.mbMonth||"");const [mbAgency,setMbAgency]=useState(filterSeed.mbAgency||"");
   const [reportPreview,setReportPreview]=useState<any>(null);
   const [importing,setImporting]=useState(false);
+  const [importPreview,setImportPreview]=useState<{dbRows:any[],summary:any[]}|null>(null);
+  const [importCreateRos,setImportCreateRos]=useState(true);
   const importInputRef=useRef<HTMLInputElement>(null);
 
   const handleImportRegister=async(e:React.ChangeEvent<HTMLInputElement>)=>{
@@ -3975,9 +4025,6 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
     if(!file)return;
     e.target.value="";
     if(!workspaceId){toast("No workspace — please reload and try again","error");return;}
-    // Warn if Starlife records already exist
-    const existingStarlife=(mpos||[]).filter((m:any)=>m.vendor==="Starlife").length;
-    if(existingStarlife>0&&!confirm(`${existingStarlife} Starlife records already exist. Import again and create duplicates?`))return;
     setImporting(true);
     try{
       const XLS=await import("xlsx-js-style");
@@ -4019,7 +4066,30 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
         });
       });
       if(dbRows.length===0){toast("No valid register rows found in the selected file","error");return;}
-      // Insert MPOs in chunks, collecting returned rows so we can link ROs
+      // Build per-year summary for the confirmation modal
+      const sumMap:Record<string,{count:number,spots:number,value:number,months:Set<string>}>={};
+      dbRows.forEach(r=>{
+        const yr=(r.start_date||"").slice(0,4);
+        if(!sumMap[yr])sumMap[yr]={count:0,spots:0,value:0,months:new Set()};
+        sumMap[yr].count++;sumMap[yr].spots+=r.spots||0;sumMap[yr].value+=r.total||r.amount||0;
+        sumMap[yr].months.add((r.start_date||"").slice(0,7));
+      });
+      const summary=Object.entries(sumMap).sort(([a],[b])=>a.localeCompare(b)).map(([year,d])=>({year,count:d.count,spots:d.spots,value:d.value,months:[...d.months].sort()}));
+      setImportPreview({dbRows,summary});
+    }catch(err:any){
+      toast(`Parse failed: ${err?.message||"Unknown error"}`,"error");
+    }finally{
+      setImporting(false);
+    }
+  };
+  const handleConfirmImport=async()=>{
+    if(!importPreview||!workspaceId)return;
+    const {dbRows}=importPreview;
+    const existingStarlife=(mpos||[]).filter((m:any)=>m.vendor==="Starlife").length;
+    if(existingStarlife>0&&!confirm(`${existingStarlife} Starlife records already exist. Import again and create duplicates?`)){setImportPreview(null);return;}
+    setImportPreview(null);
+    setImporting(true);
+    try{
       const CHUNK=100;
       const insertedMpos:any[]=[];
       for(let i=0;i<dbRows.length;i+=CHUNK){
@@ -4027,44 +4097,46 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
         if(error)throw new Error(error.message);
         if(data)insertedMpos.push(...data);
       }
-      // Build one RO per MPO — spread spots evenly across month days
-      const roSeqMap:Record<string,number>={};
-      const roRows=insertedMpos.map(mpo=>{
-        const yr=String(mpo.start_date||"").slice(0,4);
-        const mo=String(mpo.start_date||"").slice(5,7);
-        const yy=yr.slice(2);
-        const prefix=(mpo.client||"GEN").replace(/\s+/g,"").slice(0,3).toUpperCase();
-        const key=`${prefix}${yy}${mo}`;
-        roSeqMap[key]=(roSeqMap[key]||0)+1;
-        const roId=`RO-${prefix}-${yy}${mo}-${String(roSeqMap[key]).padStart(3,"0")}`;
-        const daysInMonth=new Date(parseInt(yr),parseInt(mo),0).getDate();
-        const spotsPerDay=Math.floor((mpo.spots||0)/daysInMonth);
-        const rem=(mpo.spots||0)%daysInMonth;
-        const schedule=Array.from({length:daysInMonth},(_,d)=>({
-          date:`${yr}-${mo}-${String(d+1).padStart(2,"0")}`,
-          spots:spotsPerDay+(d===daysInMonth-1?rem:0),
-          rate:mpo.rate||0,timeSlot:"",programme:"",
-          materialDuration:String(mpo.material_duration||"30"),materialTitle:"",
-        })).filter(e=>e.spots>0);
-        return{
-          id:roId,workspace_id:workspaceId,mpo_id:mpo.id,
-          client:mpo.client,vendor:mpo.vendor,campaign:mpo.campaign,
-          channel:mpo.channel||"TV",
-          start_date:mpo.start_date,end_date:mpo.end_date,
-          status:"executed",currency:mpo.currency||"NGN",
-          rate:mpo.rate||0,time_slot:"",programme:"",
-          material_duration:String(mpo.material_duration||"30"),material_title:"",
-          campaign_month:`${yr}-${mo}`,
-          volume_discount:mpo.volume_discount||0,agency_commission:0,
-          schedule,extra_schedule_rows:[],docs:[],
-        };
-      });
-      // Insert ROs in chunks
-      for(let i=0;i<roRows.length;i+=CHUNK){
-        const {error}=await supabase.from("ros").insert(roRows.slice(i,i+CHUNK));
-        if(error)throw new Error(`RO insert failed: ${error.message}`);
+      if(importCreateRos){
+        const roSeqMap:Record<string,number>={};
+        const roRows=insertedMpos.map(mpo=>{
+          const yr=String(mpo.start_date||"").slice(0,4);
+          const mo=String(mpo.start_date||"").slice(5,7);
+          const yy=yr.slice(2);
+          const prefix=(mpo.client||"GEN").replace(/\s+/g,"").slice(0,3).toUpperCase();
+          const key=`${prefix}${yy}${mo}`;
+          roSeqMap[key]=(roSeqMap[key]||0)+1;
+          const roId=`RO-${prefix}-${yy}${mo}-${String(roSeqMap[key]).padStart(3,"0")}`;
+          const daysInMonth=new Date(parseInt(yr),parseInt(mo),0).getDate();
+          const spotsPerDay=Math.floor((mpo.spots||0)/daysInMonth);
+          const rem=(mpo.spots||0)%daysInMonth;
+          const schedule=Array.from({length:daysInMonth},(_,d)=>({
+            date:`${yr}-${mo}-${String(d+1).padStart(2,"0")}`,
+            spots:spotsPerDay+(d===daysInMonth-1?rem:0),
+            rate:mpo.rate||0,timeSlot:"",programme:"",
+            materialDuration:String(mpo.material_duration||"30"),materialTitle:"",
+          })).filter(e=>e.spots>0);
+          return{
+            id:roId,workspace_id:workspaceId,mpo_id:mpo.id,
+            client:mpo.client,vendor:mpo.vendor,campaign:mpo.campaign,
+            channel:mpo.channel||"TV",
+            start_date:mpo.start_date,end_date:mpo.end_date,
+            status:"executed",currency:mpo.currency||"NGN",
+            rate:mpo.rate||0,time_slot:"",programme:"",
+            material_duration:String(mpo.material_duration||"30"),material_title:"",
+            campaign_month:`${yr}-${mo}`,
+            volume_discount:mpo.volume_discount||0,agency_commission:0,
+            schedule,extra_schedule_rows:[],docs:[],
+          };
+        });
+        for(let i=0;i<roRows.length;i+=CHUNK){
+          const {error}=await supabase.from("ros").insert(roRows.slice(i,i+CHUNK));
+          if(error)throw new Error(`RO insert failed: ${error.message}`);
+        }
+        toast(`Imported ${insertedMpos.length} MPOs + ${roRows.length} ROs from Starlife Register`);
+      }else{
+        toast(`Imported ${insertedMpos.length} MPOs from Starlife Register`);
       }
-      toast(`Imported ${insertedMpos.length} MPOs + ${roRows.length} ROs from Starlife Register (2023–2025)`);
       onRefreshMpos?.();
     }catch(err:any){
       toast(`Import failed: ${err?.message||"Unknown error"}`,"error");
@@ -4392,6 +4464,59 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           })()}
         </Modal>
       )}
+
+      {/* ── Import confirmation modal ── */}
+      {importPreview&&(
+        <Modal title="Import Starlife Register" onClose={()=>setImportPreview(null)}>
+          <div style={{fontSize:13,color:"var(--text2)",marginBottom:14}}>
+            Review the records parsed from your file. Nothing is saved until you click <strong>Confirm Import</strong>.
+          </div>
+          <div style={{overflowX:"auto",marginBottom:16}}>
+            <table style={{width:"100%",fontSize:12,borderCollapse:"collapse"}}>
+              <thead>
+                <tr style={{borderBottom:"1px solid var(--border)"}}>
+                  {["Year","MPOs","Months covered","Total Spots","Total Value (₦)"].map(h=>(
+                    <th key={h} style={{padding:"6px 12px",textAlign:"left",color:"var(--text3)",fontWeight:500,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {importPreview.summary.map(s=>(
+                  <tr key={s.year} style={{borderBottom:"1px solid var(--border-c)"}}>
+                    <td style={{padding:"8px 12px",fontWeight:700,color:"var(--brand)"}}>{s.year}</td>
+                    <td style={{padding:"8px 12px",fontWeight:600}}>{s.count}</td>
+                    <td style={{padding:"8px 12px",color:"var(--text2)",fontSize:11}}>{s.months.map((m:string)=>new Date(m+"-01T12:00:00").toLocaleDateString("en-NG",{month:"short"})).join(", ")}</td>
+                    <td style={{padding:"8px 12px"}}>{s.spots.toLocaleString()}</td>
+                    <td style={{padding:"8px 12px",fontWeight:600}}>{s.value.toLocaleString("en",{maximumFractionDigits:0})}</td>
+                  </tr>
+                ))}
+                <tr style={{borderTop:"2px solid var(--border)",background:"var(--bg1,#111)"}}>
+                  <td style={{padding:"8px 12px",fontWeight:700}}>Total</td>
+                  <td style={{padding:"8px 12px",fontWeight:700}}>{importPreview.dbRows.length}</td>
+                  <td style={{padding:"8px 12px"}}></td>
+                  <td style={{padding:"8px 12px",fontWeight:700}}>{importPreview.summary.reduce((a:number,s:any)=>a+s.spots,0).toLocaleString()}</td>
+                  <td style={{padding:"8px 12px",fontWeight:700}}>{importPreview.summary.reduce((a:number,s:any)=>a+s.value,0).toLocaleString("en",{maximumFractionDigits:0})}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:10,fontSize:13,cursor:"pointer",padding:"10px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg2,#1a1a2e)",marginBottom:20}}>
+            <input type="checkbox" checked={importCreateRos} onChange={e=>setImportCreateRos(e.target.checked)} style={{width:15,height:15,accentColor:"var(--brand)",flexShrink:0}}/>
+            <div>
+              <div style={{fontWeight:600}}>Auto-create Release Orders (ROs)</div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>One RO per MPO with spots spread evenly across the month</div>
+            </div>
+            <span style={{marginLeft:"auto",fontSize:11,color:"var(--brand)",fontWeight:600,flexShrink:0}}>{importCreateRos?`+${importPreview.dbRows.length} ROs`:""}</span>
+          </label>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button className="btn btn-ghost" onClick={()=>setImportPreview(null)}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleConfirmImport} disabled={importing}>
+              {importing?"Importing…":`Confirm — Import ${importPreview.dbRows.length} MPOs`}
+            </button>
+          </div>
+        </Modal>
+      )}
+
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         {tab==="media-buy"?(
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -4427,49 +4552,64 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
       <div className="tabs">{TABS.map(t=><button key={t} className={`tab ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{TAB_LABELS[t]}</button>)}</div>
 
       {tab==="summary"&&(()=>{
-        // ── derived summary stats ──────────────────────────────────────────────
-        const totalMpoValue=fM.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
-        const activeMpos=fM.filter(m=>m.status==="active").length;
-        const totalPayable=lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0);
-        const totalPaid=lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0);
-        const overdueRec=lR.filter(r=>r.status==="overdue");
-        const overdueAmt=overdueRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
-        const totalRos=(ros||[]).length;
-        const totalSpots=(ros||[]).reduce((a,ro)=>a+sumRoScheduleSpots(ro),0);
-        const netPos=tPd-totalPaid;
+        // ── All-data totals (not filtered by date range) ───────────────────────
+        const allMpos=mpos||[];
+        const allRos=ros||[];
+        const allRec=(receivables||[]).map((r:any)=>({...r,status:computeStatus(r)}));
+        const allPay=(payables||[]).map((p:any)=>({...p,status:computeStatus(p)}));
 
-        // Top clients by MPO value
-        const topClients=cSpend.slice(0,5);
+        const totalMpoValue=allMpos.reduce((a:number,m:any)=>a+getMpoReportValue(m),0);
+        const activeMpos=allMpos.filter((m:any)=>m.status==="active").length;
+        const totalRoValue=allRos.reduce((a:number,ro:any)=>a+convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy),0);
+        const totalRos=allRos.length;
+        const totalSpots=allRos.reduce((a:number,ro:any)=>a+sumRoScheduleSpots(ro),0);
 
-        // Spend by agency
-        const agencySpend=Object.values(fM.reduce((acc,m)=>{
+        const totalBilled=allRec.reduce((a:number,r:any)=>a+convertAmt(r.amount,r.currency||"NGN",dCcy),0);
+        const totalCollected=allRec.reduce((a:number,r:any)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
+        const cPct=totalBilled>0?Math.round(totalCollected/totalBilled*100):0;
+        const overdueRec=allRec.filter((r:any)=>r.status==="overdue");
+        const overdueAmt=overdueRec.reduce((a:number,r:any)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+
+        const totalPayable=allPay.reduce((a:number,p:any)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0);
+        const totalPaid=allPay.reduce((a:number,p:any)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0);
+        const netPos=totalCollected-totalPaid;
+
+        // Shadow outer-scope chart data with all-data versions
+        const sDist=[{label:"Active",value:allMpos.filter((m:any)=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:allMpos.filter((m:any)=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:allMpos.filter((m:any)=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
+        const rDonut=[{label:"Collected",value:totalCollected,color:"#3B6D11"},{label:"Outstanding",value:Math.max(0,totalBilled-totalCollected),color:"#A32D2D"}].filter(d=>d.value>0);
+
+        // Top clients by MPO value (all mpos)
+        const topClients=Object.values(allMpos.reduce((acc:any,m:any)=>{const k=m.client||"Unassigned";acc[k]=acc[k]||{name:k,amount:0};acc[k].amount+=getMpoReportValue(m);return acc;},{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,5) as any[];
+
+        // Spend by agency (all mpos)
+        const agencySpend=Object.values(allMpos.reduce((acc:any,m:any)=>{
           const k=m.agency||"(No Agency)";
           acc[k]=acc[k]||{name:k,amount:0,spots:0};
-          acc[k].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);
+          acc[k].amount+=getMpoReportValue(m);
           acc[k].spots+=Number(m.spots||0);
           return acc;
         },{})).sort((a:any,b:any)=>b.amount-a.amount) as any[];
 
-        // Top vendors by payable
-        const topVendors=Object.values(lP.reduce((acc,p)=>{
+        // Top vendors by payable (all payables)
+        const topVendors=Object.values(allPay.reduce((acc:any,p:any)=>{
           const k=p.vendor;acc[k]=acc[k]||{name:k,amount:0,paid:0};
           acc[k].amount+=convertAmt(p.amount,p.currency||"NGN",dCcy);
           acc[k].paid+=convertAmt(p.paid,p.currency||"NGN",dCcy);
           return acc;
         },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,5) as any[];
 
-        // Invoice status breakdown
-        const recByStatus={paid:lR.filter(r=>r.status==="paid").length,partial:lR.filter(r=>r.status==="partial").length,overdue:lR.filter(r=>r.status==="overdue").length,pending:lR.filter(r=>r.status==="pending").length};
+        // Invoice status breakdown (all receivables)
+        const recByStatus={paid:allRec.filter((r:any)=>r.status==="paid").length,partial:allRec.filter((r:any)=>r.status==="partial").length,overdue:allRec.filter((r:any)=>r.status==="overdue").length,pending:allRec.filter((r:any)=>r.status==="pending").length};
 
         const KPIs=[
-          {label:"Total MPO Value",  val:fmtK(totalMpoValue,sym), sub:`${fM.length} orders`,     color:"#534AB7"},
-          {label:"Active Campaigns", val:activeMpos,              sub:`of ${fM.length} total`,    color:"#3B6D11"},
-          {label:"Total Billed",     val:fmtK(tB,sym),           sub:`${cPct}% collected`,       color:"#185FA5"},
-          {label:"Outstanding",      val:fmtK(Math.max(0,tB-tPd),sym), sub:`${overdueRec.length} overdue`, color:overdueRec.length>0?"#A32D2D":"#854F0B"},
-          {label:"Total Payable",    val:fmtK(totalPayable,sym), sub:`${fmtK(totalPaid,sym)} settled`, color:"#854F0B"},
-          {label:"Net Cash Position",val:fmtK(netPos,sym),       sub:netPos>=0?"Surplus":"Deficit", color:netPos>=0?"#3B6D11":"#A32D2D"},
-          {label:"Total ROs",        val:totalRos,               sub:`${totalSpots} spots booked`, color:"#534AB7"},
-          {label:"Overdue Amount",   val:fmtK(overdueAmt,sym),  sub:`${overdueRec.length} invoices`, color:overdueAmt>0?"#A32D2D":"#3B6D11"},
+          {label:"Total MPO Value",  val:fmtK(totalMpoValue,sym),  sub:`${allMpos.length} orders`,          color:"#534AB7"},
+          {label:"Active Campaigns", val:activeMpos,               sub:`of ${allMpos.length} total`,         color:"#3B6D11"},
+          {label:"Total RO Value",   val:fmtK(totalRoValue,sym),   sub:`${totalRos} ROs · ${totalSpots} spots`, color:"#185FA5"},
+          {label:"Total Billed",     val:fmtK(totalBilled,sym),    sub:`${cPct}% collected`,                color:"#185FA5"},
+          {label:"Outstanding",      val:fmtK(Math.max(0,totalBilled-totalCollected),sym), sub:`${overdueRec.length} overdue`, color:overdueRec.length>0?"#A32D2D":"#854F0B"},
+          {label:"Total Payable",    val:fmtK(totalPayable,sym),   sub:`${fmtK(totalPaid,sym)} settled`,    color:"#854F0B"},
+          {label:"Net Cash Position",val:fmtK(netPos,sym),         sub:netPos>=0?"Surplus":"Deficit",       color:netPos>=0?"#3B6D11":"#A32D2D"},
+          {label:"Overdue Amount",   val:fmtK(overdueAmt,sym),     sub:`${overdueRec.length} invoices`,     color:overdueAmt>0?"#A32D2D":"#3B6D11"},
         ];
 
         return(
@@ -4487,14 +4627,14 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
 
             {/* Charts row */}
             <div className="grid2">
-              <div className="card">
+              <div className="card" style={{paddingBottom:16}}>
                 <div className="card-header"><span className="card-title">MPO Status Distribution</span></div>
-                {sDist.length>0?<DonutChart data={sDist} size={140}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
+                {sDist.length>0?<DonutChart data={sDist} size={148}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
               </div>
-              <div className="card">
+              <div className="card" style={{paddingBottom:16}}>
                 <div className="card-header"><span className="card-title">Receivables Collection</span></div>
-                {rDonut.length>0?<DonutChart data={rDonut} size={140}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
-                <div style={{marginTop:10}}>
+                {rDonut.length>0?<DonutChart data={rDonut} size={148}/>:<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No data</p>}
+                <div style={{marginTop:10,padding:"0 4px"}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"var(--text2)",marginBottom:4}}><span>Collection rate</span><strong>{cPct}%</strong></div>
                   <div className="progress-bar"><div className="progress-fill" style={{width:`${cPct}%`}}/></div>
                 </div>
@@ -4721,100 +4861,172 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
       </div>)}
 
       {tab==="trend"&&(()=>{
-        const trendMonths=Array.from({length:12},(_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-(11-i));return d.toISOString().slice(0,7);});
+        // ── Period selection ──────────────────────────────────────────────────
+        const allYears=[...new Set([...(ros||[]).map((ro:any)=>(ro.campaignMonth||ro.start||"").slice(0,4)),...(mpos||[]).map((m:any)=>(m.start||"").slice(0,4))].filter(y=>y&&y>="2020"))].sort().reverse();
         const mlbl=(m:string)=>new Date(m+"-02").toLocaleDateString("en-NG",{month:"short",year:"2-digit"});
+        const trendMonths=trendWindow
+          ?Array.from({length:12},(_,i)=>`${trendWindow}-${String(i+1).padStart(2,"0")}`)
+          :Array.from({length:12},(_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-(11-i));return d.toISOString().slice(0,7);});
+        // Prior-year months for YOY comparison
+        const prevYear=trendWindow?String(Number(trendWindow)-1):null;
+        const prevMonths=trendWindow
+          ?Array.from({length:12},(_,i)=>`${prevYear}-${String(i+1).padStart(2,"0")}`)
+          :Array.from({length:12},(_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-(23-i));return d.toISOString().slice(0,7);});
+
+        const roVal=(ro:any)=>convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
         const roByMonth=trendMonths.map(m=>{
           const rr=(ros||[]).filter((ro:any)=>(ro.campaignMonth||ro.start?.slice(0,7))===m);
-          return {month:m,label:mlbl(m),value:rr.reduce((a:number,ro:any)=>a+convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy),0),count:rr.length};
+          return{month:m,label:mlbl(m),value:rr.reduce((a:number,ro:any)=>a+roVal(ro),0),count:rr.length};
+        });
+        const prevRoByMonth=prevMonths.map(m=>{
+          const rr=(ros||[]).filter((ro:any)=>(ro.campaignMonth||ro.start?.slice(0,7))===m);
+          return{month:m,label:mlbl(m),value:rr.reduce((a:number,ro:any)=>a+roVal(ro),0),count:rr.length};
         });
         const mpoByMonth=trendMonths.map(m=>{
-          const mm=mpos.filter((mp:any)=>mp.start?.slice(0,7)===m);
-          return {month:m,label:mlbl(m),value:mm.reduce((a:number,mp:any)=>a+convertAmt(mp.amount||0,mp.currency||"NGN",dCcy),0),count:mm.length};
+          const mm=(mpos||[]).filter((mp:any)=>mp.start?.slice(0,7)===m);
+          return{month:m,label:mlbl(m),value:mm.reduce((a:number,mp:any)=>a+getMpoReportValue(mp),0),count:mm.length};
         });
+        const prevMpoByMonth=prevMonths.map(m=>{
+          const mm=(mpos||[]).filter((mp:any)=>mp.start?.slice(0,7)===m);
+          return{month:m,label:mlbl(m),value:mm.reduce((a:number,mp:any)=>a+getMpoReportValue(mp),0),count:mm.length};
+        });
+        const allRecStatus=(receivables||[]).map((r:any)=>({...r,status:computeStatus(r)}));
         const colByMonth=trendMonths.map(m=>{
-          const rr=lR.filter((r:any)=>r.due?.slice(0,7)===m);
-          return {month:m,label:mlbl(m),value:rr.reduce((a:number,r:any)=>a+convertAmt(r.paid||0,r.currency||"NGN",dCcy),0)};
+          const rr=allRecStatus.filter((r:any)=>r.due?.slice(0,7)===m);
+          return{month:m,label:mlbl(m),value:rr.reduce((a:number,r:any)=>a+convertAmt(r.paid||0,r.currency||"NGN",dCcy),0)};
         });
-        const total12=roByMonth.reduce((a,d)=>a+d.value,0);
+        const total=roByMonth.reduce((a,d)=>a+d.value,0);
+        const prevTotal=prevRoByMonth.reduce((a,d)=>a+d.value,0);
+        const yoyPct=prevTotal>0?((total-prevTotal)/prevTotal*100):null;
+        const yoyPos=yoyPct!=null&&yoyPct>=0;
         const best=roByMonth.reduce((a,b)=>b.value>a.value?b:a,roByMonth[0]);
-        const avg=total12/12;
+        const avg=total/12;
         const last=roByMonth[roByMonth.length-1];
         const prev=roByMonth[roByMonth.length-2];
         const mom=prev.value>0?((last.value-prev.value)/prev.value*100):0;
         const momPos=mom>=0;
+        const periodLabel=trendWindow?`Full year ${trendWindow}`:"Rolling last 12 months";
         return(
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
+            {/* Period filter */}
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontSize:12,color:"var(--text3)",fontWeight:500}}>Period:</span>
+              <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 10px"}} value={trendWindow} onChange={e=>setTrendWindow(e.target.value)}>
+                <option value="">Last 12 months (rolling)</option>
+                {allYears.map(y=><option key={y} value={y}>{y} (full year)</option>)}
+              </select>
+              {trendWindow&&<span style={{fontSize:11,color:"var(--text3)"}}>vs {prevYear} · YOY</span>}
+              {trendWindow&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setTrendWindow("")}>✕ Reset</button>}
+              <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)"}}>{periodLabel}</span>
+            </div>
+
             {/* KPI row */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}}>
               {([
-                {label:"12-Month Revenue",val:fmtK(total12,sym),sub:"net RO value after WHT",color:"#534AB7"},
+                {label:`${trendWindow||"12-Month"} Revenue`,val:fmtK(total,sym),sub:"net RO value after WHT",color:"#534AB7"},
                 {label:"Best Month",val:best.label,sub:fmtK(best.value,sym),color:"#3B6D11"},
-                {label:"Avg Monthly Revenue",val:fmtK(avg,sym),sub:"last 12 months",color:"#185FA5"},
+                {label:"Avg Monthly",val:fmtK(avg,sym),sub:"net RO per month",color:"#185FA5"},
                 {label:"MoM Growth",val:`${momPos?"+":""}${mom.toFixed(1)}%`,sub:`${prev.label} → ${last.label}`,color:momPos?"#3B6D11":"#A32D2D"},
+                {label:"YOY Growth",val:yoyPct!=null?`${yoyPos?"+":""}${yoyPct.toFixed(1)}%`:"—",sub:yoyPct!=null?`${trendWindow||"12 mo"} vs prior period`:"Insufficient prior data",color:yoyPct==null?"#999":yoyPos?"#3B6D11":"#A32D2D"},
               ] as {label:string;val:string;sub:string;color:string}[]).map(k=>(
                 <div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}>
-                  <div style={{fontSize:10,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",color:"var(--text3)",marginBottom:4}}>{k.label}</div>
-                  <div style={{fontSize:20,fontWeight:800,color:"var(--text)",lineHeight:1.1}}>{k.val}</div>
-                  <div style={{fontSize:10,color:"var(--text3)",marginTop:4}}>{k.sub}</div>
+                  <div style={{fontSize:10,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",color:"var(--text3)",marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{k.label}</div>
+                  <div style={{fontSize:20,fontWeight:800,color:"var(--text)",lineHeight:1.2,wordBreak:"break-all"}}>{k.val}</div>
+                  <div style={{fontSize:10,color:"var(--text3)",marginTop:4,lineHeight:1.4}}>{k.sub}</div>
                 </div>
               ))}
             </div>
+
             {/* Revenue booked trend */}
-            <div className="card">
+            <div className="card" style={{paddingBottom:16}}>
               <div className="card-header">
                 <span className="card-title">Revenue Booked</span>
-                <span style={{fontSize:11,color:"var(--text3)"}}>Net RO value after WHT · last 12 months</span>
+                <span style={{fontSize:11,color:"var(--text3)"}}>Net RO value after WHT · {periodLabel}</span>
               </div>
-              {total12===0
-                ?<p style={{color:"var(--text3)",textAlign:"center",padding:20,fontSize:12}}>No RO data for the last 12 months</p>
-                :<AreaChart data={roByMonth} height={180} color="#534AB7"/>}
+              <div style={{paddingBottom:8}}>
+                {total===0
+                  ?<p style={{color:"var(--text3)",textAlign:"center",padding:20,fontSize:12}}>No RO data for this period</p>
+                  :<AreaChart data={roByMonth} height={180} color="#534AB7"/>}
+              </div>
+              {yoyPct!=null&&(
+                <div style={{display:"flex",gap:16,padding:"8px 16px 0",borderTop:"1px solid var(--border-c)",flexWrap:"wrap"}}>
+                  <div style={{fontSize:12}}><span style={{color:"var(--text3)"}}>Current: </span><strong>{fmtK(total,sym)}</strong></div>
+                  <div style={{fontSize:12}}><span style={{color:"var(--text3)"}}>Prior period: </span><strong>{fmtK(prevTotal,sym)}</strong></div>
+                  <div style={{fontSize:12}}><span style={{color:"var(--text3)"}}>YOY: </span><strong style={{color:yoyPos?"#3B6D11":"#A32D2D"}}>{yoyPos?"+":""}{yoyPct.toFixed(1)}%</strong></div>
+                </div>
+              )}
             </div>
+
             {/* Collections + MPO pipeline */}
             <div className="grid2">
-              <div className="card">
-                <div className="card-header"><span className="card-title">Collections Trend</span></div>
-                {colByMonth.every(d=>d.value===0)
-                  ?<p style={{color:"var(--text3)",textAlign:"center",padding:20,fontSize:12}}>No collections data</p>
-                  :<AreaChart data={colByMonth} height={150} color="#3B6D11"/>}
+              <div className="card" style={{paddingBottom:16}}>
+                <div className="card-header">
+                  <span className="card-title">Collections Trend</span>
+                  {(()=>{const prevColTotal=prevMonths.reduce((a:number,m:string)=>a+allRecStatus.filter((r:any)=>r.due?.slice(0,7)===m).reduce((s:number,r:any)=>s+convertAmt(r.paid||0,r.currency||"NGN",dCcy),0),0);const colTotal=colByMonth.reduce((a,d)=>a+d.value,0);const colYoy=prevColTotal>0?((colTotal-prevColTotal)/prevColTotal*100):null;return colYoy!=null?<span style={{fontSize:11,fontWeight:700,color:colYoy>=0?"#3B6D11":"#A32D2D",background:colYoy>=0?"#EAF3DE":"#FCEBEB",padding:"2px 8px",borderRadius:4}}>{colYoy>=0?"+":""}{colYoy.toFixed(1)}% YOY</span>:null;})()}
+                </div>
+                <div style={{paddingBottom:8}}>
+                  {colByMonth.every(d=>d.value===0)
+                    ?<p style={{color:"var(--text3)",textAlign:"center",padding:20,fontSize:12}}>No collections data</p>
+                    :<AreaChart data={colByMonth} height={155} color="#3B6D11"/>}
+                </div>
               </div>
-              <div className="card">
-                <div className="card-header"><span className="card-title">MPO Pipeline Committed</span></div>
-                {mpoByMonth.every(d=>d.value===0)
-                  ?<p style={{color:"var(--text3)",textAlign:"center",padding:20,fontSize:12}}>No MPO data</p>
-                  :<AreaChart data={mpoByMonth} height={150} color="#185FA5"/>}
+              <div className="card" style={{paddingBottom:16}}>
+                <div className="card-header">
+                  <span className="card-title">MPO Pipeline Committed</span>
+                  {(()=>{const prevMpoTotal=prevMpoByMonth.reduce((a,d)=>a+d.value,0);const mpoTotal=mpoByMonth.reduce((a,d)=>a+d.value,0);const mpoYoy=prevMpoTotal>0?((mpoTotal-prevMpoTotal)/prevMpoTotal*100):null;return mpoYoy!=null?<span style={{fontSize:11,fontWeight:700,color:mpoYoy>=0?"#3B6D11":"#A32D2D",background:mpoYoy>=0?"#EAF3DE":"#FCEBEB",padding:"2px 8px",borderRadius:4}}>{mpoYoy>=0?"+":""}{mpoYoy.toFixed(1)}% YOY</span>:null;})()}
+                </div>
+                <div style={{paddingBottom:8}}>
+                  {mpoByMonth.every(d=>d.value===0)
+                    ?<p style={{color:"var(--text3)",textAlign:"center",padding:20,fontSize:12}}>No MPO data</p>
+                    :<AreaChart data={mpoByMonth} height={155} color="#185FA5"/>}
+                </div>
               </div>
             </div>
+
             {/* Month-by-month table */}
             <div className="card">
-              <div className="card-header"><span className="card-title">Month-by-Month Breakdown</span></div>
+              <div className="card-header"><span className="card-title">Month-by-Month Breakdown</span><span style={{fontSize:11,color:"var(--text3)"}}>{periodLabel}</span></div>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
-                    <tr>{["Month","ROs","Revenue Booked","MPO Committed","Collections","Growth"].map(h=>(
-                      <th key={h} style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>
+                    <tr>{["Month","ROs","Revenue Booked","MPO Committed","Collections","MoM","YOY"].map(h=>(
+                      <th key={h} style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{h}</th>
                     ))}</tr>
                   </thead>
                   <tbody>{roByMonth.map((row,i)=>{
                     const mpo=mpoByMonth[i];
                     const col=colByMonth[i];
-                    const prevVal=i>0?roByMonth[i-1].value:null;
-                    const growthPct=prevVal!=null&&prevVal>0?((row.value-prevVal)/prevVal*100):null;
-                    const gPos=growthPct!=null&&growthPct>=0;
+                    const prevMom=i>0?roByMonth[i-1].value:null;
+                    const momPct=prevMom!=null&&prevMom>0?((row.value-prevMom)/prevMom*100):null;
+                    const momPos2=momPct!=null&&momPct>=0;
+                    const prevYoyVal=prevRoByMonth[i]?.value??null;
+                    const yoyRowPct=prevYoyVal!=null&&prevYoyVal>0?((row.value-prevYoyVal)/prevYoyVal*100):null;
+                    const yoyRowPos=yoyRowPct!=null&&yoyRowPct>=0;
+                    const badge=(pct:number|null,pos:boolean)=>pct!=null
+                      ?<span style={{fontSize:10,fontWeight:700,color:pos?"#3B6D11":"#A32D2D",background:pos?"#EAF3DE":"#FCEBEB",padding:"2px 6px",borderRadius:4,whiteSpace:"nowrap"}}>{pos?"+":""}{pct.toFixed(1)}%</span>
+                      :<span style={{color:"var(--text3)"}}>—</span>;
                     return(
                       <tr key={row.month} style={{background:i%2===0?"transparent":"var(--bg3)"}}>
-                        <td style={{padding:"7px 10px",fontWeight:600,borderBottom:"1px solid var(--border-c)"}}>{row.label}</td>
+                        <td style={{padding:"7px 10px",fontWeight:600,borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{row.label}</td>
                         <td style={{padding:"7px 10px",color:"var(--text2)",borderBottom:"1px solid var(--border-c)"}}>{row.count||"—"}</td>
-                        <td style={{padding:"7px 10px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{row.value>0?fmtK(row.value,sym):"—"}</td>
-                        <td style={{padding:"7px 10px",color:"var(--text2)",borderBottom:"1px solid var(--border-c)"}}>{mpo.value>0?fmtK(mpo.value,sym):"—"}</td>
-                        <td style={{padding:"7px 10px",color:"#3B6D11",borderBottom:"1px solid var(--border-c)"}}>{col.value>0?fmtK(col.value,sym):"—"}</td>
-                        <td style={{padding:"7px 10px",borderBottom:"1px solid var(--border-c)"}}>
-                          {growthPct!=null
-                            ?<span style={{fontSize:11,fontWeight:700,color:gPos?"#3B6D11":"#A32D2D",background:gPos?"#EAF3DE":"#FCEBEB",padding:"2px 7px",borderRadius:4}}>{gPos?"+":""}{growthPct.toFixed(1)}%</span>
-                            :"—"}
-                        </td>
+                        <td style={{padding:"7px 10px",fontWeight:700,borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{row.value>0?fmtK(row.value,sym):"—"}</td>
+                        <td style={{padding:"7px 10px",color:"var(--text2)",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{mpo.value>0?fmtK(mpo.value,sym):"—"}</td>
+                        <td style={{padding:"7px 10px",color:"#3B6D11",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{col.value>0?fmtK(col.value,sym):"—"}</td>
+                        <td style={{padding:"7px 10px",borderBottom:"1px solid var(--border-c)"}}>{badge(momPct,momPos2)}</td>
+                        <td style={{padding:"7px 10px",borderBottom:"1px solid var(--border-c)"}}>{badge(yoyRowPct,yoyRowPos)}</td>
                       </tr>
                     );
                   })}</tbody>
+                  <tfoot>
+                    <tr style={{background:"var(--bg3)",borderTop:"2px solid var(--border-c)"}}>
+                      <td style={{padding:"8px 10px",fontWeight:700}} colSpan={2}>Totals</td>
+                      <td style={{padding:"8px 10px",fontWeight:700,whiteSpace:"nowrap"}}>{fmtK(total,sym)}</td>
+                      <td style={{padding:"8px 10px",fontWeight:700,whiteSpace:"nowrap"}}>{fmtK(mpoByMonth.reduce((a,d)=>a+d.value,0),sym)}</td>
+                      <td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11",whiteSpace:"nowrap"}}>{fmtK(colByMonth.reduce((a,d)=>a+d.value,0),sym)}</td>
+                      <td style={{padding:"8px 10px"}}></td>
+                      <td style={{padding:"8px 10px"}}>{yoyPct!=null?<span style={{fontSize:11,fontWeight:700,color:yoyPos?"#3B6D11":"#A32D2D",background:yoyPos?"#EAF3DE":"#FCEBEB",padding:"2px 8px",borderRadius:4}}>{yoyPos?"+":""}{yoyPct.toFixed(1)}%</span>:"—"}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
