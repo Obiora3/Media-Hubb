@@ -4049,7 +4049,11 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           if(!agency||!brand||!IMPORT_MONTHS[monthName]||!spots||!total||isNaN(spots)||agency.toLowerCase()==="agency")return;
           const monthNum=IMPORT_MONTHS[monthName];
           const lastDay=new Date(parseInt(year),parseInt(monthNum),0).getDate();
-          const discountPct=rate>0?Math.round((1-rateNet/rate)*10000)/100:0;
+          // rateNet (row[7]) = rate × (1 - vol_disc%) × (1 - WHT%).
+          // Back out the 5% WHT that the register already deducted so that
+          // calcRoTotals can apply WHT once and only once.
+          const REGISTER_WHT=0.05;
+          const discountPct=rate>0?Math.max(0,Math.round((1-rateNet/(rate*(1-REGISTER_WHT)))*10000)/100):0;
           const durNum=(String(duration).match(/(\d+)/)||["","30"])[1];
           dbRows.push({
             workspace_id:workspaceId,
