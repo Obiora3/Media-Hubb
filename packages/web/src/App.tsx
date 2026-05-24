@@ -6061,18 +6061,18 @@ const OnboardingWizard = React.memo(function OnboardingWizard({onClose, onComple
 });
 
 const NAV=[
-  {id:"dashboard",label:"Dashboard",   icon:"■", section:"overview"},
-  {id:"mpo",      label:"Scheduling",  icon:"◈", section:"operations"},
-  {id:"clients",  label:"Partners",    icon:"◉", section:"operations"},
-  {id:"calendar", label:"Calendar",    icon:"▦", section:"operations"},
-  {id:"finance",  label:"Finance",     icon:"◎", section:"finance"},
-  {id:"budgets",        label:"Budgets",         icon:"◐", section:"finance"},
-  {id:"revenue-target", label:"Revenue Target",  icon:"◎", section:"finance"},
-  {id:"reports",        label:"Reports",         icon:"▧", section:"finance"},
-  {id:"reminders",label:"Reminders",   icon:"◷", section:"tools"},
-  {id:"audit",    label:"Audit Log",   icon:"◫", section:"tools"},
-  {id:"users",    label:"Users",       icon:"◉", section:"tools"},
-  {id:"settings", label:"Settings",    icon:"⚙", section:"tools"},
+  {id:"dashboard",      label:"Dashboard",      icon:"⬛", color:"#534AB7", section:"overview"},
+  {id:"mpo",            label:"Scheduling",     icon:"📋", color:"#D85A30", section:"operations"},
+  {id:"clients",        label:"Partners",       icon:"🤝", color:"#3B6D11", section:"operations"},
+  {id:"calendar",       label:"Calendar",       icon:"🗓️", color:"#185FA5", section:"operations"},
+  {id:"finance",        label:"Finance",        icon:"💰", color:"#854F0B", section:"finance"},
+  {id:"budgets",        label:"Budgets",        icon:"📊", color:"#3B6D11", section:"finance"},
+  {id:"revenue-target", label:"Revenue Target", icon:"🎯", color:"#A32D2D", section:"finance"},
+  {id:"reports",        label:"Reports",        icon:"📈", color:"#534AB7", section:"finance"},
+  {id:"reminders",      label:"Reminders",      icon:"🔔", color:"#D85A30", section:"tools"},
+  {id:"audit",          label:"Audit Log",      icon:"🔍", color:"#185FA5", section:"tools"},
+  {id:"users",          label:"Users",          icon:"👥", color:"#854F0B", section:"tools"},
+  {id:"settings",       label:"Settings",       icon:"⚙️", color:"#666",    section:"tools"},
 ];
 const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
 const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management","revenue-target":"Revenue Target",reports:"Reports",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
@@ -6572,7 +6572,7 @@ function App(){
               <div className="nav-section">{SECTIONS[sec]}</div>
               {visibleNav.filter(n=>n.section===sec).map(item=>(
                 <button key={item.id} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>nav(item.id)} aria-current={page===item.id?"page":undefined}>
-                  <span className="nav-icon">{item.icon}</span>{item.label}
+                  <span className="nav-icon" style={{fontSize:15,filter:page===item.id?"none":"saturate(0.85)"}}>{item.icon}</span>{item.label}
                 </button>
               ))}
             </div>
