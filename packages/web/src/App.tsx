@@ -4066,17 +4066,22 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           const REGISTER_WHT=0.05;
           const discountPct=rate>0?Math.max(0,Math.round((1-rateNet/(rate*(1-REGISTER_WHT)))*10000)/100):0;
           const durNum=(String(duration).match(/(\d+)/)||["","30"])[1];
+          // Compute gross/net from rate+discount (pre-WHT) so the MPO amount
+          // is consistent with manually created MPOs. WHT is applied later by
+          // calcRoTotals on the RO side — it must not be baked into the MPO.
+          const mpoGross=spots*rate;
+          const mpoNet=Math.round(mpoGross*(1-discountPct/100)*100)/100;
           dbRows.push({
             workspace_id:workspaceId,
             client:brand,agency,vendor:"Starlife",
             campaign:`${brand} - ${monthName} ${year}`,
             spots,rate,volume_discount:discountPct,agency_commission:0,
-            amount:total,material_duration:durNum,
+            amount:mpoNet,material_duration:durNum,
             start_date:`${year}-${monthNum}-01`,
             end_date:`${year}-${monthNum}-${String(lastDay).padStart(2,"0")}`,
             status:"completed",channel:"TV",currency:"NGN",
             exec_status:"completed",docs:[],extra_schedule_rows:[],
-            gross:total,net:total,vat:0,total,vat_rate:0,
+            gross:mpoGross,net:mpoNet,vat:0,total:mpoNet,vat_rate:0,
           });
         });
       });
@@ -4086,7 +4091,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
       dbRows.forEach(r=>{
         const yr=(r.start_date||"").slice(0,4);
         if(!sumMap[yr])sumMap[yr]={count:0,spots:0,value:0,months:new Set()};
-        sumMap[yr].count++;sumMap[yr].spots+=r.spots||0;sumMap[yr].value+=r.total||r.amount||0;
+        sumMap[yr].count++;sumMap[yr].spots+=r.spots||0;sumMap[yr].value+=r.amount||0;
         sumMap[yr].months.add((r.start_date||"").slice(0,7));
       });
       const summary=Object.entries(sumMap).sort(([a],[b])=>a.localeCompare(b)).map(([year,d])=>({year,count:d.count,spots:d.spots,value:d.value,months:[...d.months].sort()}));
