@@ -1151,6 +1151,8 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
   const [roClientFilter,setRoClientFilter]=useState("");
   const [roChannelFilter,setRoChannelFilter]=useState("");
   const [roMonthFilters,setRoMonthFilters]=useState<Set<string>>(new Set());const [roMonthPickerOpen,setRoMonthPickerOpen]=useState(false);
+  const [roSelected,setRoSelected]=useState<Set<string>>(new Set());
+  const [roBulkStatus,setRoBulkStatus]=useState("");
   const [showRoForm,setShowRoForm]=useState(false);
   const [editRoId,setEditRoId]=useState(null);
   const [selRo,setSelRo]=useState(null);
@@ -1198,6 +1200,10 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
     addAudit("updated","RO",id,`Changed ${id} status to ${status}`,"update");
     toast(`RO ${id} status changed to ${status}`);
   };
+  const toggleRoSel=(id:string)=>setRoSelected(s=>{const n=new Set(s);n.has(id)?n.delete(id):n.add(id);return n;});
+  const toggleAllRos=()=>setRoSelected(s=>s.size===filteredRos.length&&filteredRos.length>0?new Set():new Set(filteredRos.map(r=>r.id)));
+  const applyRoBulk=()=>{if(!roBulkStatus||!canEdit)return;setRos(p=>p.map(r=>roSelected.has(r.id)?{...r,status:roBulkStatus}:r));addAudit("updated","RO","bulk",`Bulk status → ${roBulkStatus} for ${roSelected.size} ROs`,"update");toast(`${roSelected.size} RO${roSelected.size!==1?"s":""} set to ${roBulkStatus}`);setRoBulkStatus("");setRoSelected(new Set());};
+  const bulkExportRos=()=>{const rows=[["ID","Client","Vendor","Campaign","Channel","Month","Spots","Amt Payable","Status"],...filteredRos.filter(r=>roSelected.has(r.id)).map(r=>{const t=calcRoTotals(r,settings?.whtRate||0);return[r.id,r.client,r.vendor,r.campaign,r.channel,r.campaignMonth||r.start?.slice(0,7)||"",sumRoScheduleSpots(r),t.amountPayable.toFixed(2),r.status];})];const csv=rows.map(r=>r.map(c=>`"${c}"`).join(",")).join("\n");const a=document.createElement("a");a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);a.download="ros-export.csv";a.click();toast("Exported","info");setRoSelected(new Set());};
   // ── Draft resume / delete (declared here so all state is already initialized) ──
   const resumeRoDraft=(draft:any)=>{setRoDraftToLoad(draft);setEditRoId(null);setShowRoForm(true);setDocType("ro");setDraftsMenuOpen(false);};
   const resumeMpoDraft=(draft:any)=>{currentMpoDraftId.current=draft.id;setForm({...EMPO,...draft.form});setEid(null);setErrs({});setShowF(true);setDraftsMenuOpen(false);};
@@ -1600,12 +1606,13 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
             {filteredRos.length===0
               ?<div style={{textAlign:"center",padding:48,color:"var(--text3)"}}>No Release Orders yet — use + Create → RO to get started.</div>
               :<div className="table-wrap sticky-table-wrap"><table>
-                <thead><tr><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Month</th><th>Spots</th><th>Amt Payable</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th><input type="checkbox" checked={roSelected.size===filteredRos.length&&filteredRos.length>0} onChange={toggleAllRos}/></th><th>ID</th><th>Client</th><th>Vendor</th><th>Campaign</th><th>Channel</th><th>Month</th><th>Spots</th><th>Amt Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>{filteredRos.map(r=>{
                   const roTotals=calcRoTotals(r,settings?.whtRate||0);
                   const sym=CURRENCIES[r.currency||"NGN"]?.symbol||"₦";
                   return(
-                    <tr key={r.id} style={{cursor:"pointer"}} onClick={()=>setSelRo(r)}>
+                    <tr key={r.id} style={{cursor:"pointer",background:roSelected.has(r.id)?"var(--brand-light)":""}} onClick={()=>setSelRo(r)}>
+                      <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={roSelected.has(r.id)} onChange={()=>toggleRoSel(r.id)}/></td>
                       <td style={{fontFamily:"monospace",fontSize:12,fontWeight:600,color:"var(--brand)"}}>{r.id}</td>
                       <td>{r.client}</td>
                       <td style={{color:"var(--text2)"}}>{r.vendor}</td>
@@ -1629,6 +1636,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
               </table></div>
             }
           </div>
+          {roSelected.size>0&&(<div className="bulk-bar"><span className="bulk-count">{roSelected.size}</span><span>selected</span><select className="form-input" style={{width:"auto",padding:"3px 8px",fontSize:12,background:"#333",color:"#fff",border:"0.5px solid #555"}} value={roBulkStatus} onChange={e=>setRoBulkStatus(e.target.value)}><option value="">Set status…</option>{RO_STATUS_OPTIONS.map((o:string)=><option key={o} value={o}>{o}</option>)}</select><button className="btn btn-sm btn-primary" onClick={applyRoBulk} disabled={!roBulkStatus}>Apply</button><button className="btn btn-sm" style={{background:"#333",color:"#aaa",border:"0.5px solid #555"}} onClick={bulkExportRos}>Export CSV</button>{canEdit&&<button className="btn btn-sm" style={{background:"#5a1a1a",color:"#f88",border:"0.5px solid #7a2a2a"}} onClick={()=>{if(!confirm(`Delete ${roSelected.size} RO${roSelected.size!==1?"s":""}? This cannot be undone.`))return;setRos(p=>p.filter(r=>!roSelected.has(r.id)));addAudit("deleted","RO","bulk",`Bulk deleted ${roSelected.size} ROs`,"delete");toast(`Deleted ${roSelected.size} RO${roSelected.size!==1?"s":""}`, "error");setRoSelected(new Set());}}>Delete</button>}<button className="btn btn-sm btn-ghost" style={{color:"#aaa",marginLeft:"auto"}} onClick={()=>setRoSelected(new Set())}>✕</button></div>)}
         </>
       )}
     </div>
