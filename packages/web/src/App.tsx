@@ -4021,6 +4021,8 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
   const [trendWindow,setTrendWindow]=useState<string>("");
   const [agencySpendExpanded,setAgencySpendExpanded]=useState(false);
+  const [clientTableExpanded,setClientTableExpanded]=useState(false);
+  const [agencyTableExpanded,setAgencyTableExpanded]=useState(false);
   const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
   const [mbMonth,setMbMonth]=useState(filterSeed.mbMonth||"");const [mbAgency,setMbAgency]=useState(filterSeed.mbAgency||"");
   const [reportPreview,setReportPreview]=useState<any>(null);
@@ -4827,12 +4829,27 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                 {collectionWatch.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No outstanding balances</p>:collectionWatch.map((c:any)=><div key={c.name} style={{display:"flex",justifyContent:"space-between",gap:12,padding:"9px 0",borderBottom:"1px solid var(--border-c)",fontSize:12}}><span style={{fontWeight:700}}>{c.name}</span><span style={{fontWeight:800,color:"#A32D2D"}}>{reportMoney(c.outstanding)}</span></div>)}
               </div>
             </div>
-            <div className="card" style={{padding:0,overflow:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1040}}>
-                <thead><tr>{["Client","MPO Value","RO Value","MPOs","ROs","MPO Spots","RO Spots","Campaigns","Vendors","Agencies","Billed","Paid","Outstanding"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"2px solid var(--border-c)",background:"var(--bg3)",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
-                <tbody>{clientReportRows.length===0?<tr><td colSpan={13} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No client data</td></tr>:clientReportRows.map((c:any,i:number)=><tr key={c.name} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}><td style={{padding:"8px 10px",fontWeight:800}}>{c.name}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#185FA5"}}>{reportMoney(c.mpoValue)}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11"}}>{reportMoney(c.roValue)}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.mpoCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.roCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.mpoSpots}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.roSpots}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.campaigns}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.vendors}</td><td style={{padding:"8px 10px",color:"var(--text2)"}}>{c.agencies||"-"}</td><td style={{padding:"8px 10px"}}>{reportMoney(c.billed)}</td><td style={{padding:"8px 10px",color:"#3B6D11",fontWeight:700}}>{reportMoney(c.paid)}</td><td style={{padding:"8px 10px",color:c.outstanding>0?"#A32D2D":"var(--text2)",fontWeight:800}}>{reportMoney(c.outstanding)}</td></tr>)}</tbody>
-              </table>
-            </div>
+            {(()=>{
+              const PAGE=10;
+              const visibleClients=clientTableExpanded?clientReportRows:clientReportRows.slice(0,PAGE);
+              return(
+                <div className="card" style={{padding:0,overflow:"auto"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:"1px solid var(--border-c)"}}>
+                    <span style={{fontWeight:700,fontSize:13}}>Client Breakdown</span>
+                    <span style={{fontSize:11,color:"var(--text3)"}}>Showing {visibleClients.length} of {clientReportRows.length}</span>
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:1040}}>
+                    <thead><tr>{["Client","MPO Value","RO Value","MPOs","ROs","MPO Spots","RO Spots","Campaigns","Vendors","Agencies","Billed","Paid","Outstanding"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"2px solid var(--border-c)",background:"var(--bg3)",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
+                    <tbody>{clientReportRows.length===0?<tr><td colSpan={13} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No client data</td></tr>:visibleClients.map((c:any,i:number)=><tr key={c.name} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}><td style={{padding:"8px 10px",fontWeight:800}}>{c.name}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#185FA5"}}>{reportMoney(c.mpoValue)}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11"}}>{reportMoney(c.roValue)}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.mpoCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.roCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.mpoSpots}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.roSpots}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.campaigns}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{c.vendors}</td><td style={{padding:"8px 10px",color:"var(--text2)"}}>{c.agencies||"-"}</td><td style={{padding:"8px 10px"}}>{reportMoney(c.billed)}</td><td style={{padding:"8px 10px",color:"#3B6D11",fontWeight:700}}>{reportMoney(c.paid)}</td><td style={{padding:"8px 10px",color:c.outstanding>0?"#A32D2D":"var(--text2)",fontWeight:800}}>{reportMoney(c.outstanding)}</td></tr>)}</tbody>
+                  </table>
+                  {clientReportRows.length>PAGE&&(
+                    <button onClick={()=>setClientTableExpanded(v=>!v)} style={{width:"100%",padding:"9px 0",background:"none",border:"none",borderTop:"1px solid var(--border-c)",cursor:"pointer",fontSize:12,color:"var(--brand)",fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                      {clientTableExpanded?`▲ Show top ${PAGE} clients`:`▼ Show all ${clientReportRows.length} clients`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
@@ -4874,12 +4891,27 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                 {agencyReportRows.length===0&&<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No activity</p>}
               </div>
             </div>
-            <div className="card" style={{padding:0,overflow:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:880}}>
-                <thead><tr>{["Agency","MPO Value","RO Value","MPOs","ROs","Clients","Campaigns","Vendors","Spots","Share"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"2px solid var(--border-c)",background:"var(--bg3)",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
-                <tbody>{agencyReportRows.length===0?<tr><td colSpan={10} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No agency data</td></tr>:agencyReportRows.map((a:any,i:number)=>{const share=totalAgencyMpo>0?Math.round(a.mpoValue/totalAgencyMpo*100):0;return <tr key={a.name} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}><td style={{padding:"8px 10px",fontWeight:800}}>{a.name}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#185FA5"}}>{reportMoney(a.mpoValue)}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11"}}>{reportMoney(a.roValue)}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.mpoCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.roCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.clients}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.campaigns}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.vendors}</td><td style={{padding:"8px 10px",textAlign:"center",fontWeight:700}}>{a.spots}</td><td style={{padding:"8px 10px",fontWeight:800}}>{share}%</td></tr>;})}</tbody>
-              </table>
-            </div>
+            {(()=>{
+              const PAGE=10;
+              const visibleAgencies=agencyTableExpanded?agencyReportRows:agencyReportRows.slice(0,PAGE);
+              return(
+                <div className="card" style={{padding:0,overflow:"auto"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px 8px",borderBottom:"1px solid var(--border-c)"}}>
+                    <span style={{fontWeight:700,fontSize:13}}>Agency Breakdown</span>
+                    <span style={{fontSize:11,color:"var(--text3)"}}>Showing {visibleAgencies.length} of {agencyReportRows.length}</span>
+                  </div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,minWidth:880}}>
+                    <thead><tr>{["Agency","MPO Value","RO Value","MPOs","ROs","Clients","Campaigns","Vendors","Spots","Share"].map(h=><th key={h} style={{padding:"9px 10px",textAlign:"left",fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"2px solid var(--border-c)",background:"var(--bg3)",position:"sticky",top:0}}>{h}</th>)}</tr></thead>
+                    <tbody>{agencyReportRows.length===0?<tr><td colSpan={10} style={{padding:24,textAlign:"center",color:"var(--text3)"}}>No agency data</td></tr>:visibleAgencies.map((a:any,i:number)=>{const share=totalAgencyMpo>0?Math.round(a.mpoValue/totalAgencyMpo*100):0;return <tr key={a.name} style={{background:i%2===0?"var(--bg1)":"var(--bg2)",borderBottom:"1px solid var(--border-c)"}}><td style={{padding:"8px 10px",fontWeight:800}}>{a.name}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#185FA5"}}>{reportMoney(a.mpoValue)}</td><td style={{padding:"8px 10px",fontWeight:700,color:"#3B6D11"}}>{reportMoney(a.roValue)}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.mpoCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.roCount}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.clients}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.campaigns}</td><td style={{padding:"8px 10px",textAlign:"center"}}>{a.vendors}</td><td style={{padding:"8px 10px",textAlign:"center",fontWeight:700}}>{a.spots}</td><td style={{padding:"8px 10px",fontWeight:800}}>{share}%</td></tr>;})}</tbody>
+                  </table>
+                  {agencyReportRows.length>PAGE&&(
+                    <button onClick={()=>setAgencyTableExpanded(v=>!v)} style={{width:"100%",padding:"9px 0",background:"none",border:"none",borderTop:"1px solid var(--border-c)",cursor:"pointer",fontSize:12,color:"var(--brand)",fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                      {agencyTableExpanded?`▲ Show top ${PAGE} agencies`:`▼ Show all ${agencyReportRows.length} agencies`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
