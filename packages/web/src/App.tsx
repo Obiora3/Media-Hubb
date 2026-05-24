@@ -4903,6 +4903,14 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           return{month:m,label:mlbl(m),value:mm.reduce((a:number,mp:any)=>a+getMpoReportValue(mp),0),count:mm.length};
         });
         const allRecStatus=(receivables||[]).map((r:any)=>({...r,status:computeStatus(r)}));
+        // Yearly aggregates (ascending so chart reads left→right)
+        const allDataYears=[...new Set([...(ros||[]).map((ro:any)=>(ro.campaignMonth||ro.start||"").slice(0,4)),...(mpos||[]).map((m:any)=>(m.start||"").slice(0,4))].filter(y=>y&&y>="2020"))].sort();
+        const yearlyData=allDataYears.map(y=>{
+          const yRos=(ros||[]).filter((ro:any)=>(ro.campaignMonth||ro.start||"").startsWith(y));
+          const yMpos=(mpos||[]).filter((mp:any)=>(mp.start||"").startsWith(y));
+          const yRec=allRecStatus.filter((r:any)=>r.due?.startsWith(y));
+          return{year:y,label:y,roValue:yRos.reduce((a:number,ro:any)=>a+roVal(ro),0),roCount:yRos.length,mpoValue:yMpos.reduce((a:number,mp:any)=>a+getMpoReportValue(mp),0),colValue:yRec.reduce((a:number,r:any)=>a+convertAmt(r.paid||0,r.currency||"NGN",dCcy),0)};
+        });
         const colByMonth=trendMonths.map(m=>{
           const rr=allRecStatus.filter((r:any)=>r.due?.slice(0,7)===m);
           return{month:m,label:mlbl(m),value:rr.reduce((a:number,r:any)=>a+convertAmt(r.paid||0,r.currency||"NGN",dCcy),0)};
@@ -4994,6 +5002,45 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                 </div>
               </div>
             </div>
+
+            {/* Yearly trend overview */}
+            {yearlyData.length>0&&(
+              <div className="card">
+                <div className="card-header">
+                  <span className="card-title">Yearly Trend</span>
+                  <span style={{fontSize:11,color:"var(--text3)"}}>Annual totals · click a row to drill into that year</span>
+                </div>
+                <div style={{paddingBottom:8}}>
+                  <BarChart data={yearlyData.map(y=>({label:y.label,value:y.roValue}))} height={170} colors={["#534AB7"]}/>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr>{["Year","ROs","Revenue Booked","MPO Committed","Collections","YOY Revenue"].map(h=>(
+                        <th key={h} style={{padding:"6px 10px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{h}</th>
+                      ))}</tr>
+                    </thead>
+                    <tbody>{yearlyData.map((row,i)=>{
+                      const prevY=yearlyData[i-1];
+                      const yoyY=prevY&&prevY.roValue>0?((row.roValue-prevY.roValue)/prevY.roValue*100):null;
+                      const yoyYPos=yoyY!=null&&yoyY>=0;
+                      const isActive=row.year===trendWindow;
+                      return(
+                        <tr key={row.year} style={{background:isActive?"var(--brand-light)":i%2===0?"transparent":"var(--bg3)",cursor:"pointer",outline:isActive?"2px solid var(--brand)":"none",outlineOffset:-1}}
+                          onClick={()=>setTrendWindow(isActive?"":row.year)}>
+                          <td style={{padding:"7px 10px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{row.year}</td>
+                          <td style={{padding:"7px 10px",color:"var(--text2)",borderBottom:"1px solid var(--border-c)"}}>{row.roCount||"—"}</td>
+                          <td style={{padding:"7px 10px",fontWeight:700,borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{row.roValue>0?fmtK(row.roValue,sym):"—"}</td>
+                          <td style={{padding:"7px 10px",color:"var(--text2)",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{row.mpoValue>0?fmtK(row.mpoValue,sym):"—"}</td>
+                          <td style={{padding:"7px 10px",color:"#3B6D11",borderBottom:"1px solid var(--border-c)",whiteSpace:"nowrap"}}>{row.colValue>0?fmtK(row.colValue,sym):"—"}</td>
+                          <td style={{padding:"7px 10px",borderBottom:"1px solid var(--border-c)"}}>{yoyY!=null?<span style={{fontSize:10,fontWeight:700,color:yoyYPos?"#3B6D11":"#A32D2D",background:yoyYPos?"#EAF3DE":"#FCEBEB",padding:"2px 6px",borderRadius:4,whiteSpace:"nowrap"}}>{yoyYPos?"+":""}{yoyY.toFixed(1)}%</span>:<span style={{color:"var(--text3)"}}>—</span>}</td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {/* Month-by-month table */}
             <div className="card">
