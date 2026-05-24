@@ -4020,6 +4020,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
   const filterSeed=useMemo(()=>readReportMediaBuyFilters(),[]);
   const [tab,setTab]=useState("media-buy");const [from,setFrom]=useState(filterSeed.from||"");const [to,setTo]=useState(filterSeed.to||"");
   const [trendWindow,setTrendWindow]=useState<string>("");
+  const [agencySpendExpanded,setAgencySpendExpanded]=useState(false);
   const [mbClient,setMbClient]=useState(filterSeed.mbClient||"");const [mbMpo,setMbMpo]=useState(filterSeed.mbMpo||"");
   const [mbMonth,setMbMonth]=useState(filterSeed.mbMonth||"");const [mbAgency,setMbAgency]=useState(filterSeed.mbAgency||"");
   const [reportPreview,setReportPreview]=useState<any>(null);
@@ -4718,32 +4719,48 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
             </div>
 
             {/* Spend by Agency */}
-            <div className="card">
-              <div className="card-header"><span className="card-title">Spend by Agency</span></div>
-              {agencySpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>:(
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <thead><tr>{["Agency","MPO Value","Spots","Share"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}</tr></thead>
-                  <tbody>{agencySpend.map((a:any,i:number)=>{
-                    const share=totalMpoValue>0?Math.round(a.amount/totalMpoValue*100):0;
-                    const colors=["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"];
-                    const col=colors[i%colors.length];
-                    return(
-                      <tr key={a.name}>
-                        <td style={{padding:"7px 8px",fontWeight:500,borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:6,height:6,borderRadius:"50%",background:col,flexShrink:0}}/>{a.name}</div></td>
-                        <td style={{padding:"7px 8px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{fmtK(a.amount,sym)}</td>
-                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",color:"var(--text2)"}}>{a.spots||"—"}</td>
-                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>
-                          <div style={{display:"flex",alignItems:"center",gap:6}}>
-                            <div style={{flex:1,height:5,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${share}%`,height:"100%",background:col,borderRadius:3}}/></div>
-                            <span style={{fontSize:10,color:"var(--text3)",minWidth:28}}>{share}%</span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}</tbody>
-                </table>
-              )}
-            </div>
+            {(()=>{
+              const PAGE=10;
+              const visibleAgency=agencySpendExpanded?agencySpend:agencySpend.slice(0,PAGE);
+              return(
+                <div className="card">
+                  <div className="card-header">
+                    <span className="card-title">Spend by Agency</span>
+                    {agencySpend.length>0&&<span style={{fontSize:11,color:"var(--text3)"}}>Showing {visibleAgency.length} of {agencySpend.length}</span>}
+                  </div>
+                  {agencySpend.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:16,fontSize:12}}>No data</p>:(
+                    <>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr>{["Agency","MPO Value","Spots","Share"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".04em",color:"var(--text3)",borderBottom:"1px solid var(--border-c)"}}>{h}</th>)}</tr></thead>
+                        <tbody>{visibleAgency.map((a:any,i:number)=>{
+                          const share=totalMpoValue>0?Math.round(a.amount/totalMpoValue*100):0;
+                          const colors=["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30"];
+                          const col=colors[i%colors.length];
+                          return(
+                            <tr key={a.name}>
+                              <td style={{padding:"7px 8px",fontWeight:500,borderBottom:"1px solid var(--border-c)"}}><div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:6,height:6,borderRadius:"50%",background:col,flexShrink:0}}/>{a.name}</div></td>
+                              <td style={{padding:"7px 8px",fontWeight:700,borderBottom:"1px solid var(--border-c)"}}>{fmtK(a.amount,sym)}</td>
+                              <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",color:"var(--text2)"}}>{a.spots||"—"}</td>
+                              <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <div style={{flex:1,height:5,background:"var(--bg3)",borderRadius:3}}><div style={{width:`${share}%`,height:"100%",background:col,borderRadius:3}}/></div>
+                                  <span style={{fontSize:10,color:"var(--text3)",minWidth:28}}>{share}%</span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}</tbody>
+                      </table>
+                      {agencySpend.length>PAGE&&(
+                        <button onClick={()=>setAgencySpendExpanded(v=>!v)} style={{width:"100%",padding:"9px 0",background:"none",border:"none",borderTop:"1px solid var(--border-c)",cursor:"pointer",fontSize:12,color:"var(--brand)",fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                          <span>{agencySpendExpanded?`▲ Show top ${PAGE}`:`▼ Show all ${agencySpend.length} agencies`}</span>
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Overdue invoices list */}
             {overdueRec.length>0&&(
@@ -4787,8 +4804,10 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
         const collectionWatch=clientReportRows.filter((c:any)=>c.outstanding>0).sort((a:any,b:any)=>b.outstanding-a.outstanding).slice(0,5);
         return(
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:10}}>
-              {clientCards.map((k:any)=><div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:5}}>{k.label}</div><div style={{fontSize:19,fontWeight:800,lineHeight:1.15,color:"var(--text)",overflowWrap:"anywhere"}}>{k.value}</div><div style={{fontSize:10,color:"var(--text3)",marginTop:5}}>{k.sub}</div></div>)}
+            <div style={{position:"sticky",top:0,zIndex:10,background:"var(--bg1)",paddingTop:8,paddingBottom:8,marginBottom:-4}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:10}}>
+                {clientCards.map((k:any)=><div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:5}}>{k.label}</div><div style={{fontSize:19,fontWeight:800,lineHeight:1.15,color:"var(--text)",overflowWrap:"anywhere"}}>{k.value}</div><div style={{fontSize:10,color:"var(--text3)",marginTop:5}}>{k.sub}</div></div>)}
+              </div>
             </div>
             <div className="card">
               <div className="card-header"><span className="card-title">Client Value by Spend</span><span className="badge">{clientReportRows.length}</span></div>
@@ -4830,8 +4849,10 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
         ];
         return(
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:10}}>
-              {agencyCards.map((k:any)=><div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:5}}>{k.label}</div><div style={{fontSize:19,fontWeight:800,lineHeight:1.15,color:"var(--text)",overflowWrap:"anywhere"}}>{k.value}</div><div style={{fontSize:10,color:"var(--text3)",marginTop:5}}>{k.sub}</div></div>)}
+            <div style={{position:"sticky",top:0,zIndex:10,background:"var(--bg1)",paddingTop:8,paddingBottom:8,marginBottom:-4}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(165px,1fr))",gap:10}}>
+                {agencyCards.map((k:any)=><div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}><div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",color:"var(--text3)",marginBottom:5}}>{k.label}</div><div style={{fontSize:19,fontWeight:800,lineHeight:1.15,color:"var(--text)",overflowWrap:"anywhere"}}>{k.value}</div><div style={{fontSize:10,color:"var(--text3)",marginTop:5}}>{k.sub}</div></div>)}
+              </div>
             </div>
             <div className="card">
               <div className="card-header"><span className="card-title">Agency Value by Spend</span><span className="badge">{agencyReportRows.length}</span></div>
@@ -4928,33 +4949,35 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
         const periodLabel=trendWindow?`Full year ${trendWindow}`:"Rolling last 12 months";
         return(
           <div style={{display:"flex",flexDirection:"column",gap:16}}>
-            {/* Period filter */}
-            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-              <span style={{fontSize:12,color:"var(--text3)",fontWeight:500}}>Period:</span>
-              <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 10px"}} value={trendWindow} onChange={e=>setTrendWindow(e.target.value)}>
-                <option value="">Last 12 months (rolling)</option>
-                {allYears.map(y=><option key={y} value={y}>{y} (full year)</option>)}
-              </select>
-              {trendWindow&&<span style={{fontSize:11,color:"var(--text3)"}}>vs {prevYear} · YOY</span>}
-              {trendWindow&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setTrendWindow("")}>✕ Reset</button>}
-              <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)"}}>{periodLabel}</span>
-            </div>
-
-            {/* KPI row */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}}>
-              {([
-                {label:`${trendWindow||"12-Month"} Revenue`,val:fmtK(total,sym),sub:"net RO value after WHT",color:"#534AB7"},
-                {label:"Best Month",val:best.label,sub:fmtK(best.value,sym),color:"#3B6D11"},
-                {label:"Avg Monthly",val:fmtK(avg,sym),sub:"net RO per month",color:"#185FA5"},
-                {label:"MoM Growth",val:`${momPos?"+":""}${mom.toFixed(1)}%`,sub:`${prev.label} → ${last.label}`,color:momPos?"#3B6D11":"#A32D2D"},
-                {label:"YOY Growth",val:yoyPct!=null?`${yoyPos?"+":""}${yoyPct.toFixed(1)}%`:"—",sub:yoyPct!=null?`${trendWindow||"12 mo"} vs prior period`:"Insufficient prior data",color:yoyPct==null?"#999":yoyPos?"#3B6D11":"#A32D2D"},
-              ] as {label:string;val:string;sub:string;color:string}[]).map(k=>(
-                <div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}>
-                  <div style={{fontSize:10,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",color:"var(--text3)",marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{k.label}</div>
-                  <div style={{fontSize:20,fontWeight:800,color:"var(--text)",lineHeight:1.2,wordBreak:"break-all"}}>{k.val}</div>
-                  <div style={{fontSize:10,color:"var(--text3)",marginTop:4,lineHeight:1.4}}>{k.sub}</div>
-                </div>
-              ))}
+            {/* Sticky period filter + KPI header */}
+            <div style={{position:"sticky",top:0,zIndex:10,background:"var(--bg1)",paddingTop:8,paddingBottom:8,marginBottom:-4,display:"flex",flexDirection:"column",gap:10}}>
+              {/* Period filter */}
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:"var(--text3)",fontWeight:500}}>Period:</span>
+                <select className="form-input" style={{width:"auto",fontSize:12,padding:"4px 10px"}} value={trendWindow} onChange={e=>setTrendWindow(e.target.value)}>
+                  <option value="">Last 12 months (rolling)</option>
+                  {allYears.map(y=><option key={y} value={y}>{y} (full year)</option>)}
+                </select>
+                {trendWindow&&<span style={{fontSize:11,color:"var(--text3)"}}>vs {prevYear} · YOY</span>}
+                {trendWindow&&<button className="btn btn-sm btn-ghost" style={{fontSize:11}} onClick={()=>setTrendWindow("")}>✕ Reset</button>}
+                <span style={{marginLeft:"auto",fontSize:11,color:"var(--text3)"}}>{periodLabel}</span>
+              </div>
+              {/* KPI row */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:10}}>
+                {([
+                  {label:`${trendWindow||"12-Month"} Revenue`,val:fmtK(total,sym),sub:"net RO value after WHT",color:"#534AB7"},
+                  {label:"Best Month",val:best.label,sub:fmtK(best.value,sym),color:"#3B6D11"},
+                  {label:"Avg Monthly",val:fmtK(avg,sym),sub:"net RO per month",color:"#185FA5"},
+                  {label:"MoM Growth",val:`${momPos?"+":""}${mom.toFixed(1)}%`,sub:`${prev.label} → ${last.label}`,color:momPos?"#3B6D11":"#A32D2D"},
+                  {label:"YOY Growth",val:yoyPct!=null?`${yoyPos?"+":""}${yoyPct.toFixed(1)}%`:"—",sub:yoyPct!=null?`${trendWindow||"12 mo"} vs prior period`:"Insufficient prior data",color:yoyPct==null?"#999":yoyPos?"#3B6D11":"#A32D2D"},
+                ] as {label:string;val:string;sub:string;color:string}[]).map(k=>(
+                  <div key={k.label} className="card" style={{padding:"14px 16px",borderLeft:`4px solid ${k.color}`}}>
+                    <div style={{fontSize:10,fontWeight:600,letterSpacing:".06em",textTransform:"uppercase",color:"var(--text3)",marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{k.label}</div>
+                    <div style={{fontSize:20,fontWeight:800,color:"var(--text)",lineHeight:1.2,wordBreak:"break-all"}}>{k.val}</div>
+                    <div style={{fontSize:10,color:"var(--text3)",marginTop:4,lineHeight:1.4}}>{k.sub}</div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Revenue booked trend */}
@@ -6301,7 +6324,6 @@ function App(){
   const [page,setPage]=useState("dashboard");
   const [scheduleFocus,setScheduleFocus]=useState<any>(null);
   const [sOpen,setSOpen]=useState(false);
-  const [aOpen,setAOpen]=useState(false);
   const [notifOpen,setNotifOpen]=useState(false);
   const [searchOpen,setSearchOpen]=useState(false);
   const [agencyOpen,setAgencyOpen]=useState(false);
@@ -6566,24 +6588,11 @@ function App(){
             <button className="btn btn-sm btn-ghost" onClick={()=>setSearchOpen(true)} title="Search ⌘K">⌕</button>
             <button className="btn btn-sm btn-ghost" onClick={()=>setDarkMode(d=>!d)} title="Dark mode">{darkMode?"☀️":"🌙"}</button>
             <div style={{position:"relative"}}>
-              <button className="btn btn-sm" onClick={()=>{setNotifOpen(o=>!o);setAOpen(false);}}>
+              <button className="btn btn-sm" onClick={()=>setNotifOpen(o=>!o)}>
                 🔔
-                {unreadCount>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#534AB7",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{unreadCount}</span>}
+                {(unreadCount>0||alerts.length>0)&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#534AB7",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{unreadCount+alerts.length}</span>}
               </button>
               {notifOpen&&<NotificationPanel notifications={notifications} onRead={readNotif} onReadAll={readAllNotifs} onClose={()=>setNotifOpen(false)}/>}
-            </div>
-            <div style={{position:"relative"}}>
-              <button className="btn btn-sm" onClick={()=>{setAOpen(o=>!o);setNotifOpen(false);}}>
-                ⚠
-                {alerts.length>0&&<span style={{position:"absolute",top:-4,right:-4,width:16,height:16,background:"#D85A30",borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,color:"#fff",fontWeight:700}}>{alerts.length}</span>}
-              </button>
-              {aOpen&&(
-                <div className="alerts-panel">
-                  <div className="alerts-header">Alerts <button className="btn btn-sm btn-ghost" style={{float:"right",marginTop:-2}} onClick={()=>setAOpen(false)}>✕</button></div>
-                  {alerts.length===0?<div style={{padding:"20px 16px",fontSize:12,color:"var(--text3)",textAlign:"center"}}>All clear 🎉</div>
-                  :alerts.map((a,i)=><div key={i} style={{padding:"12px 16px",borderBottom:"var(--border)",fontSize:12,display:"flex",gap:10}}><div style={{width:7,height:7,borderRadius:"50%",background:a.c,flexShrink:0,marginTop:3}}/>{a.t}</div>)}
-                </div>
-              )}
             </div>
           </div>
         </header>
