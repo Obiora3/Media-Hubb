@@ -1493,7 +1493,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
       {docType==="mpo"&&(
         <>
           <div className="stat-grid page-callout-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
-            {[{l:"Total",v:mpos.length},{l:"Active",v:mpos.filter(m=>m.status==="active").length},{l:"Pending",v:mpos.filter(m=>m.status==="pending").length},{l:"Value",v:fmtK(mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
+            {[{l:"Total",v:filtered.length},{l:"Active",v:filtered.filter((m:any)=>m.status==="active").length},{l:"Pending",v:filtered.filter((m:any)=>m.status==="pending").length},{l:"Value",v:fmtK(filtered.reduce((a:number,m:any)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")}].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
           </div>
           <div className="card">
             <div className="card-header">
@@ -1562,10 +1562,10 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
         <>
           <div className="stat-grid page-callout-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
             {[
-              {l:"Total ROs",v:(ros||[]).length},
-              {l:"Confirmed",v:(ros||[]).filter(r=>r.status==="confirmed").length},
-              {l:"Sent",v:(ros||[]).filter(r=>r.status==="sent").length},
-              {l:"Total Value",v:fmtK((ros||[]).reduce((a,r)=>a+convertAmt(calcRoTotals(r,Number(settings?.whtRate??5)).amountPayable,r.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")},
+              {l:"Total ROs",v:filteredRos.length},
+              {l:"Confirmed",v:filteredRos.filter((r:any)=>r.status==="confirmed").length},
+              {l:"Sent",v:filteredRos.filter((r:any)=>r.status==="sent").length},
+              {l:"Total Value",v:fmtK(filteredRos.reduce((a:number,r:any)=>a+convertAmt(calcRoTotals(r,Number(settings?.whtRate??5)).amountPayable,r.currency||"NGN",dCcy),0),CURRENCIES[dCcy]?.symbol||"₦")},
             ].map(s=><div key={s.l} className="stat-card"><div className="stat-label">{s.l}</div><div className="stat-value">{s.v}</div></div>)}
           </div>
           <div className="card">
