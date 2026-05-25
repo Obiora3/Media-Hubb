@@ -663,21 +663,81 @@ function DataVizContent({mpos,receivables,payables}){
   );
 }
 
+/* ═══ DASHBOARD KPI CARD ═══ */
+function DashKpiCard({icon,iconBg,label,value,sub,trend,trendType,period,accent}){
+  return(
+    <div style={{background:"var(--surface)",borderRadius:"var(--radius-lg)",border:"var(--border)",padding:"18px 20px",borderTop:`3px solid ${accent||"#534AB7"}`,boxShadow:"var(--shadow)",display:"flex",flexDirection:"column",minWidth:0}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+        <span style={{fontSize:11,fontWeight:600,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".6px",lineHeight:1.4,paddingRight:6}}>{label}</span>
+        <span style={{fontSize:18,background:iconBg||"#f0effe",padding:"5px 7px",borderRadius:8,lineHeight:1,flexShrink:0}}>{icon}</span>
+      </div>
+      <div style={{fontSize:26,fontWeight:700,color:"var(--text)",lineHeight:1.1,marginBottom:4}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"var(--text3)"}}>{sub}</div>}
+      {trend&&<div style={{fontSize:11,fontWeight:600,marginTop:4,color:trendType==="up"?"#3B6D11":trendType==="down"?"#A32D2D":"#854F0B"}}>{trend}</div>}
+      {period&&<div style={{fontSize:10,color:"var(--text3)",marginTop:8,borderTop:"0.5px solid var(--border-c)",paddingTop:6,display:"flex",alignItems:"center",gap:4}}>📅 {period}</div>}
+    </div>
+  );
+}
+
 /* ═══ DASHBOARD ═══ */
 function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
   const lP=payables.map(p=>({...p,status:computeStatus(p)}));
   const dCcy=settings.defaultCurrency||"NGN";
+  const sym=CURRENCIES[dCcy]?.symbol||"₦";
+
+  /* ── date helpers ── */
+  const now=new Date(todayStr);
+  const curYear=now.getFullYear();
+  const curMonth=now.getMonth();
+  const curMonthStr=String(curMonth+1).padStart(2,"0");
+  const yearStart=`${curYear}-01-01`;
+  const yearEnd=`${curYear}-12-31`;
+  const monthStart=`${curYear}-${curMonthStr}-01`;
+  const daysInMonth=new Date(curYear,curMonth+1,0).getDate();
+  const monthEnd=`${curYear}-${curMonthStr}-${String(daysInMonth).padStart(2,"0")}`;
+  const monthName=now.toLocaleString("en-NG",{month:"long"});
+  const fmtDR=(s,e)=>{if(!s||!e)return"";const a=new Date(s),b=new Date(e);const mo=(d,yr=false)=>d.toLocaleString("en-NG",{month:"short",...(yr?{year:"numeric"}:{})});return a.getFullYear()===b.getFullYear()?`${mo(a)} – ${mo(b,true)}`:`${mo(a,true)} – ${mo(b,true)}`;};
+
+  /* ── all-time metrics ── */
   const totalSpend=mpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
   const outstanding=lR.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
-  const payDue=lP.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
-  const sym=CURRENCIES[dCcy]?.symbol||"₦";
-  const overBudgetCount=(budgets||[]).filter(b=>{
-    const spent=(payables2||[]).filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);
-    return spent>b.budget;
-  }).length;
+  const totalCollected=lR.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
+  const overBudgetCount=(budgets||[]).filter(b=>{const spent=(payables2||[]).filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);return spent>b.budget;}).length;
+  const allStarts=mpos.map(m=>m.start).filter(Boolean).sort();
+  const allEnds=mpos.map(m=>m.end).filter(Boolean).sort();
+  const allTimePeriod=allStarts.length&&allEnds.length?fmtDR(allStarts[0],allEnds[allEnds.length-1]):"";
+
+  /* ── current-year metrics ── */
+  const yearMpos=mpos.filter(m=>m.end>=yearStart&&m.start<=yearEnd);
+  const yearMpoVal=yearMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const yearRec=lR.filter(r=>r.due>=yearStart&&r.due<=yearEnd);
+  const yearRecOut=yearRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+  const yearRecCol=yearRec.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
+  const yearPay=lP.filter(p=>p.due>=yearStart&&p.due<=yearEnd);
+  const yearPayOwed=yearPay.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const yearColPct=yearRec.length&&(yearRecCol+yearRecOut)>0?Math.round(yearRecCol/(yearRecCol+yearRecOut)*100):0;
+
+  /* ── current-month metrics ── */
+  const monthMpos=mpos.filter(m=>m.end>=monthStart&&m.start<=monthEnd);
+  const monthMpoVal=monthMpos.reduce((a,m)=>a+convertAmt(m.amount,m.currency||"NGN",dCcy),0);
+  const monthRec=lR.filter(r=>r.due>=monthStart&&r.due<=monthEnd);
+  const monthRecDue=monthRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+  const monthPay=lP.filter(p=>p.due>=monthStart&&p.due<=monthEnd);
+  const monthPayDue=monthPay.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const monthNewCampaigns=mpos.filter(m=>m.start>=monthStart&&m.start<=monthEnd).length;
+  const monthOverdue=monthRec.filter(r=>r.status==="overdue").length;
+
   const donutData=[{label:"Active",value:mpos.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:mpos.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:mpos.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
   const monthly=[{label:"Jan",value:3200000},{label:"Feb",value:4100000},{label:"Mar",value:3800000},{label:"Apr",value:5200000},{label:"May",value:4700000},{label:"Jun",value:6100000}];
+
+  const SecHdr=({title,sub})=>(
+    <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:12,marginTop:8}}>
+      <span style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{title}</span>
+      {sub&&<span style={{fontSize:11,color:"var(--text3)"}}>{sub}</span>}
+    </div>
+  );
+
   return(
     <div>
       {dCcy!=="NGN"&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--text3)"}}>
@@ -690,25 +750,43 @@ function Dashboard({mpos,receivables,payables,setPage,settings,toast,onOnboard,b
           <button className="btn btn-primary btn-sm" onClick={onOnboard}>Start →</button>
         </div>
       )}
-      <div className="stat-grid">
-        <div className="stat-card"><div className="stat-label">Total MPO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{mpos.length} orders</div><div className="trend trend-up">↑ 14%</div></div>
-        <div className="stat-card"><div className="stat-label">Active Campaigns</div><div className="stat-value">{mpos.filter(m=>m.status==="active").length}</div><div className="stat-sub">{mpos.filter(m=>m.status==="pending").length} pending</div></div>
-        <div className="stat-card"><div className="stat-label">Receivables Due</div><div className="stat-value">{fmtK(outstanding,sym)}</div><div className="stat-sub">{lR.filter(r=>r.status==="overdue").length} overdue</div><div className="trend trend-down">↓ action needed</div></div>
-        <div className="stat-card" style={{borderLeft:overBudgetCount>0?"3px solid #A32D2D":"3px solid #F5C97A"}}>
-          <div className="stat-label">Budget Health</div>
-          <div className="stat-value" style={{color:overBudgetCount>0?"#A32D2D":"#3B6D11"}}>{overBudgetCount>0?`${overBudgetCount} over`:"On track"}</div>
-          <div className="stat-sub">{(budgets||[]).length} budgets tracked</div>
-        </div>
+
+      {/* ── This Month ── */}
+      <SecHdr title={`📅 ${monthName} ${curYear}`} sub="Current month snapshot"/>
+      <div className="kpi-grid">
+        <DashKpiCard icon="🎬" iconBg="#EAF3DE" label="Active Campaigns" value={monthMpos.filter(m=>m.status==="active").length} sub={`${monthNewCampaigns} new this month · ${monthMpos.length} total`} accent="#3B6D11" period={`1 ${monthName} – ${daysInMonth} ${monthName} ${curYear}`}/>
+        <DashKpiCard icon="💼" iconBg="#E6F1FB" label="MPO Value" value={fmtK(monthMpoVal,sym)} sub={`${monthMpos.length} order${monthMpos.length!==1?"s":""} active`} accent="#185FA5" period={`1 ${monthName} – ${daysInMonth} ${monthName} ${curYear}`}/>
+        <DashKpiCard icon="📥" iconBg="#FAEEDA" label="Receivables Due" value={fmtK(monthRecDue,sym)} sub={`${monthRec.length} invoice${monthRec.length!==1?"s":""}${monthOverdue?` · ${monthOverdue} overdue`:""}`} trend={monthOverdue?"↓ action needed":null} trendType="down" accent="#854F0B" period={`Due in ${monthName} ${curYear}`}/>
+        <DashKpiCard icon="📤" iconBg="#EEEDFE" label="Payables Due" value={fmtK(monthPayDue,sym)} sub={`${monthPay.filter(p=>p.status==="overdue").length} overdue · ${monthPay.length} vendor bills`} accent="#534AB7" period={`Due in ${monthName} ${curYear}`}/>
       </div>
+
+      {/* ── This Year ── */}
+      <SecHdr title={`📆 Full Year ${curYear}`} sub="January – December"/>
+      <div className="kpi-grid">
+        <DashKpiCard icon="🎯" iconBg="#EAF3DE" label="Year Campaigns" value={yearMpos.length} sub={`${yearMpos.filter(m=>m.status==="active").length} active · ${yearMpos.filter(m=>m.status==="completed").length} completed`} accent="#3B6D11" period={`Jan – Dec ${curYear}`}/>
+        <DashKpiCard icon="📦" iconBg="#E6F1FB" label="Year MPO Value" value={fmtK(yearMpoVal,sym)} sub={`${yearMpos.filter(m=>m.status==="completed").length} orders completed`} accent="#185FA5" period={`Jan – Dec ${curYear}`}/>
+        <DashKpiCard icon="📊" iconBg="#FAEEDA" label="Year Receivables" value={fmtK(yearRecOut,sym)} sub={`${fmtK(yearRecCol,sym)} collected`} trend={`↑ ${yearColPct}% collection rate`} trendType="up" accent="#854F0B" period={`Jan – Dec ${curYear}`}/>
+        <DashKpiCard icon="🏦" iconBg="#EEEDFE" label="Year Payables" value={fmtK(yearPayOwed,sym)} sub={`${yearPay.length} vendor payment${yearPay.length!==1?"s":""}`} trend={yearPay.filter(p=>p.status==="overdue").length?`↓ ${yearPay.filter(p=>p.status==="overdue").length} overdue`:null} trendType="down" accent="#534AB7" period={`Jan – Dec ${curYear}`}/>
+      </div>
+
+      {/* ── All Time ── */}
+      <SecHdr title="🏢 All Time" sub={allTimePeriod||undefined}/>
+      <div className="kpi-grid" style={{marginBottom:24}}>
+        <DashKpiCard icon="💰" iconBg="#EAF3DE" label="Total MPO Value" value={fmtK(totalSpend,sym)} sub={`${mpos.length} release orders`} trend="↑ 14% vs last year" trendType="up" accent="#3B6D11" period={allTimePeriod||undefined}/>
+        <DashKpiCard icon="📋" iconBg="#E6F1FB" label="Active Campaigns" value={mpos.filter(m=>m.status==="active").length} sub={`${mpos.filter(m=>m.status==="pending").length} pending · ${mpos.filter(m=>m.status==="completed").length} completed`} accent="#185FA5" period={allTimePeriod||undefined}/>
+        <DashKpiCard icon="⚠️" iconBg="#FAEEDA" label="Receivables Due" value={fmtK(outstanding,sym)} sub={`${lR.filter(r=>r.status==="overdue").length} overdue · ${fmtK(totalCollected,sym)} collected`} trend={lR.filter(r=>r.status==="overdue").length?"↓ action needed":null} trendType="down" accent="#854F0B" period={allTimePeriod||undefined}/>
+        <DashKpiCard icon="💡" iconBg={overBudgetCount>0?"#FCEBEB":"#EAF3DE"} label="Budget Health" value={overBudgetCount>0?`${overBudgetCount} over`:"On track"} sub={`${(budgets||[]).length} budget${(budgets||[]).length!==1?"s":""} tracked`} accent={overBudgetCount>0?"#A32D2D":"#3B6D11"} period={allTimePeriod||undefined}/>
+      </div>
+
       <div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Campaign Status</span></div><DonutChart data={donutData} size={148}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Monthly Revenue Trend</span></div><AreaChart data={monthly} height={148} color="#534AB7"/></div>
       </div>
       <div className="card">
         <div className="card-header"><span className="card-title">Active MPOs</span><button className="btn btn-sm btn-primary" onClick={()=>setPage("mpo")}>View all</button></div>
-        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Client</th><th>Campaign</th><th>Value</th><th>CCY</th><th>Status</th></tr></thead>
+        <div style={{overflow:"auto"}}><table><thead><tr><th>ID</th><th>Client</th><th>Campaign</th><th>Duration</th><th>Value</th><th>CCY</th><th>Status</th></tr></thead>
           <tbody>{mpos.filter(m=>m.status!=="completed").slice(0,5).map(m=>(
-            <tr key={m.id}><td style={{fontFamily:"monospace",fontSize:11}}>{m.id}</td><td style={{fontSize:12}}>{m.client}</td><td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td><td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td><td><span className="rate-tag">{m.currency||"NGN"}</span></td><td><SBadge s={m.status}/></td></tr>
+            <tr key={m.id}><td style={{fontFamily:"monospace",fontSize:11}}>{m.id}</td><td style={{fontSize:12}}>{m.client}</td><td style={{fontSize:12,color:"var(--text2)"}}>{m.campaign}</td><td style={{fontSize:11,color:"var(--text3)",whiteSpace:"nowrap"}}>{fmtDR(m.start,m.end)}</td><td style={{fontWeight:500,fontSize:12}}>{fmtCcy(m.amount,m.currency||"NGN",dCcy)}</td><td><span className="rate-tag">{m.currency||"NGN"}</span></td><td><SBadge s={m.status}/></td></tr>
           ))}</tbody>
         </table></div>
       </div>
