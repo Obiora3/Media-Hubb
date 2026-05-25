@@ -734,6 +734,22 @@ const DEFAULT_SETTINGS={
   revYear:new Date().getFullYear(),
 };
 
+/* ═══ DASHBOARD KPI CARD ═══ */
+function DashKpiCard({icon,iconBg,label,value,sub,trend,trendType,period,accent}:{icon:string;iconBg:string;label:string;value:string|number;sub?:string;trend?:string|null;trendType?:"up"|"down"|"flat";period?:string;accent:string}){
+  return(
+    <div style={{background:"var(--surface)",borderRadius:"var(--radius-lg)",border:"var(--border)",padding:"18px 20px",borderTop:`3px solid ${accent}`,boxShadow:"var(--shadow)",display:"flex",flexDirection:"column",minWidth:0}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+        <span style={{fontSize:11,fontWeight:600,color:"var(--text3)",textTransform:"uppercase",letterSpacing:".6px",lineHeight:1.4,paddingRight:6}}>{label}</span>
+        <span style={{fontSize:18,background:iconBg,padding:"5px 7px",borderRadius:8,lineHeight:1,flexShrink:0}}>{icon}</span>
+      </div>
+      <div style={{fontSize:26,fontWeight:700,color:"var(--text)",lineHeight:1.1,marginBottom:4}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"var(--text3)"}}>{sub}</div>}
+      {trend&&<div style={{fontSize:11,fontWeight:600,marginTop:4,color:trendType==="up"?"#3B6D11":trendType==="down"?"#A32D2D":"#854F0B"}}>{trend}</div>}
+      {period&&<div style={{fontSize:10,color:"var(--text3)",marginTop:8,borderTop:"0.5px solid var(--border-c)",paddingTop:6,display:"flex",alignItems:"center",gap:4}}>📅 {period}</div>}
+    </div>
+  );
+}
+
 /* ═══ DASHBOARD ═══ */
 const Dashboard = React.memo(function Dashboard({mpos,ros,clients,receivables,payables,setPage,settings,toast,onOnboard,budgets,payables2}){
   const lR=receivables.map(r=>({...r,status:computeStatus(r)}));
@@ -750,12 +766,48 @@ const Dashboard = React.memo(function Dashboard({mpos,ros,clients,receivables,pa
   const totalSpend=(ros||[]).reduce((a:number,ro:any)=>a+roValue(ro),0);
   const totalRoSpots=(ros||[]).reduce((a:number,ro:any)=>a+sumRoScheduleSpots(ro),0);
   const outstanding=lR.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
-  const payDue=lP.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const totalCollected=lR.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
   const sym=CURRENCIES[dCcy]?.symbol||"₦";
   const overBudgetCount=(budgets||[]).filter(b=>{
     const spent=(payables2||[]).filter(p=>p.mpo===b.mpoId).reduce((a,p)=>a+p.paid,0);
     return spent>b.budget;
   }).length;
+
+  /* ── date helpers ── */
+  const now=new Date(todayStr);
+  const curYear=now.getFullYear();
+  const curMo=now.getMonth();
+  const curMoStr=String(curMo+1).padStart(2,"0");
+  const yearKey=`${curYear}`;
+  const monthKey=`${curYear}-${curMoStr}`;
+  const monthName=now.toLocaleString("en-NG",{month:"long"});
+  const daysInMonth=new Date(curYear,curMo+1,0).getDate();
+  const yearStart=`${curYear}-01-01`;const yearEnd=`${curYear}-12-31`;
+  const monthStart=`${curYear}-${curMoStr}-01`;const monthEnd=`${curYear}-${curMoStr}-${String(daysInMonth).padStart(2,"0")}`;
+  const roMonth=(ro:any)=>ro.campaignMonth||ro.start?.slice(0,7)||"";
+  const roYear=(ro:any)=>roMonth(ro).slice(0,4);
+
+  /* ── year metrics ── */
+  const yearRos=(ros||[]).filter((ro:any)=>roYear(ro)===yearKey);
+  const yearRoVal=yearRos.reduce((a:number,ro:any)=>a+roValue(ro),0);
+  const yearRoSpots=yearRos.reduce((a:number,ro:any)=>a+sumRoScheduleSpots(ro),0);
+  const yearRec=lR.filter(r=>r.due>=yearStart&&r.due<=yearEnd);
+  const yearRecOut=yearRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+  const yearRecCol=yearRec.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
+  const yearPay=lP.filter(p=>p.due>=yearStart&&p.due<=yearEnd);
+  const yearPayOwed=yearPay.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const yearColPct=(yearRecCol+yearRecOut)>0?Math.round(yearRecCol/(yearRecCol+yearRecOut)*100):0;
+
+  /* ── month metrics ── */
+  const monthRos=(ros||[]).filter((ro:any)=>roMonth(ro)===monthKey);
+  const monthRoVal=monthRos.reduce((a:number,ro:any)=>a+roValue(ro),0);
+  const monthRoSpots=monthRos.reduce((a:number,ro:any)=>a+sumRoScheduleSpots(ro),0);
+  const monthRec=lR.filter(r=>r.due>=monthStart&&r.due<=monthEnd);
+  const monthRecDue=monthRec.reduce((a,r)=>a+convertAmt(r.amount-r.paid,r.currency||"NGN",dCcy),0);
+  const monthPay=lP.filter(p=>p.due>=monthStart&&p.due<=monthEnd);
+  const monthPayDue=monthPay.reduce((a,p)=>a+convertAmt(p.amount-p.paid,p.currency||"NGN",dCcy),0);
+  const monthOverdue=monthRec.filter(r=>r.status==="overdue").length;
+
   const donutData=[{label:"Draft",value:(ros||[]).filter((ro:any)=>ro.status==="draft").length,color:"#8A8A8A"},{label:"Sent",value:(ros||[]).filter((ro:any)=>ro.status==="sent").length,color:"#854F0B"},{label:"Confirmed",value:(ros||[]).filter((ro:any)=>ro.status==="confirmed").length,color:"#3B6D11"},{label:"Executed",value:(ros||[]).filter((ro:any)=>ro.status==="executed").length,color:"#185FA5"}].filter(d=>d.value>0);
   const monthly=useMemo(()=>{
     const last12=Array.from({length:12},(_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-(11-i));return d.toISOString().slice(0,7);});
@@ -782,6 +834,14 @@ const Dashboard = React.memo(function Dashboard({mpos,ros,clients,receivables,pa
     return acc;
   },{})).sort((a:any,b:any)=>b.amount-a.amount).slice(0,6),[ros,dCcy,whtRate,clients,mpoById]);
   const recentRos=[...(ros||[])].sort((a:any,b:any)=>String(b.start||b.campaignMonth||"").localeCompare(String(a.start||a.campaignMonth||""))).slice(0,6);
+
+  const SecHdr=({title,sub}:{title:string;sub?:string})=>(
+    <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:12,marginTop:8}}>
+      <span style={{fontSize:13,fontWeight:600,color:"var(--text)"}}>{title}</span>
+      {sub&&<span style={{fontSize:11,color:"var(--text3)"}}>{sub}</span>}
+    </div>
+  );
+
   return(
     <div>
       {dCcy!=="NGN"&&<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,fontSize:12,color:"var(--text3)"}}>
@@ -794,15 +854,32 @@ const Dashboard = React.memo(function Dashboard({mpos,ros,clients,receivables,pa
           <button className="btn btn-primary btn-sm" onClick={onOnboard}>Start →</button>
         </div>
       )}
-      <div className="stat-grid">
-        <div className="stat-card"><div className="stat-label">Total RO Value</div><div className="stat-value">{fmtK(totalSpend,sym)}</div><div className="stat-sub">{(ros||[]).length} release orders · {totalRoSpots} spots</div></div>
-        <div className="stat-card"><div className="stat-label">Confirmed ROs</div><div className="stat-value">{(ros||[]).filter((ro:any)=>ro.status==="confirmed").length}</div><div className="stat-sub">{(ros||[]).filter((ro:any)=>ro.status==="sent").length} sent</div></div>
-        <div className="stat-card"><div className="stat-label">Receivables Due</div><div className="stat-value">{fmtK(outstanding,sym)}</div><div className="stat-sub">{lR.filter(r=>r.status==="overdue").length} overdue</div><div className="trend trend-down">↓ action needed</div></div>
-        <div className="stat-card" style={{borderLeft:overBudgetCount>0?"3px solid #A32D2D":"3px solid #F5C97A"}}>
-          <div className="stat-label">Budget Health</div>
-          <div className="stat-value" style={{color:overBudgetCount>0?"#A32D2D":"#3B6D11"}}>{overBudgetCount>0?`${overBudgetCount} over`:"On track"}</div>
-          <div className="stat-sub">{(budgets||[]).length} budgets tracked</div>
-        </div>
+
+      {/* ── This Month ── */}
+      <SecHdr title={`📅 ${monthName} ${curYear}`} sub="Current month snapshot"/>
+      <div className="kpi-grid">
+        <DashKpiCard icon="📋" iconBg="#EAF3DE" label="ROs This Month" value={monthRos.length} sub={`${monthRos.filter((r:any)=>r.status==="confirmed").length} confirmed · ${monthRoSpots} spots`} accent="#3B6D11" period={`1 ${monthName} – ${daysInMonth} ${monthName} ${curYear}`}/>
+        <DashKpiCard icon="💼" iconBg="#E6F1FB" label="RO Value" value={fmtK(monthRoVal,sym)} sub={`${monthRoSpots} spots booked`} accent="#185FA5" period={`1 ${monthName} – ${daysInMonth} ${monthName} ${curYear}`}/>
+        <DashKpiCard icon="📥" iconBg="#FAEEDA" label="Receivables Due" value={fmtK(monthRecDue,sym)} sub={`${monthRec.length} invoice${monthRec.length!==1?"s":""}${monthOverdue?` · ${monthOverdue} overdue`:""}`} trend={monthOverdue?"↓ action needed":null} trendType="down" accent="#854F0B" period={`Due in ${monthName} ${curYear}`}/>
+        <DashKpiCard icon="📤" iconBg="#EEEDFE" label="Payables Due" value={fmtK(monthPayDue,sym)} sub={`${monthPay.filter((p:any)=>p.status==="overdue").length} overdue · ${monthPay.length} vendor bills`} accent="#534AB7" period={`Due in ${monthName} ${curYear}`}/>
+      </div>
+
+      {/* ── This Year ── */}
+      <SecHdr title={`📆 Full Year ${curYear}`} sub="January – December"/>
+      <div className="kpi-grid">
+        <DashKpiCard icon="🎯" iconBg="#EAF3DE" label="Year ROs" value={yearRos.length} sub={`${yearRos.filter((r:any)=>r.status==="confirmed"||r.status==="executed").length} confirmed · ${yearRoSpots} spots`} accent="#3B6D11" period={`Jan – Dec ${curYear}`}/>
+        <DashKpiCard icon="📦" iconBg="#E6F1FB" label="Year RO Value" value={fmtK(yearRoVal,sym)} sub={`${yearRos.filter((r:any)=>r.status==="executed").length} executed`} accent="#185FA5" period={`Jan – Dec ${curYear}`}/>
+        <DashKpiCard icon="📊" iconBg="#FAEEDA" label="Year Receivables" value={fmtK(yearRecOut,sym)} sub={`${fmtK(yearRecCol,sym)} collected`} trend={`↑ ${yearColPct}% collection rate`} trendType="up" accent="#854F0B" period={`Jan – Dec ${curYear}`}/>
+        <DashKpiCard icon="🏦" iconBg="#EEEDFE" label="Year Payables" value={fmtK(yearPayOwed,sym)} sub={`${yearPay.length} vendor payment${yearPay.length!==1?"s":""}`} trend={yearPay.filter((p:any)=>p.status==="overdue").length?`↓ ${yearPay.filter((p:any)=>p.status==="overdue").length} overdue`:null} trendType="down" accent="#534AB7" period={`Jan – Dec ${curYear}`}/>
+      </div>
+
+      {/* ── All Time ── */}
+      <SecHdr title="🏢 All Time"/>
+      <div className="kpi-grid" style={{marginBottom:24}}>
+        <DashKpiCard icon="💰" iconBg="#EAF3DE" label="Total RO Value" value={fmtK(totalSpend,sym)} sub={`${(ros||[]).length} release orders · ${totalRoSpots} spots`} trend="↑ 14% vs last year" trendType="up" accent="#3B6D11"/>
+        <DashKpiCard icon="✅" iconBg="#E6F1FB" label="Confirmed ROs" value={(ros||[]).filter((ro:any)=>ro.status==="confirmed").length} sub={`${(ros||[]).filter((ro:any)=>ro.status==="sent").length} sent · ${(ros||[]).filter((ro:any)=>ro.status==="executed").length} executed`} accent="#185FA5"/>
+        <DashKpiCard icon="⚠️" iconBg="#FAEEDA" label="Receivables Due" value={fmtK(outstanding,sym)} sub={`${lR.filter(r=>r.status==="overdue").length} overdue · ${fmtK(totalCollected,sym)} collected`} trend={lR.filter(r=>r.status==="overdue").length?"↓ action needed":null} trendType="down" accent="#854F0B"/>
+        <DashKpiCard icon="💡" iconBg={overBudgetCount>0?"#FCEBEB":"#EAF3DE"} label="Budget Health" value={overBudgetCount>0?`${overBudgetCount} over`:"On track"} sub={`${(budgets||[]).length} budget${(budgets||[]).length!==1?"s":""} tracked`} accent={overBudgetCount>0?"#A32D2D":"#3B6D11"}/>
       </div>
       <div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">RO Status</span></div><DonutChart data={donutData} size={148}/></div>
