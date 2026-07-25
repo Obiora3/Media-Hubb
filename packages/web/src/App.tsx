@@ -1281,7 +1281,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
           </div>
           <div className="form-grid">
             <FF id="mpo-spots" label="No. of Spots" required error={errs.spots}><input id="mpo-spots" className={`form-input ${errs.spots?"error":""}`} type="number" min="0" placeholder="0" value={form.spots} onChange={e=>setForm(f=>({...f,spots:e.target.value}))}/></FF>
-            <FF id="mpo-rate" label={`Rate per spot (${form.currency||dCcy})`} required error={errs.rate}><input id="mpo-rate" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></FF>
+            <FF id="mpo-rate" label={`Rate per spot (${form.currency||dCcy})`} required error={errs.rate}><input id="mpo-rate" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" step="any" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></FF>
           </div>
           <div className="form-grid">
             <FF id="mpo-disc" label="Volume Discount (%)"><input id="mpo-disc" className="form-input" type="number" min="0" max="100" placeholder="0" value={form.discount} onChange={e=>setForm(f=>({...f,discount:e.target.value}))}/></FF>
@@ -1337,7 +1337,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
                   </div>
                   <div className="form-grid">
                     <FF id={`${key}_spots`} label="No. of Spots" required error={errs[`${key}_spots`]}><input id={`${key}_spots`} className={`form-input ${errs[`${key}_spots`]?"error":""}`} type="number" min="0" value={row.spots||""} onChange={e=>updateMpoScheduleRow(row.id,"spots",e.target.value)}/></FF>
-                    <FF id={`${key}_rate`} label={`Rate per spot (${form.currency||dCcy})`} required error={errs[`${key}_rate`]}><input id={`${key}_rate`} className={`form-input ${errs[`${key}_rate`]?"error":""}`} type="number" min="0" value={row.rate||""} onChange={e=>updateMpoScheduleRow(row.id,"rate",e.target.value)}/></FF>
+                    <FF id={`${key}_rate`} label={`Rate per spot (${form.currency||dCcy})`} required error={errs[`${key}_rate`]}><input id={`${key}_rate`} className={`form-input ${errs[`${key}_rate`]?"error":""}`} type="number" min="0" step="any" value={row.rate||""} onChange={e=>updateMpoScheduleRow(row.id,"rate",e.target.value)}/></FF>
                   </div>
                   <div className="form-grid">
                     <FF id={`${key}_discount`} label="Volume Discount (%)"><input id={`${key}_discount`} className="form-input" type="number" min="0" max="100" value={row.discount||""} onChange={e=>updateMpoScheduleRow(row.id,"discount",e.target.value)}/></FF>
@@ -2929,7 +2929,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
               </select>
             </FF>
             <FF id="ro-rate-s2" label={`Rate per Spot (${sym})`} required err={errs.rate}>
-              <input id="ro-rate-s2" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" value={form.rate||""} onChange={e=>applyRateToSchedule(Number(e.target.value)||0)} placeholder="Enter rate"/>
+              <input id="ro-rate-s2" className={`form-input ${errs.rate?"error":""}`} type="number" min="0" step="any" value={form.rate||""} onChange={e=>applyRateToSchedule(e.target.value)} placeholder="Enter rate"/>
             </FF>
           </div>
 
@@ -3053,7 +3053,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
                     </select>
                   </FF>
                   <FF id={`extra-rate-${row.id}`} label={`Rate per Spot (${sym})`}>
-                    <input id={`extra-rate-${row.id}`} className="form-input" type="number" min="0" placeholder="Enter rate" value={row.rate||""} onChange={e=>updateExtraRowField(row.id,"rate",Number(e.target.value)||0)}/>
+                    <input id={`extra-rate-${row.id}`} className="form-input" type="number" min="0" step="any" placeholder="Enter rate" value={row.rate||""} onChange={e=>updateExtraRowField(row.id,"rate",e.target.value)}/>
                   </FF>
                   <FF id={`extra-mattitle-${row.id}`} label="Material Title / Specification" style={{gridColumn:"1/-1"}}>
                     <input id={`extra-mattitle-${row.id}`} className="form-input" placeholder="e.g. Thematic, Product Launch" value={row.materialTitle||""} onChange={e=>updateExtraRowField(row.id,"materialTitle",e.target.value)}/>
