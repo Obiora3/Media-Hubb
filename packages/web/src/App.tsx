@@ -4082,13 +4082,18 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           // Back out the 5% WHT that the register already deducted so that
           // calcRoTotals can apply WHT once and only once.
           const REGISTER_WHT=0.05;
-          const discountPct=rate>0?Math.max(0,Math.round((1-rateNet/(rate*(1-REGISTER_WHT)))*10000)/100):0;
+          // Pre-WHT net-per-spot, undone directly from the register's rateNet —
+          // used as-is for the MPO amount so we don't round the derived
+          // discount % and then re-multiply (that round-trip could drift the
+          // final amount by a few naira vs. the original register figure).
+          const preWhtNetPerSpot=rate>0?rateNet/(1-REGISTER_WHT):0;
+          const discountPct=rate>0?Math.max(0,Math.round((1-preWhtNetPerSpot/rate)*10000)/100):0;
           const durNum=(String(duration).match(/(\d+)/)||["","30"])[1];
           // Compute gross/net from rate+discount (pre-WHT) so the MPO amount
           // is consistent with manually created MPOs. WHT is applied later by
           // calcRoTotals on the RO side — it must not be baked into the MPO.
           const mpoGross=spots*rate;
-          const mpoNet=Math.round(mpoGross*(1-discountPct/100)*100)/100;
+          const mpoNet=Math.round(spots*preWhtNetPerSpot*100)/100;
           dbRows.push({
             workspace_id:workspaceId,
             client:brand,agency,vendor:"Starlife",
@@ -4431,6 +4436,8 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
             const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:2})}`;
             const baseRate=totalSpots>0?totals.gross/totalSpots:readRoNumber(ro.rate,0);
             const payableRate=totalSpots>0?totals.amountPayable/totalSpots:getRoDiscountedRate(baseRate,ro,whtRate);
+            const distinctRoRates=[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>readRoNumber(row.rate,readRoNumber(ro.rate,0))).filter((r:number)=>r>0))];
+            const enteredRoRateLabel=distinctRoRates.length?distinctRoRates.map(r=>displayMoney(r)).join(" / "):displayMoney(readRoNumber(ro.rate,0));
             return(
               <div>
                 <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
@@ -4444,11 +4451,12 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                 {previewRow("Period",`${ro.start||"—"} → ${ro.end||"—"}`)}
                 {previewRow("Schedule Month",campaignMonth(ro.campaignMonth||ro.start))}
                 {previewRow("Total Spots",totalSpots)}
-                {previewRow("Base Rate / Spot",displayMoney(baseRate))}
+                {previewRow("Entered Rate / Spot",enteredRoRateLabel)}
+                {previewRow("Average Rate / Spot",displayMoney(baseRate))}
                 {previewRow("Volume Discount",`${totals.volumeDiscountPct}% (${displayMoney(totals.volumeDiscountAmount)})`)}
                 {previewRow("Agency Commission",`${totals.agencyCommissionPct}% (${displayMoney(totals.agencyCommissionAmount)})`)}
                 {previewRow("WHT Applied",`${totals.whtPct}% (${displayMoney(totals.whtAmount)})`)}
-                {previewRow("Discounted Rate / Spot",displayMoney(payableRate))}
+                {previewRow("Avg. Payable Rate / Spot",displayMoney(payableRate))}
                 {previewRow("Gross Value",displayMoney(totals.gross))}
                 {previewRow("Net After Discounts",displayMoney(totals.netTotal))}
                 {previewRow("Amount Payable",displayMoney(totals.amountPayable))}
@@ -4468,6 +4476,8 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
             const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:2})}`;
             const baseRate=totals.spots>0?totals.gross/totals.spots:readRoNumber(mpo.rate,0);
             const netRate=totals.spots>0?totals.net/totals.spots:0;
+            const distinctMpoRates=[...new Set(rows.map((row:any)=>Number(row.rate)||0).filter((r:number)=>r>0))];
+            const enteredMpoRateLabel=distinctMpoRates.length?distinctMpoRates.map(r=>displayMoney(r)).join(" / "):displayMoney(readRoNumber(mpo.rate,0));
             const discountPcts=[...new Set(rows.map((row:any)=>Number(row.discount)||0))].join(" / ");
             const agencyPcts=[...new Set(rows.map((row:any)=>Number(row.agencyCommission)||0))].join(" / ");
             const materialDurations=[...new Set(rows.map((row:any)=>`${Number(row.materialDuration||30)}s`))].join(" / ");
@@ -4484,11 +4494,12 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                 {previewRow("Period",`${mpo.start||"—"} → ${mpo.end||"—"}`)}
                 {previewRow("Material Duration",materialDurations)}
                 {previewRow("Total Spots",totals.spots)}
-                {previewRow("Base Rate / Spot",displayMoney(baseRate))}
+                {previewRow("Entered Rate / Spot",enteredMpoRateLabel)}
+                {previewRow("Average Rate / Spot",displayMoney(baseRate))}
                 {previewRow("Volume Discount",`${discountPcts||0}% (${displayMoney(totals.discountAmount)})`)}
                 {previewRow("Agency Commission",`${agencyPcts||0}% (${displayMoney(totals.agencyCommissionAmount)})`)}
                 {previewRow("WHT Applied","Not applied to MPO")}
-                {previewRow("Discounted Rate / Spot",displayMoney(netRate))}
+                {previewRow("Avg. Net Rate / Spot",displayMoney(netRate))}
                 {previewRow("Gross Value",displayMoney(totals.gross))}
                 {previewRow("Net After Discounts",displayMoney(totals.net))}
                 {previewRow(`VAT (${mpo.vatRate||taxRate}%)`,displayMoney(totals.vat))}
