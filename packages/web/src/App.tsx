@@ -7,6 +7,9 @@ import { SetPasswordScreen } from "@/components/auth/SetPasswordScreen"
 import { supabase } from "@/lib/supabase"
 
 /* ═══ HELPERS ═══ */
+// App-wide decimal places for money display, kept in sync with settings.decimalPlaces
+// (module-level so every local `fa`/`displayMoney` formatter can read it without prop-drilling).
+let APP_DECIMALS = 2;
 const todayStr = new Date().toISOString().slice(0,10);
 const fmt  = (n, sym="₦") => sym + Number(n).toLocaleString("en-NG");
 const fmtK = (n, sym="₦") => n>=1e6?sym+(n/1e6).toFixed(1)+"M":n>=1e3?sym+(n/1e3).toFixed(0)+"K":fmt(n,sym);
@@ -56,7 +59,7 @@ const fmtCcy = (amount, fromCcy="NGN", toCcy="NGN") => {
   const sym = CURRENCIES[toCcy]?.symbol || "₦";
   if(converted>=1e6) return sym+(converted/1e6).toFixed(2)+"M";
   if(converted>=1e3) return sym+(converted/1e3).toFixed(1)+"K";
-  return sym+converted.toLocaleString("en",{maximumFractionDigits:4});
+  return sym+converted.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS});
 };
 
 /* ═══ SHARED COMPONENTS ═══ */
@@ -673,6 +676,12 @@ function SettingsContent({settings,setSettings,toast,user}){
             {[7,14,21,30,45,60,90].map(d=><option key={d} value={d}>Net {d}</option>)}
           </select>
         </div>
+        <div className="settings-row">
+          <div><div className="settings-label">Decimal Places</div><div className="settings-desc">Number of decimal places shown for rates and money amounts across the app</div></div>
+          <select className="form-input" style={{width:"auto"}} value={settings.decimalPlaces??2} onChange={e=>set("decimalPlaces",Number(e.target.value))}>
+            {[0,1,2,3,4].map(d=><option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="settings-section">
@@ -727,7 +736,7 @@ const DEFAULT_SETTINGS={
   address:"14 Adeyemi Bero Crescent, Wuse 2, Abuja",phone:"+234 812 000 0000",
   regNumber:"RC 1234567",tagline:"Media Agency Platform · Lagos, Nigeria",
   brandColor:"#534AB7",fiscalYearStart:"January",
-  taxRate:7.5,whtRate:5,paymentTerms:30,defaultCurrency:"NGN",
+  taxRate:7.5,whtRate:5,paymentTerms:30,defaultCurrency:"NGN",decimalPlaces:2,
   notifOverdue:true,notifUpcoming:true,notifWorkflow:true,notifAI:false,
   revenueTarget:25000000,collectionTarget:90,campaignTarget:8,newClientsTarget:4,
   revTargets:{} as Record<string,number>,
@@ -990,7 +999,7 @@ function mpoScheduleLabel(mpo:any){
 
 function printMPO(m:any,settings:any){
   const sym=CURRENCIES[m.currency||"NGN"]?.symbol||"₦";
-  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{minimumFractionDigits:2,maximumFractionDigits:4});
+  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{minimumFractionDigits:APP_DECIMALS,maximumFractionDigits:APP_DECIMALS});
   const dateStr=new Date().toLocaleDateString("en-NG",{day:"2-digit",month:"short",year:"numeric"});
   const statusColor=m.status==="active"?"#3B6D11":m.status==="completed"?"#185FA5":"#854F0B";
   const vatRate=m.vatRate||settings?.taxRate||7.5;
@@ -1414,7 +1423,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
                         <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",fontWeight:600}}>{row.timeSlot||"—"}</td>
                         <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{row.programme||"—"}</td>
                         <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{displayRoMaterialDuration(row.materialDuration)}</td>
-                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",textAlign:"right",whiteSpace:"nowrap"}}>{(CURRENCIES[selRo.currency||"NGN"]?.symbol||"₦")+readRoNumber(row.rate,0).toLocaleString("en",{maximumFractionDigits:4})}</td>
+                        <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",textAlign:"right",whiteSpace:"nowrap"}}>{(CURRENCIES[selRo.currency||"NGN"]?.symbol||"₦")+readRoNumber(row.rate,0).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
                         <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)"}}>{row.materialTitle||"—"}</td>
                         <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",textAlign:"center",fontWeight:700}}>{(row.schedule||[]).reduce((a:number,s:any)=>a+Number(s.spots||0),0)}</td>
                         <td style={{padding:"7px 8px",borderBottom:"1px solid var(--border-c)",color:"var(--text2)",whiteSpace:"normal",lineHeight:1.4}}>{formatRoDailySchedule(row)}</td>
@@ -1638,7 +1647,7 @@ const MPOPage = React.memo(function MPOPage({mpos,setMpos,ros,setRos,clients,toa
                       <td><span className="rate-tag">{r.channel}</span></td>
                       <td style={{fontSize:11,color:"var(--text3)"}}>{campaignMonth(r.campaignMonth||r.start)}</td>
                       <td style={{textAlign:"center",color:"var(--text3)"}}>{sumRoScheduleSpots(r)}</td>
-                      <td style={{fontWeight:600}}>{sym}{roTotals.amountPayable.toLocaleString("en",{maximumFractionDigits:4})}</td>
+                      <td style={{fontWeight:600}}>{sym}{roTotals.amountPayable.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
                       <td>{canEdit
                         ?<QuickStatusSelect value={r.status} options={RO_STATUS_OPTIONS} colorMap={RO_STATUS_COLOR} bgMap={RO_STATUS_BG} label={`Change RO ${r.id} status`} onChange={status=>changeRoStatus(r.id,status)}/>
                         :<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:700,background:RO_STATUS_BG[r.status]||"#f0f0f0",color:RO_STATUS_COLOR[r.status]||"#888"}}>{r.status}</span>}
@@ -2021,7 +2030,7 @@ const ClientsPage = React.memo(function ClientsPage({clients,setClients,toast,us
 function printRO(ro, settings={}){
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
-  const fa=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:4});
+  const fa=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS});
   const totals=calcRoTotals(ro);
   const allEntries=getRoScheduleRows(ro)
     .flatMap((row:any)=>(row.schedule||[])
@@ -2051,7 +2060,7 @@ function printROCalendarLegacy(ro, settings={}){
   const DOW_SHORT=["SU","M","T","W","TH","FR","SA"];
   const MONTH_ABBR=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
   const sym=CURRENCIES[ro.currency||"NGN"]?.symbol||"₦";
-  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:4});
+  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS});
   const whtRate=Number(settings.whtRate??5);
   const totals=calcRoTotals(ro,whtRate);
   const statusColor=ro.status==="confirmed"?"#3B6D11":ro.status==="executed"?"#185FA5":ro.status==="sent"?"#854F0B":"#888";
@@ -2696,7 +2705,7 @@ function ROForm({initial,draftInitial,mpos,clients,user,settings,onSave,onClose}
   },[form,step]);
   const DNAMES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const sym=CURRENCIES[form.currency||"NGN"]?.symbol||"₦";
-  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:4});
+  const fa=(n:number)=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS});
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   const applyRateToSchedule=rate=>setForm(f=>({
@@ -3369,7 +3378,7 @@ function printInvoice(inv,settings={}){
   const bal=inv.amount-inv.paid;const sl=bal<=0?"PAID":bal<inv.amount?"PARTIAL":"UNPAID";
   const sc=bal<=0?"#3B6D11":bal<inv.amount?"#854F0B":"#A32D2D";const sb=bal<=0?"#EAF3DE":bal<inv.amount?"#FAEEDA":"#FCEBEB";
   const sym=CURRENCIES[inv.currency||"NGN"]?.symbol||"₦";
-  const fmtAmt=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:4});
+  const fmtAmt=n=>sym+Number(n).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS});
   const taxAmt=bal*(settings.taxRate||7.5)/100;
   const html=`<!DOCTYPE html><html><head><title>Invoice ${inv.id}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui;color:#1a1a1a;padding:48px;max-width:700px;margin:auto;font-size:13px}.hdr{display:flex;justify-content:space-between;margin-bottom:40px}.brand{font-size:22px;font-weight:800;color:#534AB7}.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${sb};color:${sc};margin-top:6px}hr{border:none;border-top:1px solid #eee;margin:24px 0}.parties{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-bottom:32px}table{width:100%;border-collapse:collapse;margin-bottom:28px}th{text-align:left;font-size:11px;color:#999;padding:8px 12px;background:#f8f8f6;border-bottom:1px solid #eee}td{padding:11px 12px;border-bottom:1px solid #f4f4f4}.totals{margin-left:auto;width:280px;border:1px solid #eee;border-radius:8px;overflow:hidden}.trow{display:flex;justify-content:space-between;padding:9px 16px;border-bottom:1px solid #f4f4f4}.trow:last-child{background:#f8f8f6;font-weight:700;font-size:14px;color:${sc}}.footer{margin-top:48px;font-size:11px;color:#bbb;text-align:center;border-top:1px solid #f0f0f0;padding-top:16px}</style></head><body><div class="hdr"><div><div class="brand">${settings.companyName||"MediaHub"}</div><div style="font-size:11px;color:#aaa;margin-top:3px">${settings.tagline||"Media Agency Platform · Lagos, Nigeria"}</div></div><div style="text-align:right"><h1 style="font-size:26px;color:#534AB7;font-weight:800">INVOICE</h1><p style="font-size:12px;color:#666;margin-top:3px"><b>${inv.id}</b></p><p style="font-size:12px;color:#666;margin-top:3px">Due: ${inv.due}</p><div class="badge">${sl}</div></div></div><hr/><div class="parties"><div><div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Bill To</div><div style="font-size:15px;font-weight:700">${inv.client}</div></div><div><div style="font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Issued By</div><div style="font-size:15px;font-weight:700">${settings.companyName||"MediaHub"}</div><div style="font-size:12px;color:#777">${settings.address||"Lagos, Nigeria"}</div></div></div><table><thead><tr><th>Description</th><th>MPO Ref</th><th style="text-align:right">Amount</th></tr></thead><tbody><tr><td>Media placement services</td><td style="font-family:monospace">${inv.mpo}</td><td style="text-align:right;font-weight:600">${fmtAmt(inv.amount)}</td></tr></tbody></table><div class="totals"><div class="trow"><span>Subtotal</span><span>${fmtAmt(inv.amount)}</span></div><div class="trow"><span>VAT (${settings.taxRate||7.5}%)</span><span>${fmtAmt(taxAmt)}</span></div><div class="trow"><span>Received</span><span style="color:#3B6D11">${fmtAmt(inv.paid)}</span></div><div class="trow"><span>${bal>0?"Balance Due":"Fully Paid"}</span><span>${fmtAmt(Math.abs(bal)+taxAmt)}</span></div></div><div class="footer">Payment Terms: Net ${settings.paymentTerms||30} · ${settings.companyEmail||""} · Generated by ${settings.companyName||"MediaHub"}</div></body></html>`;
   const w=window.open("","_blank","width=780,height=920");w.document.write(html);w.document.close();w.onload=()=>w.print();
@@ -3716,7 +3725,7 @@ const RevenueTargetPage = React.memo(function RevenueTargetPage({mpos,ros=[],set
   const saveTarget=(name:string,amt:number)=>onSaveTarget(name,amt,revYear);
   const deleteTarget=(name:string)=>onDeleteTarget(name,revYear);
 
-  const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:2,maximumFractionDigits:4});
+  const fm=(v:number)=>sym+(Math.abs(v)).toLocaleString("en-NG",{minimumFractionDigits:APP_DECIMALS,maximumFractionDigits:APP_DECIMALS});
   const signedFm=(v:number)=>`${v>=0?"+":"-"}${fm(Math.abs(v))}`;
 
   const exportExcel=async()=>{
@@ -4433,7 +4442,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
             const totals=calcRoTotals(ro,whtRate);
             const ccySym=CURRENCIES[ro.currency||"NGN"]?.symbol||sym;
             const totalSpots=sumRoScheduleSpots(ro);
-            const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:4})}`;
+            const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}`;
             const baseRate=totalSpots>0?totals.gross/totalSpots:readRoNumber(ro.rate,0);
             const payableRate=totalSpots>0?totals.amountPayable/totalSpots:getRoDiscountedRate(baseRate,ro,whtRate);
             const distinctRoRates=[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>readRoNumber(row.rate,readRoNumber(ro.rate,0))).filter((r:number)=>r>0))];
@@ -4473,7 +4482,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
             const rows=getMpoScheduleRows(mpo);
             const totals=calcMpoTotals(rows,mpo.vatRate||taxRate);
             const ccySym=CURRENCIES[mpo.currency||"NGN"]?.symbol||sym;
-            const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:4})}`;
+            const displayMoney=(value:number)=>`${ccySym}${Number(value||0).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}`;
             const baseRate=totals.spots>0?totals.gross/totals.spots:readRoNumber(mpo.rate,0);
             const netRate=totals.spots>0?totals.net/totals.spots:0;
             const distinctMpoRates=[...new Set(rows.map((row:any)=>Number(row.rate)||0).filter((r:number)=>r>0))];
@@ -5219,12 +5228,12 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{ro.mpoId?reportIdLink(shortId(ro.mpoId),()=>openReportPreview("mpo",ro.mpoId)):"—"}</td>
                     <td style={{padding:"7px 10px",fontFamily:"monospace",fontSize:10}}>{reportIdLink(ro.id,()=>openReportPreview("ro",ro.id))}</td>
                     <td style={{padding:"7px 10px",fontSize:11}}>{[...new Set(getRoVisibleScheduleRows(ro).map((row:any)=>displayRoMaterialDuration(row.materialDuration)).filter(Boolean))].join(" / ")||displayRoMaterialDuration(ro.materialDuration||mpo?.materialDuration)}</td>
-                    <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:4})}</td>
-                    <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:4})}</td>
-                    <td style={{padding:"7px 10px"}}>{sym}{roAmtLessVat.toLocaleString("en",{maximumFractionDigits:4})}</td>
-                    <td style={{padding:"7px 10px",fontWeight:600,color:"#3B6D11"}}>{sym}{netAfterWht.toLocaleString("en",{maximumFractionDigits:4})}</td>
+                    <td style={{padding:"7px 10px",fontWeight:600,background:"#fffde7",color:"#856404"}}>{sym}{mpoAmtInclVat.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
+                    <td style={{padding:"7px 10px",fontWeight:600}}>{sym}{roAmtInclVat.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
+                    <td style={{padding:"7px 10px"}}>{sym}{roAmtLessVat.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
+                    <td style={{padding:"7px 10px",fontWeight:600,color:"#3B6D11"}}>{sym}{netAfterWht.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
                     <td style={{padding:"7px 10px",textAlign:"center",fontWeight:700}}>{totalSpots}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500}}>{totalSpots>0?sym+(netAfterWht/totalSpots).toLocaleString("en",{maximumFractionDigits:4}):"—"}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",fontWeight:500}}>{totalSpots>0?sym+(netAfterWht/totalSpots).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS}):"—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -5238,12 +5247,12 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
                   <tfoot>
                     <tr style={{background:"var(--bg3)",fontWeight:700,borderTop:"2px solid var(--border-c)"}}>
                       <td colSpan={7} style={{padding:"8px 10px",fontSize:11,color:"var(--text2)"}}>TOTALS ({mbRows.length} ROs)</td>
-                      <td style={{padding:"8px 10px",background:"#fffde7",color:"#856404"}}>{sym}{totMpoVat.toLocaleString("en",{maximumFractionDigits:4})}</td>
-                      <td style={{padding:"8px 10px"}}>{sym}{totRoVat.toLocaleString("en",{maximumFractionDigits:4})}</td>
-                      <td style={{padding:"8px 10px"}}>{sym}{totRoLessVat.toLocaleString("en",{maximumFractionDigits:4})}</td>
-                      <td style={{padding:"8px 10px",color:"#3B6D11"}}>{sym}{totNet.toLocaleString("en",{maximumFractionDigits:4})}</td>
+                      <td style={{padding:"8px 10px",background:"#fffde7",color:"#856404"}}>{sym}{totMpoVat.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
+                      <td style={{padding:"8px 10px"}}>{sym}{totRoVat.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
+                      <td style={{padding:"8px 10px"}}>{sym}{totRoLessVat.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
+                      <td style={{padding:"8px 10px",color:"#3B6D11"}}>{sym}{totNet.toLocaleString("en",{maximumFractionDigits:APP_DECIMALS})}</td>
                       <td style={{padding:"8px 10px",textAlign:"center"}}>{totSpots}</td>
-                      <td style={{padding:"8px 10px",textAlign:"right"}}>{totSpots>0?sym+(totNet/totSpots).toLocaleString("en",{maximumFractionDigits:4}):"—"}</td>
+                      <td style={{padding:"8px 10px",textAlign:"right"}}>{totSpots>0?sym+(totNet/totSpots).toLocaleString("en",{maximumFractionDigits:APP_DECIMALS}):"—"}</td>
                     </tr>
                   </tfoot>
                 );
@@ -6364,6 +6373,11 @@ function App(){
   const [darkMode,  setDarkMode]  = useState(()=>{ try{ return JSON.parse(localStorage.getItem("mh_dark")||"false"); }catch{ return false; } });
   const [settings,  setSettings]  = useState(()=>{ try{ return JSON.parse(localStorage.getItem("mh_settings")||"null")||DEFAULT_SETTINGS; }catch{ return DEFAULT_SETTINGS; } });
   const [comments,  setComments]  = useState({});
+
+  // Keep the module-level decimal-places formatter in sync *before* children render
+  // this pass (a useEffect would only apply on the render after next, leaving stale
+  // decimals visible until some unrelated re-render happened to fire).
+  APP_DECIMALS=Math.max(0,Math.min(4,Number(settings?.decimalPlaces??2)));
 
   // Persist dark mode and settings locally
   useEffect(()=>{ localStorage.setItem("mh_dark",JSON.stringify(darkMode)); },[darkMode]);
