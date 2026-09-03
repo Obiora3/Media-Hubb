@@ -554,14 +554,26 @@ function ProfileModal({user,onClose,toast}){
   );
 }
 
-const SettingsPage = React.memo(function SettingsPage({settings,setSettings,user,toast}){
-  return <RoleGuard user={user} require="settings"><SettingsContent settings={settings} setSettings={setSettings} toast={toast} user={user}/></RoleGuard>;
+const SettingsPage = React.memo(function SettingsPage({settings,setSettings,user,toast,auditLog}){
+  const hasAccess=user?.permissions?.includes("settings")||user?.permissions?.includes("audit")||user?.permissions?.includes("users");
+  if(!hasAccess) return <div className="role-lock">🔒 Your role ({user.role}) does not have access to this section.</div>;
+  return <SettingsContent settings={settings} setSettings={setSettings} toast={toast} user={user} auditLog={auditLog}/>;
 });
-function SettingsContent({settings,setSettings,toast,user}){
+function SettingsContent({settings,setSettings,toast,user,auditLog}){
   const set=(k,v)=>setSettings(s=>({...s,[k]:v}));
   const [saving,setSaving]=useState(false);
   const [inviteCode,setInviteCode]=useState<string|null>(null);
   const [regenLoading,setRegenLoading]=useState(false);
+
+  const canGeneral=user?.permissions?.includes("settings");
+  const canAudit=user?.permissions?.includes("audit");
+  const canUsers=user?.permissions?.includes("users");
+  const TABS=[
+    canGeneral&&{id:"general",label:"General"},
+    canAudit&&{id:"audit",label:"Audit Log"},
+    canUsers&&{id:"users",label:"Users"},
+  ].filter(Boolean) as {id:string;label:string}[];
+  const [tab,setTab]=useState(TABS[0]?.id||"general");
 
   useEffect(()=>{
     if(!user?.workspace_id) return;
@@ -593,7 +605,14 @@ function SettingsContent({settings,setSettings,toast,user}){
   const BRAND_COLORS=["#534AB7","#185FA5","#3B6D11","#A32D2D","#854F0B","#1a1a1a","#D85A30","#0E7C7B"];
   const FISCAL_MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
   return(
-    <div style={{maxWidth:680}}>
+    <div>
+      {TABS.length>1&&(
+        <div className="tabs" style={{marginBottom:16}}>
+          {TABS.map(t=><button key={t.id} className={`tab ${tab===t.id?"active":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>)}
+        </div>
+      )}
+      {tab==="general"&&canGeneral&&(
+      <div style={{maxWidth:680}}>
       <div className="settings-section">
         <div className="settings-section-title">Company Profile</div>
         <div className="form-grid">
@@ -727,6 +746,10 @@ function SettingsContent({settings,setSettings,toast,user}){
         <button className="btn btn-ghost" onClick={()=>{if(confirm("Reset all settings to defaults?")){setSettings(DEFAULT_SETTINGS);toast("Settings reset — click Save to persist","info");}}}>Reset Defaults</button>
       </div>
       <div style={{fontSize:11,color:"var(--text3)",marginTop:8}}>Settings are saved to your workspace and shared with all team members.</div>
+      </div>
+      )}
+      {tab==="audit"&&canAudit&&<AuditContent auditLog={auditLog}/>}
+      {tab==="users"&&canUsers&&<UsersContent currentUser={user} toast={toast}/>}
     </div>
   );
 }
@@ -5295,7 +5318,6 @@ function RemContent({receivables,payables,mpos,toast}){
 }
 
 /* ═══ AUDIT ═══ */
-const AuditPage = React.memo(function AuditPage({auditLog,user}){return <RoleGuard user={user} require="audit"><AuditContent auditLog={auditLog}/></RoleGuard>;});
 function AuditContent({auditLog}){
   const [filter,setFilter]=useState("all");
   const tags=["all","create","workflow","payment","reminder","delete","update"];
@@ -5329,7 +5351,6 @@ const ROLE_PERMISSIONS={
   client:  ["dashboard","revenue-target"],
 };
 
-const UsersPage = React.memo(function UsersPage({currentUser,toast}){return <RoleGuard user={currentUser} require="users"><UsersContent currentUser={currentUser} toast={toast}/></RoleGuard>;});
 function UsersContent({currentUser,toast}){
   const rc={admin:"badge-purple",manager:"badge-blue",viewer:"badge-gray",client:"badge-gray"};
   const [profiles,setProfiles]=useState([]);
@@ -6113,13 +6134,11 @@ const NAV=[
   {id:"revenue-target", label:"Revenue Target", icon:"🎯", color:"#A32D2D", section:"finance"},
   {id:"reports",        label:"Reports",        icon:"📈", color:"#534AB7", section:"finance"},
   {id:"reminders",      label:"Reminders",      icon:"🔔", color:"#D85A30", section:"tools"},
-  {id:"audit",          label:"Audit Log",      icon:"🔍", color:"#185FA5", section:"tools"},
-  {id:"users",          label:"Users",          icon:"👥", color:"#854F0B", section:"tools"},
   {id:"settings",       label:"Settings",       icon:"⚙️", color:"#666",    section:"tools"},
 ];
 const SECTIONS={overview:"Overview",operations:"Operations",finance:"Finance",tools:"Tools"};
-const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management","revenue-target":"Revenue Target",reports:"Reports",reminders:"Reminders",audit:"Audit Log",users:"Users",settings:"Settings",};
-const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"audit",label:"Audit",icon:"◫"}];
+const PTITLES={dashboard:"Dashboard",mpo:"Media Scheduling",clients:"Clients & Vendors",calendar:"Campaign Calendar",finance:"Finance",budgets:"Budget Management","revenue-target":"Revenue Target",reports:"Reports",reminders:"Reminders",settings:"Settings",};
+const MOBILE_NAV=[{id:"dashboard",label:"Home",icon:"■"},{id:"mpo",label:"MPOs",icon:"◈"},{id:"budgets",label:"Budgets",icon:"◐"},{id:"finance",label:"Finance",icon:"◎"},{id:"settings",label:"Settings",icon:"⚙"}];
 
 // ── Column transform helpers ─────────────────────────────────────────────────
 // DB snake_case → app camelCase (and back)
@@ -6507,7 +6526,10 @@ function App(){
   const effectivePerms = useMemo(()=>currentUser
     ? [...new Set([...(currentUser.permissions||[]),...(ROLE_PERMISSIONS[currentUser.role]||[])])]
     : [],[currentUser]);
-  const visibleNav = useMemo(()=>NAV.filter(n=>effectivePerms.includes(n.id)),[effectivePerms]);
+  const visibleNav = useMemo(()=>NAV.filter(n=>n.id==="settings"
+    ? (effectivePerms.includes("settings")||effectivePerms.includes("audit")||effectivePerms.includes("users"))
+    : effectivePerms.includes(n.id)
+  ),[effectivePerms]);
   const sections = useMemo(()=>[...new Set(visibleNav.map(n=>n.section))],[visibleNav]);
   const addAudit = useCallback((action,entity,entityId,detail,tag)=>{
     if(!currentUser) return;
@@ -6690,9 +6712,7 @@ function App(){
           {page==="revenue-target"  &&<RevenueTargetPage mpos={mpos} ros={ros} settings={settings} setSettings={setSettings} user={currentUser} revTargetsData={revTargetsTable.data as any[]} onSaveTarget={handleSaveRevTarget} onDeleteTarget={handleDeleteRevTarget}/>}
           {page==="reports"         &&<ReportsPage mpos={mpos} receivables={receivables} payables={payables} ros={ros} clients={clients} settings={settings} setSettings={setSettings} onOpenScheduleItem={openScheduleItem} workspaceId={workspaceId} onRefreshMpos={mposTable.refresh} toast={toast}/>}
           {page==="reminders" &&<RemindersPage receivables={receivables} payables={payables} mpos={mpos} user={currentUser} toast={toast}/>}
-          {page==="audit"     &&<AuditPage auditLog={auditLog} user={currentUser}/>}
-          {page==="users"     &&<UsersPage currentUser={currentUser} toast={toast}/>}
-          {page==="settings"  &&<SettingsPage settings={settings} setSettings={setSettings} user={currentUser} toast={toast}/>}
+          {page==="settings"  &&<SettingsPage settings={settings} setSettings={setSettings} user={currentUser} toast={toast} auditLog={auditLog}/>}
         </div>
       </div>
 
