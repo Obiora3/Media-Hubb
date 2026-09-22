@@ -986,6 +986,29 @@ function getMpoScheduleRows(mpo:any={}){
   return [primary,...extras];
 }
 
+// Each MPO schedule row covers one whole calendar month (row.start/row.end).
+// An MPO's top-level start/end only reflect the primary row's month, so — like
+// ROs — a multi-month MPO (via extraScheduleRows on other months) needs its
+// rows checked individually against a from/to filter rather than the MPO's
+// own start/end fields.
+function mpoScheduleRowInRange(row:any,from:string,to:string){
+  if(!from&&!to) return true;
+  const start=row.start||"";
+  const end=row.end||start;
+  if(from&&end&&end<from) return false;
+  if(to&&start&&start>to) return false;
+  return true;
+}
+
+function getMpoScheduleRowsInRange(mpo:any,from:string,to:string){
+  return getMpoScheduleRows(mpo).filter((row:any)=>mpoScheduleRowInRange(row,from,to));
+}
+
+function mpoHasScheduleActivityInRange(mpo:any,from:string,to:string){
+  if(!from&&!to) return true;
+  return getMpoScheduleRowsInRange(mpo,from,to).some((row:any)=>(Number(row.spots)||0)>0);
+}
+
 function calcMpoRowTotals(row:any,vatRate=0){
   const spots=Number(row.spots)||0;
   const rate=Number(row.rate)||0;
@@ -2424,9 +2447,12 @@ function getMonthBounds(monthKey){
   return {start,end};
 }
 
-function calcRoTotals(ro, whtRate=0){
+function calcRoTotals(ro, whtRate=0, dateFilter:any=null){
   const gross=getRoScheduleRows(ro).reduce((total:number,row:any)=>
-    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>rowTotal+(Number(entry.spots)||0)*readRoNumber(row.rate,readRoNumber(entry.rate,0)),0),0);
+    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>{
+      if(dateFilter&&!dateFilter(String(entry.date||"")))return rowTotal;
+      return rowTotal+(Number(entry.spots)||0)*readRoNumber(row.rate,readRoNumber(entry.rate,0));
+    },0),0);
   const volumeDiscountPct=Number(ro.volumeDiscount)||0;
   const agencyCommissionPct=Number(ro.agencyCommission)||0;
   const volumeDiscountAmount=gross*(volumeDiscountPct/100);
@@ -2660,9 +2686,18 @@ function getRoVisibleScheduleRows(ro:any){
   );
 }
 
-function sumRoScheduleSpots(ro:any){
+function sumRoScheduleSpots(ro:any,dateFilter:any=null){
   return getRoScheduleRows(ro).reduce((total:number,row:any)=>
-    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>rowTotal+readRoNumber(entry.spots,0),0),0);
+    total+(row.schedule||[]).reduce((rowTotal:number,entry:any)=>{
+      if(dateFilter&&!dateFilter(String(entry.date||"")))return rowTotal;
+      return rowTotal+readRoNumber(entry.spots,0);
+    },0),0);
+}
+
+function roHasScheduleActivityInRange(ro:any,dateFilter:any){
+  if(!dateFilter)return true;
+  return getRoScheduleRows(ro).some((row:any)=>(row.schedule||[]).some((entry:any)=>
+    (Number(entry.spots)||0)>0&&dateFilter(String(entry.date||""))));
 }
 
 function countRoActiveScheduleDays(ro:any){
@@ -4243,13 +4278,22 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
       <span style={{fontWeight:600,textAlign:"right"}}>{value||"—"}</span>
     </div>
   );
-  const fM=mpos.filter(m=>(!from||m.start>=from)&&(!to||m.end<=to));
+  // fM/getMpoReportValueInRange respect the from/to period filter — used by the
+  // By Client, By Agency and By Channel tabs. The Summary tab intentionally
+  // shows all-time totals and computes its own unfiltered figures below.
+  const fM=mpos.filter(m=>mpoHasScheduleActivityInRange(m,from,to));
+  const getMpoReportValueInRange=(m:any)=>{
+    const rows=getMpoScheduleRowsInRange(m,from,to);
+    const totals=calcMpoTotals(rows,m.vatRate||taxRate);
+    if(!from&&!to) return convertAmt(totals.total>0?totals.total:(Number(m.amount)||0),m.currency||"NGN",dCcy);
+    return convertAmt(totals.total,m.currency||"NGN",dCcy);
+  };
   const lR=receivables.map(r=>({...r,status:computeStatus(r)})).filter(r=>(!from||r.due>=from)&&(!to||r.due<=to));
   const lP=payables.map(p=>({...p,status:computeStatus(p)})).filter(p=>(!from||p.due>=from)&&(!to||p.due<=to));
   const tB=lR.reduce((a,r)=>a+convertAmt(r.amount,r.currency||"NGN",dCcy),0);
   const tPd=lR.reduce((a,r)=>a+convertAmt(r.paid,r.currency||"NGN",dCcy),0);
   const cPct=tB>0?Math.round(tPd/tB*100):0;
-  const cSpend=Object.values(fM.reduce((acc,m)=>{const k=m.client||"Unassigned";acc[k]=acc[k]||{name:k,amount:0};acc[k].amount+=convertAmt(m.amount,m.currency||"NGN",dCcy);return acc;},{})).sort((a,b)=>b.amount-a.amount);
+  const cSpend=Object.values(fM.reduce((acc,m)=>{const k=m.client||"Unassigned";acc[k]=acc[k]||{name:k,amount:0};acc[k].amount+=getMpoReportValueInRange(m);return acc;},{})).sort((a,b)=>b.amount-a.amount);
   const sDist=[{label:"Active",value:fM.filter(m=>m.status==="active").length,color:"#3B6D11"},{label:"Pending",value:fM.filter(m=>m.status==="pending").length,color:"#854F0B"},{label:"Completed",value:fM.filter(m=>m.status==="completed").length,color:"#185FA5"}].filter(d=>d.value>0);
   const rDonut=[{label:"Collected",value:tPd,color:"#3B6D11"},{label:"Outstanding",value:Math.max(0,tB-tPd),color:"#A32D2D"}].filter(d=>d.value>0);
   const reportColors=["#534AB7","#185FA5","#3B6D11","#854F0B","#D85A30","#2F6F73"];
@@ -4258,27 +4302,32 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
     const registeredAgency=(clients||[]).find((c:any)=>c.type==="Agency"&&(c.brands||[]).some((b:any)=>b.name===clientName));
     return registeredAgency?.name||fallback||agencyName;
   };
-  const reportRos=(ros||[]).filter((ro:any)=>(!from||ro.start>=from)&&(!to||ro.end<=to));
+  const reportDateFilter=useMemo(()=>(from||to)?(date:string)=>(!from||date>=from)&&(!to||date<=to):null,[from,to]);
+  const reportRos=(ros||[]).filter((ro:any)=>roHasScheduleActivityInRange(ro,reportDateFilter));
   const getMpoReportValue=(m:any)=>{
     const totals=calcMpoTotals(getMpoScheduleRows(m),m.vatRate||taxRate);
     return convertAmt(totals.total>0?totals.total:(Number(m.amount)||0),m.currency||"NGN",dCcy);
   };
 
   // ── Media Buy rows (one row per RO) ──────────────────────────────────────────
+  // from/to are day-level and a single RO's schedule can span multiple calendar
+  // months (extra schedule rows each carry their own month), so ro.start/ro.end
+  // — which only reflect the RO's primary month — can't be used to decide
+  // inclusion or to size the totals. Filter/sum by the actual per-day schedule
+  // entries instead, so a Jan-Sep filter only counts the Jan-Sep portion.
   const mbRows=useMemo(()=>{
     return (ros||[]).filter(ro=>{
       if(mbClient&&ro.client!==mbClient) return false;
       if(mbMpo&&ro.mpoId!==mbMpo) return false;
       if(mbMonth&&(ro.campaignMonth||ro.start?.slice(0,7))!==mbMonth) return false;
-      if(from&&ro.start<from) return false;
-      if(to&&ro.end>to) return false;
+      if(!roHasScheduleActivityInRange(ro,reportDateFilter)) return false;
       return true;
     }).map(ro=>{
       const mpo=mpos.find(m=>m.id===ro.mpoId)||null;
       if(mbAgency&&(mpo?.agency||"")!==mbAgency) return null;
-      const totalSpots=sumRoScheduleSpots(ro);
+      const totalSpots=sumRoScheduleSpots(ro,reportDateFilter);
       // Use calcRoTotals for all amounts — consistent with the RO detail view and PDF
-      const rTotals=calcRoTotals(ro,whtRate);
+      const rTotals=calcRoTotals(ro,whtRate,reportDateFilter);
       const {gross,netTotal,amountPayable}=rTotals;
       const vatMult=1+(taxRate/100);
       // Base VAT on netTotal (after vol discount + agency comm) — not raw gross
@@ -4290,7 +4339,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
       const agencyForRo=resolveClientAgency(ro.client,mpo?.agency||agencyName);
       return {ro,mpo,totalSpots,gross,roAmtLessVat,roAmtInclVat,mpoAmtInclVat,netAfterWht:amountPayable,monthLabel,agencyForRo};
     }).filter(Boolean);
-  },[ros,mpos,clients,mbClient,mbMpo,mbMonth,mbAgency,from,to,whtRate,taxRate,agencyName]);
+  },[ros,mpos,clients,mbClient,mbMpo,mbMonth,mbAgency,reportDateFilter,whtRate,taxRate,agencyName]);
 
   const mbClients=[...new Set((ros||[]).map(r=>r.client))].sort();
   const mbMpos=[...new Set((ros||[]).filter(r=>r.mpoId).map(r=>r.mpoId))].sort();
@@ -4303,9 +4352,9 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
     };
     fM.forEach((m:any)=>{
       const row=rowFor(m.client);
-      const schedules=getMpoScheduleRows(m);
+      const schedules=getMpoScheduleRowsInRange(m,from,to);
       const totals=calcMpoTotals(schedules,m.vatRate||taxRate);
-      row.mpoValue+=getMpoReportValue(m);
+      row.mpoValue+=getMpoReportValueInRange(m);
       row.mpoCount+=1;
       row.mpoSpots+=totals.spots;
       if(m.campaign) row.campaigns.add(m.campaign);
@@ -4315,9 +4364,9 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
     reportRos.forEach((ro:any)=>{
       const row=rowFor(ro.client);
       const mpo=mpos.find((m:any)=>m.id===ro.mpoId);
-      row.roValue+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
+      row.roValue+=convertAmt(calcRoTotals(ro,whtRate,reportDateFilter).amountPayable,ro.currency||"NGN",dCcy);
       row.roCount+=1;
-      row.roSpots+=sumRoScheduleSpots(ro);
+      row.roSpots+=sumRoScheduleSpots(ro,reportDateFilter);
       if(ro.campaign) row.campaigns.add(ro.campaign);
       if(ro.vendor) row.vendors.add(ro.vendor);
       row.agencies.add(resolveClientAgency(ro.client,mpo?.agency));
@@ -4339,9 +4388,9 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
     };
     fM.forEach((m:any)=>{
       const row=rowFor(resolveClientAgency(m.client,m.agency));
-      const schedules=getMpoScheduleRows(m);
+      const schedules=getMpoScheduleRowsInRange(m,from,to);
       const totals=calcMpoTotals(schedules,m.vatRate||taxRate);
-      row.mpoValue+=getMpoReportValue(m);
+      row.mpoValue+=getMpoReportValueInRange(m);
       row.mpoCount+=1;
       row.spots+=totals.spots;
       if(m.client) row.clients.add(m.client);
@@ -4351,9 +4400,9 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
     reportRos.forEach((ro:any)=>{
       const mpo=mpos.find((m:any)=>m.id===ro.mpoId);
       const row=rowFor(resolveClientAgency(ro.client,mpo?.agency));
-      row.roValue+=convertAmt(calcRoTotals(ro,whtRate).amountPayable,ro.currency||"NGN",dCcy);
+      row.roValue+=convertAmt(calcRoTotals(ro,whtRate,reportDateFilter).amountPayable,ro.currency||"NGN",dCcy);
       row.roCount+=1;
-      row.spots+=sumRoScheduleSpots(ro);
+      row.spots+=sumRoScheduleSpots(ro,reportDateFilter);
       if(ro.client) row.clients.add(ro.client);
       if(ro.campaign) row.campaigns.add(ro.campaign);
       if(ro.vendor) row.vendors.add(ro.vendor);
@@ -4981,7 +5030,7 @@ const ReportsPage = React.memo(function ReportsPage({mpos,receivables,payables,r
           </div>
         );
       })()}
-      {tab==="by-channel"&&(()=>{const channelRows=Object.values(fM.reduce((acc:any,m:any)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=getMpoReportValue(m);return acc;},{})).sort((a:any,b:any)=>b.value-a.value);return <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div>{channelRows.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No channel data</p>:<BarChart data={channelRows} height={180} colors={reportColors}/>}</div>;})()}
+      {tab==="by-channel"&&(()=>{const channelRows=Object.values(fM.reduce((acc:any,m:any)=>{const ch=m.channel||"Other";if(!acc[ch])acc[ch]={label:ch,value:0};acc[ch].value+=getMpoReportValueInRange(m);return acc;},{})).sort((a:any,b:any)=>b.value-a.value);return <div className="card"><div className="card-header"><span className="card-title">Spend by Channel</span></div>{channelRows.length===0?<p style={{color:"var(--text3)",textAlign:"center",padding:20}}>No channel data</p>:<BarChart data={channelRows} height={180} colors={reportColors}/>}</div>;})()}
       {tab==="cash-flow"&&(<div className="grid2">
         <div className="card"><div className="card-header"><span className="card-title">Rec vs Pay</span></div><BarChart data={[{label:"Billed",values:[tB,0]},{label:"Collected",values:[tPd,0]},{label:"Payable",values:[0,lP.reduce((a,p)=>a+convertAmt(p.amount,p.currency||"NGN",dCcy),0)]},{label:"Settled",values:[0,lP.reduce((a,p)=>a+convertAmt(p.paid,p.currency||"NGN",dCcy),0)]}]} height={175} colors={["#534AB7","#D85A30"]}/></div>
         <div className="card"><div className="card-header"><span className="card-title">Net Position ({sym})</span></div>
